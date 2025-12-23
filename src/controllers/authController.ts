@@ -1,44 +1,44 @@
 import { Request, Response } from 'express';
 import { User } from '../models/User.js';
 import jwt from 'jsonwebtoken';
+import { sendSuccess, sendError } from '../utils/response.js';
+import AppError from '../utils/AppError.js';
 
 export const sendOtp = async (req: Request, res: Response) => {
     try {
+        console.log('reached');
         const { phone } = req.body;
-        if (!phone) return res.status(400).json({ error: 'Phone number is required' });
-
-        // Logic to send OTP (Mocked for now)
+        if (!phone) return sendError(res, 'Phone number is required', 'Phone number is required', 400);
         console.log(`Sending OTP to ${phone}: 123456`);
-
-        res.json({ success: true, message: 'OTP sent successfully' });
+        return sendSuccess(res, { sentTo: phone }, 'OTP sent successfullyss', 200);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error, error?.message || 'Failed to send OTP', 500);
     }
 };
 
 export const verifyOtp = async (req: Request, res: Response) => {
     try {
         const { phone, otp } = req.body;
-        if (!phone || !otp) return res.status(400).json({ error: 'Phone and OTP are required' });
+        if (!phone || !otp) return sendError(res, 'Phone and OTP are required', 'Phone and OTP are required', 400);
 
-        // Logic to verify OTP (Mocked: 123456 is valid)
-        if (otp !== '123456') return res.status(401).json({ error: 'Invalid OTP' });
-
+        if (otp !== '123456') return sendError(res, 'Invalid OTP', 'Invalid OTP', 401);
         let user = await User.findOne({ phone });
         if (!user) {
             user = await User.create({ phone });
         }
-
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET || 'supersecret', { expiresIn: '7d' });
-
-        res.json({
+        return sendSuccess(res, {
             token,
             user: {
                 id: user._id,
-                currentStep: user.currentStep
-            }
+                currentStep: user.currentStep,
+            },
         });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        // If this is an operational AppError, pass its info via sendError
+        if (error instanceof AppError) {
+            return sendError(res, error, error.message, error.statusCode || 400);
+        }
+        return sendError(res, error, error?.message || 'Failed to verify OTP', 500);
     }
 };
