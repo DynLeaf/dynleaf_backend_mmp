@@ -1,36 +1,41 @@
 import { Response } from 'express';
 
 export interface ApiResponse<T = any> {
-  success: boolean;
-  data?: T;
-  message?: string;
-  error?: string | Record<string, any> | null;
+  status: boolean;
+  data: T | null;
+  message: string | null;
+  error: string | Record<string, any> | null;
 }
 
-export function sendSuccess<T>(res: Response, data: T, message?: string, status = 200) {
-  const body: ApiResponse<T> = { success: true, data, message };
-  return res.status(status).json(body);
+export function sendSuccess<T>(res: Response, data: T, message: string | null = null, statusCode = 200) {
+  const body: ApiResponse<T> = {
+    status: true,
+    data,
+    message,
+    error: null
+  };
+  return res.status(statusCode).json(body);
 }
 
-export function sendError(res: Response, error: unknown, message?: string, status = 500) {
-  let errorMessage: string | undefined = message;
+export function sendError(res: Response, message: string, error: unknown = null, statusCode = 500) {
   let errorPayload: any = null;
 
   if (error instanceof Error) {
-    errorMessage = errorMessage || error.message;
+    errorPayload = error.message;
   } else if (typeof error === 'string') {
-    errorMessage = errorMessage || error;
+    errorPayload = error;
   } else if (error && typeof error === 'object') {
     errorPayload = error as Record<string, any>;
   }
 
-  const body: ApiResponse = {
-    success: false,
-    message: errorMessage,
-    error: errorPayload || errorMessage || null,
+  const body: ApiResponse<null> = {
+    status: false,
+    data: null,
+    message: message,
+    error: errorPayload || message,
   };
 
-  return res.status(status).json(body);
+  return res.status(statusCode).json(body);
 }
 
 export default {

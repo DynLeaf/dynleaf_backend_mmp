@@ -11,5 +11,5 @@ export default function errorHandler(err: any, req: Request, res: Response, next
   const statusCode = err?.statusCode || 500;
   const message = err?.message || 'Internal Server Error';
 
-  return sendError(res, err, message, statusCode);
+  return sendError(res, message, err, statusCode);
 }

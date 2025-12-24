@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Brand } from '../models/Brand.js';
 import { User } from '../models/User.js';
+import { sendSuccess, sendError } from '../utils/response.js';
 
 import mongoose from 'mongoose';
 
@@ -25,9 +26,9 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
         // Update user state
         await User.findByIdAndUpdate(req.user._id, { currentStep: 'OUTLET' });
 
-        res.status(201).json({ id: brand._id, name: brand.name });
+        return sendSuccess(res, { id: brand._id, name: brand.name }, null, 201);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -36,9 +37,9 @@ export const searchBrands = async (req: Request, res: Response) => {
         const { q } = req.query;
         const query = q ? { name: { $regex: q as string, $options: 'i' } } : {};
         const brands = await Brand.find(query).limit(10);
-        res.json({ data: brands });
+        return sendSuccess(res, brands);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -46,7 +47,7 @@ export const joinBrand = async (req: AuthRequest, res: Response) => {
     try {
         const { brandId } = req.params;
         const brand = await Brand.findById(brandId);
-        if (!brand) return res.status(404).json({ error: 'Brand not found' });
+        if (!brand) return sendError(res, 'Brand not found', null, 404);
 
         // Logic to join brand (could be adding to roles)
         await User.findByIdAndUpdate(req.user._id, {
@@ -54,12 +55,12 @@ export const joinBrand = async (req: AuthRequest, res: Response) => {
             currentStep: 'OUTLET'
         });
 
-        res.json({ id: brand._id, name: brand.name });
+        return sendSuccess(res, { id: brand._id, name: brand.name });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
 export const requestAccess = async (req: AuthRequest, res: Response) => {
-    res.status(201).json({ requestId: 'mock-id', status: 'PENDING', message: 'Access request created' });
+    return sendSuccess(res, { requestId: 'mock-id', status: 'PENDING' }, 'Access request created', 201);
 };

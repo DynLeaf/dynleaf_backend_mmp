@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 
 import authRoutes from './routes/authRoutes.js';
@@ -13,7 +14,11 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5001',
+    credentials: true
+}));
+app.use(cookieParser());
 app.use(express.json());
 
 // Request logger (prints method, url, status and response time)

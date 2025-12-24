@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
+import { sendSuccess, sendError } from '../utils/response.js';
 
 export const updateSocialLinks = async (req: Request, res: Response) => {
     try {
@@ -12,20 +13,20 @@ export const updateSocialLinks = async (req: Request, res: Response) => {
         });
 
         await Outlet.findByIdAndUpdate(outletId, { social_media: socialMap });
-        res.json({ success: true, message: 'Social links updated' });
+        return sendSuccess(res, null, 'Social links updated');
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
 export const getProfileFeed = async (req: Request, res: Response) => {
-    res.json({ posts: [] });
+    return sendSuccess(res, { posts: [] });
 };
 
 export const getProfilePhotos = async (req: Request, res: Response) => {
-    res.json({ photos: [] });
+    return sendSuccess(res, { photos: [] });
 };
 
 export const getProfileReviews = async (req: Request, res: Response) => {
-    res.json({ ratingSummary: { average: 0, count: 0 }, reviews: [] });
+    return sendSuccess(res, { ratingSummary: { average: 0, count: 0 }, reviews: [] });
 };

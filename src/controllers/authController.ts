@@ -6,6 +6,7 @@ import { Session } from "../models/Session.js";
 import * as otpService from "../services/otpService.js";
 import * as tokenService from "../services/tokenService.js";
 import * as sessionService from "../services/sessionService.js";
+import { sendSuccess, sendError } from "../utils/response.js";
 
 interface AuthRequest extends Request {
   user?: any;
@@ -18,32 +19,25 @@ export const sendOtp = async (req: Request, res: Response) => {
     const { phone } = req.body;
 
     if (!phone) {
-      return res.status(400).json({ error: "Phone number is required" });
+      return sendError(res, "Phone number is required", null, 400);
     }
 
     const phoneRegex = /^\+?[1-9]\d{1,14}$/;
     if (!phoneRegex.test(phone)) {
-      return res.status(400).json({ error: "Invalid phone number format" });
+      return sendError(res, "Invalid phone number format", null, 400);
     }
 
     const rateLimit = await otpService.checkRateLimit(phone);
     if (!rateLimit.allowed) {
-      return res.status(429).json({
-        error: "Too many OTP requests",
-        retryAfter: rateLimit.retryAfter,
-      });
+      return sendError(res, "Too many OTP requests", { retryAfter: rateLimit.retryAfter }, 429);
     }
 
     const result = await otpService.sendOTP(phone);
 
-    res.json({
-      success: true,
-      message: "OTP sent successfully",
-      expiresIn: result.expiresIn,
-    });
+    return sendSuccess(res, { expiresIn: result.expiresIn }, "OTP sent successfully");
   } catch (error: any) {
     console.error("Send OTP error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
@@ -53,17 +47,17 @@ export const verifyOtp = async (req: Request, res: Response) => {
     console.log(deviceInfo, "vdg");
 
     if (!phone || !otp) {
-      return res.status(400).json({ error: "Phone and OTP are required" });
+      return sendError(res, "Phone and OTP are required", null, 400);
     }
 
     if (!deviceInfo || !deviceInfo.deviceId) {
-      return res.status(400).json({ error: "Device information is required" });
+      return sendError(res, "Device information is required", null, 400);
     }
 
     const isValid = await otpService.verifyOTP(phone, otp);
 
     if (!isValid) {
-      return res.status(401).json({ error: "Invalid OTP" });
+      return sendError(res, "Invalid OTP", null, 401);
     }
 
     let user = await User.findOne({ phone });
@@ -85,17 +79,11 @@ export const verifyOtp = async (req: Request, res: Response) => {
     }
 
     if (user.is_suspended) {
-      return res.status(403).json({
-        error: "Account suspended",
-        reason: user.suspension_reason,
-      });
+      return sendError(res, "Account suspended", { reason: user.suspension_reason }, 403);
     }
 
     if (user.locked_until && user.locked_until > new Date()) {
-      return res.status(403).json({
-        error: "Account temporarily locked",
-        locked_until: user.locked_until,
-      });
+      return sendError(res, "Account temporarily locked", { locked_until: user.locked_until }, 403);
     }
 
     const accessToken = tokenService.generateAccessToken(user, "", undefined);
@@ -148,9 +136,20 @@ export const verifyOtp = async (req: Request, res: Response) => {
       brands.length > 0 &&
       user.currentStep === "DONE";
 
-    res.json({
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax" as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    };
+
+    res.cookie("accessToken", newAccessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000, // 15 mins
+    });
+    res.cookie("refreshToken", newRefreshToken, cookieOptions);
+
+    return sendSuccess(res, {
       user: {
         id: user._id,
         phone: user.phone,
@@ -172,16 +171,16 @@ export const verifyOtp = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Verify OTP error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
 export const refreshToken = async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
-      return res.status(400).json({ error: "Refresh token is required" });
+      return sendError(res, "Refresh token is required", null, 400);
     }
 
     const decoded = tokenService.verifyRefreshToken(refreshToken);
@@ -190,7 +189,7 @@ export const refreshToken = async (req: Request, res: Response) => {
       decoded.sessionId
     );
     if (!isValidSession) {
-      return res.status(401).json({ error: "Invalid or expired session" });
+      return sendError(res, "Invalid or expired session", null, 401);
     }
 
     const isValidToken = await sessionService.verifyRefreshToken(
@@ -198,12 +197,12 @@ export const refreshToken = async (req: Request, res: Response) => {
       refreshToken
     );
     if (!isValidToken) {
-      return res.status(401).json({ error: "Invalid refresh token" });
+      return sendError(res, "Invalid refresh token", null, 401);
     }
 
     const user = await User.findById(decoded.id);
     if (!user || !user.is_active || user.is_suspended) {
-      return res.status(401).json({ error: "User not found or inactive" });
+      return sendError(res, "User not found or inactive", null, 401);
     }
 
     const newAccessToken = tokenService.generateAccessToken(
@@ -219,13 +218,23 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     await sessionService.rotateRefreshToken(decoded.sessionId, newRefreshToken);
 
-    res.json({
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax" as const,
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    };
+
+    res.cookie("accessToken", newAccessToken, {
+      ...cookieOptions,
+      maxAge: 15 * 60 * 1000, // 15 mins
     });
+    res.cookie("refreshToken", newRefreshToken, cookieOptions);
+
+    return sendSuccess(res, null);
   } catch (error: any) {
     console.error("Refresh token error:", error);
-    res.status(401).json({ error: "Invalid or expired refresh token" });
+    return sendError(res, "Invalid or expired refresh token", null, 401);
   }
 };
 
@@ -242,10 +251,12 @@ export const logout = async (req: AuthRequest, res: Response) => {
       await sessionService.revokeSession(req.user.sessionId);
     }
 
-    res.json({ success: true, message: "Logged out successfully" });
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+    return sendSuccess(res, null, "Logged out successfully");
   } catch (error: any) {
     console.error("Logout error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
@@ -254,7 +265,7 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
     const user = await User.findById(req.user.id);
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return sendError(res, "User not found", null, 404);
     }
 
     const brands = await Brand.find({ admin_user_id: user._id });
@@ -265,7 +276,7 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
       brands.length > 0 &&
       user.currentStep === "DONE";
 
-    res.json({
+    return sendSuccess(res, {
       user: {
         id: user._id,
         phone: user.phone,
@@ -296,7 +307,7 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error("Get current user error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
@@ -307,7 +318,7 @@ export const switchRole = async (req: AuthRequest, res: Response) => {
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return sendError(res, "User not found", null, 404);
     }
 
     const hasRole = user.roles.some((r) => {
@@ -318,7 +329,7 @@ export const switchRole = async (req: AuthRequest, res: Response) => {
     });
 
     if (!hasRole) {
-      return res.status(403).json({ error: "You do not have this role" });
+      return sendError(res, "You do not have this role", null, 403);
     }
 
     const activeRole = {
@@ -337,8 +348,14 @@ export const switchRole = async (req: AuthRequest, res: Response) => {
     user.preferred_role = role;
     await user.save();
 
-    res.json({
-      accessToken: newAccessToken,
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax" as const,
+      maxAge: 15 * 60 * 1000, // 15 mins
+    });
+
+    return sendSuccess(res, {
       user: {
         id: user._id,
         activeRole,
@@ -346,7 +363,7 @@ export const switchRole = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error("Switch role error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
@@ -359,10 +376,10 @@ export const getSessions = async (req: AuthRequest, res: Response) => {
       isCurrent: session.id.toString() === req.user.sessionId,
     }));
 
-    res.json({ sessions: sessionsWithCurrent });
+    return sendSuccess(res, { sessions: sessionsWithCurrent });
   } catch (error: any) {
     console.error("Get sessions error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };
 
@@ -372,18 +389,18 @@ export const deleteSession = async (req: AuthRequest, res: Response) => {
 
     const session = await Session.findById(sessionId);
     if (!session) {
-      return res.status(404).json({ error: "Session not found" });
+      return sendError(res, "Session not found", null, 404);
     }
 
     if (session.user_id.toString() !== req.user.id) {
-      return res.status(403).json({ error: "Unauthorized" });
+      return sendError(res, "Unauthorized", null, 403);
     }
 
     await sessionService.revokeSession(sessionId);
 
-    res.json({ success: true, message: "Session deleted successfully" });
+    return sendSuccess(res, null, "Session deleted successfully");
   } catch (error: any) {
     console.error("Delete session error:", error);
-    res.status(500).json({ error: error.message });
+    return sendError(res, error.message);
   }
 };

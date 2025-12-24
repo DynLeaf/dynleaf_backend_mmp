@@ -4,6 +4,7 @@ import { Brand } from '../models/Brand.js';
 import { Compliance } from '../models/Compliance.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { User } from '../models/User.js';
+import { sendSuccess, sendError } from '../utils/response.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -31,9 +32,9 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
 
         await User.findByIdAndUpdate(req.user._id, { currentStep: 'COMPLIANCE' });
 
-        res.status(201).json({ id: outlet._id, brandId: outlet.brand_id });
+        return sendSuccess(res, { id: outlet._id, brandId: outlet.brand_id }, null, 201);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -48,9 +49,9 @@ export const saveCompliance = async (req: Request, res: Response) => {
             { new: true, upsert: true }
         );
 
-        res.json({ success: true, message: 'Compliance saved' });
+        return sendSuccess(res, null, 'Compliance saved');
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -72,9 +73,9 @@ export const updateOperatingHours = async (req: Request, res: Response) => {
         }));
         await OperatingHours.insertMany(hours);
 
-        res.json({ success: true, message: 'Operating hours updated' });
+        return sendSuccess(res, null, 'Operating hours updated');
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -82,11 +83,11 @@ export const getProfileOverview = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
         const outlet = await Outlet.findById(outletId).populate('brand_id');
-        if (!outlet) return res.status(404).json({ error: 'Outlet not found' });
+        if (!outlet) return sendError(res, 'Outlet not found', null, 404);
 
         const brand: any = outlet.brand_id;
 
-        res.json({
+        return sendSuccess(res, {
             outletId: outlet._id,
             name: outlet.name,
             coverImage: outlet.media?.cover_image_url,
@@ -101,7 +102,7 @@ export const getProfileOverview = async (req: Request, res: Response) => {
             socials: [] // Map from outlet.social_media
         });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };
 
@@ -109,11 +110,11 @@ export const getProfileAbout = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
         const outlet = await Outlet.findById(outletId);
-        if (!outlet) return res.status(404).json({ error: 'Outlet not found' });
+        if (!outlet) return sendError(res, 'Outlet not found', null, 404);
 
         const operatingHours = await OperatingHours.find({ outlet_id: outletId });
 
-        res.json({
+        return sendSuccess(res, {
             description: '',
             address: outlet.address,
             operatingHours: {
@@ -129,6 +130,6 @@ export const getProfileAbout = async (req: Request, res: Response) => {
             otherOutlets: []
         });
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        return sendError(res, error.message);
     }
 };

@@ -10,12 +10,17 @@ interface AuthRequest extends Request {
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const authHeader = req.headers.authorization;
-        
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'No token provided' });
+        let token = null;
+
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.split(' ')[1];
+        } else if (req.cookies && req.cookies.accessToken) {
+            token = req.cookies.accessToken;
         }
 
-        const token = authHeader.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
         const decoded = tokenService.verifyAccessToken(token);
 
         const isValidSession = await sessionService.validateSession(decoded.sessionId);
@@ -33,9 +38,9 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         }
 
         if (user.is_suspended) {
-            return res.status(403).json({ 
+            return res.status(403).json({
                 error: 'Account suspended',
-                reason: user.suspension_reason 
+                reason: user.suspension_reason
             });
         }
 
@@ -63,7 +68,7 @@ export const requireRole = (roles: string[]) => {
         }
 
         const hasRole = req.user.roles.some((r: any) => roles.includes(r.role));
-        
+
         if (!hasRole) {
             return res.status(403).json({ error: 'Insufficient permissions' });
         }
@@ -93,7 +98,7 @@ export const requireBrandAccess = async (req: AuthRequest, res: Response, next: 
         }
 
         const brandId = req.params.brandId || req.params.id;
-        
+
         if (!brandId) {
             return res.status(400).json({ error: 'Brand ID is required' });
         }
@@ -121,7 +126,7 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
         }
 
         const outletId = req.params.outletId || req.params.id;
-        
+
         if (!outletId) {
             return res.status(400).json({ error: 'Outlet ID is required' });
         }
