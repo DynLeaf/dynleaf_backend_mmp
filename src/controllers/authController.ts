@@ -148,6 +148,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       maxAge: 15 * 60 * 1000, // 15 mins
     });
     res.cookie("refreshToken", newRefreshToken, cookieOptions);
+    res.cookie("isLoggedIn", "true", { ...cookieOptions, httpOnly: false });
 
     return sendSuccess(res, {
       user: {
@@ -180,7 +181,7 @@ export const refreshToken = async (req: Request, res: Response) => {
     const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
-      return sendError(res, "Refresh token is required", null, 400);
+      return sendError(res, "Refresh token is required", null, 401);
     }
 
     const decoded = tokenService.verifyRefreshToken(refreshToken);
@@ -230,6 +231,7 @@ export const refreshToken = async (req: Request, res: Response) => {
       maxAge: 15 * 60 * 1000, // 15 mins
     });
     res.cookie("refreshToken", newRefreshToken, cookieOptions);
+    res.cookie("isLoggedIn", "true", { ...cookieOptions, httpOnly: false });
 
     return sendSuccess(res, null);
   } catch (error: any) {
@@ -253,6 +255,7 @@ export const logout = async (req: AuthRequest, res: Response) => {
 
     res.clearCookie("accessToken");
     res.clearCookie("refreshToken");
+    res.clearCookie("isLoggedIn");
     return sendSuccess(res, null, "Logged out successfully");
   } catch (error: any) {
     console.error("Logout error:", error);
