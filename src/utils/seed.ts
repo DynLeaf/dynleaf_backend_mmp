@@ -77,13 +77,15 @@ const seed = async () => {
         // Update admin user with brand and outlet roles
         adminUser.roles.push({
             scope: 'brand',
-            role: 'owner',
-            brandId: brand._id as mongoose.Types.ObjectId
+            role: 'restaurant_owner',
+            brandId: brand._id as mongoose.Types.ObjectId,
+            assignedAt: new Date()
         });
         adminUser.roles.push({
             scope: 'outlet',
             role: 'manager',
-            outletId: outlet._id as mongoose.Types.ObjectId
+            outletId: outlet._id as mongoose.Types.ObjectId,
+            assignedAt: new Date()
         });
         await adminUser.save();
         console.log('Updated user roles.');
