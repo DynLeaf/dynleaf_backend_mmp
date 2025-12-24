@@ -14,6 +14,7 @@ interface AuthRequest extends Request {
 export const sendOtp = async (req: Request, res: Response) => {
     try {
         console.log('reached');
+        console.log('reached');
         const { phone } = req.body;
         
         if (!phone) {
