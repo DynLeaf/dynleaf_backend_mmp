@@ -5,6 +5,8 @@ import { Compliance } from '../models/Compliance.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { User } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import * as outletService from '../services/outletService.js';
+import { saveBase64Image } from '../utils/fileUpload.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -12,27 +14,84 @@ interface AuthRequest extends Request {
 
 export const createOutlet = async (req: AuthRequest, res: Response) => {
     try {
-        const { brandId, address, location, name, type, vendorTypes, restaurantType, seatingCapacity, tableCount } = req.body;
+        const { 
+            brandId, 
+            name, 
+            address, 
+            location, 
+            contact,
+            coverImage,
+            restaurantType, 
+            vendorTypes, 
+            seatingCapacity, 
+            tableCount,
+            socialMedia
+        } = req.body;
 
-        const slug = name.toLowerCase().replace(/ /g, '-') + '-' + Math.random().toString(36).substring(2, 7);
+        // Handle cover image upload if base64
+        let coverImageUrl = coverImage;
+        if (coverImage && coverImage.startsWith('data:')) {
+            const uploadResult = await saveBase64Image(coverImage, 'outlets');
+            coverImageUrl = uploadResult.url;
+        }
 
-        const outlet = await Outlet.create({
-            brand_id: brandId,
-            created_by_user_id: req.user._id,
+        const outlet = await outletService.createOutlet(req.user.id, brandId, {
             name,
-            slug,
+            contact,
             address,
             location,
-            vendor_types: vendorTypes,
+            media: {
+                cover_image_url: coverImageUrl
+            },
             restaurant_type: restaurantType,
+            vendor_types: vendorTypes,
             seating_capacity: seatingCapacity,
             table_count: tableCount,
-            status: 'DRAFT'
+            social_media: socialMedia
         });
 
-        await User.findByIdAndUpdate(req.user._id, { currentStep: 'COMPLIANCE' });
+        return sendSuccess(res, { 
+            id: outlet._id, 
+            brandId: outlet.brand_id,
+            name: outlet.name,
+            slug: outlet.slug
+        }, 'Outlet created successfully', 201);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
 
-        return sendSuccess(res, { id: outlet._id, brandId: outlet.brand_id }, null, 201);
+export const getUserOutlets = async (req: AuthRequest, res: Response) => {
+    try {
+        const outlets = await outletService.getUserOutlets(req.user.id);
+        return sendSuccess(res, { outlets });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const updateOutlet = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const updateData = req.body;
+
+        // Handle cover image upload if base64
+        if (updateData.coverImage && updateData.coverImage.startsWith('data:')) {
+            const uploadResult = await saveBase64Image(updateData.coverImage, 'outlets');
+            updateData.media = { cover_image_url: uploadResult.url };
+            delete updateData.coverImage;
+        }
+
+        const outlet = await outletService.updateOutlet(outletId, req.user.id, updateData);
+        
+        if (!outlet) {
+            return sendError(res, 'Outlet not found or unauthorized', null, 404);
+        }
+
+        return sendSuccess(res, { 
+            id: outlet._id, 
+            name: outlet.name
+        }, 'Outlet updated successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }

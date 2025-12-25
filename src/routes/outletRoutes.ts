@@ -1,6 +1,8 @@
 import express from 'express';
 import {
     createOutlet,
+    getUserOutlets,
+    updateOutlet,
     saveCompliance,
     updateOperatingHours,
     getProfileOverview,
@@ -18,6 +20,8 @@ import {
 const router = express.Router();
 
 router.post('/', protect, createOutlet);
+router.get('/my-outlets', protect, getUserOutlets);
+router.put('/:outletId', protect, updateOutlet);
 router.post('/:outletId/compliance', protect, saveCompliance);
 router.put('/:outletId/operating-hours', protect, updateOperatingHours);
 router.put('/:outletId/social-links', protect, updateSocialLinks);

@@ -25,7 +25,7 @@ export interface IUser extends Document {
     suspended_at?: Date;
     suspended_by?: mongoose.Types.ObjectId;
     
-    currentStep: 'BRAND' | 'OUTLET' | 'COMPLIANCE' | 'DETAILS' | 'SOCIAL' | 'MENU' | 'DONE';
+    currentStep: 'BRAND' | 'OUTLET' | 'COMPLIANCE' | 'DETAILS' | 'SOCIAL' | 'MENU' | 'PENDING_APPROVAL' | 'DONE';
     onboarding_completed_at?: Date;
     
     last_login_at?: Date;
@@ -69,7 +69,7 @@ const userSchema = new Schema<IUser>({
     suspended_at: { type: Date },
     suspended_by: { type: Schema.Types.ObjectId, ref: 'User' },
     
-    currentStep: { type: String, enum: ['BRAND', 'OUTLET', 'COMPLIANCE', 'DETAILS', 'SOCIAL', 'MENU', 'DONE'], default: 'BRAND' },
+    currentStep: { type: String, enum: ['BRAND', 'OUTLET', 'COMPLIANCE', 'DETAILS', 'SOCIAL', 'MENU', 'PENDING_APPROVAL', 'DONE'], default: 'BRAND' },
     onboarding_completed_at: { type: Date },
     
     last_login_at: { type: Date },

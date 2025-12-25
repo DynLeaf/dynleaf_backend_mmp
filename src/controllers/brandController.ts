@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { Brand } from '../models/Brand.js';
 import { User } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
-
+import * as brandService from '../services/brandService.js';
+import { saveBase64Image } from '../utils/fileUpload.js';
 import mongoose from 'mongoose';
 
 interface AuthRequest extends Request {
@@ -11,33 +12,108 @@ interface AuthRequest extends Request {
 
 export const createBrand = async (req: AuthRequest, res: Response) => {
     try {
-        const { name, logoUrl, description, operationModel, cuisines, website, email } = req.body;
+        const { name, logo, description, operationModel, cuisines, website, email } = req.body;
 
-        const brand = await Brand.create({
+        // Handle logo upload if base64
+        let logoUrl = logo;
+        if (logo && logo.startsWith('data:')) {
+            const uploadResult = await saveBase64Image(logo, 'brands');
+            logoUrl = uploadResult.url;
+        }
+
+        // Map operation model to operating_modes
+        const operatingModes = {
+            corporate: operationModel === 'corporate' || operationModel === 'hybrid',
+            franchise: operationModel === 'franchise' || operationModel === 'hybrid'
+        };
+
+        const brand = await brandService.createBrand(req.user.id, {
             name,
-            logo_url: logoUrl,
             description,
-            operating_modes: operationModel,
-            cuisines,
-            social_media: { website },
-            admin_user_id: req.user._id
-        } as any) as any;
+            logo_url: logoUrl,
+            cuisines: cuisines || [],
+            operating_modes: operatingModes,
+            social_media: {
+                website,
+                instagram: req.body.instagram
+            }
+        });
 
-        // Update user state
-        await User.findByIdAndUpdate(req.user._id, { currentStep: 'OUTLET' });
-
-        return sendSuccess(res, { id: brand._id, name: brand.name }, null, 201);
+        return sendSuccess(res, { 
+            id: brand._id, 
+            name: brand.name,
+            logo_url: brand.logo_url,
+            slug: brand.slug
+        }, 'Brand created successfully', 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
 };
 
-export const searchBrands = async (req: Request, res: Response) => {
+export const getUserBrands = async (req: AuthRequest, res: Response) => {
+    try {
+        const brands = await brandService.getUserBrands(req.user.id);
+        return sendSuccess(res, { brands });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const searchBrands = async (req: AuthRequest, res: Response) => {
     try {
         const { q } = req.query;
-        const query = q ? { name: { $regex: q as string, $options: 'i' } } : {};
-        const brands = await Brand.find(query).limit(10);
-        return sendSuccess(res, brands);
+        if (!q) {
+            const brands = await brandService.getPublicBrands(req.user?.id);
+            return sendSuccess(res, { brands });
+        }
+        const brands = await brandService.searchBrands(q as string, req.user?.id);
+        return sendSuccess(res, { brands });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const updateBrand = async (req: AuthRequest, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const { name, logo, description, cuisines, website, instagram, operationModel } = req.body;
+
+        // Handle logo upload if base64
+        let logoUrl = logo;
+        if (logo && logo.startsWith('data:')) {
+            const uploadResult = await saveBase64Image(logo, 'brands');
+            logoUrl = uploadResult.url;
+        }
+
+        const updateData: any = {};
+        if (name) updateData.name = name;
+        if (description !== undefined) updateData.description = description;
+        if (logoUrl) updateData.logo_url = logoUrl;
+        if (cuisines) updateData.cuisines = cuisines;
+        if (website || instagram) {
+            updateData.social_media = {
+                website,
+                instagram
+            };
+        }
+        if (operationModel) {
+            updateData.operating_modes = {
+                corporate: operationModel === 'corporate' || operationModel === 'hybrid',
+                franchise: operationModel === 'franchise' || operationModel === 'hybrid'
+            };
+        }
+
+        const brand = await brandService.updateBrand(brandId, req.user.id, updateData);
+        
+        if (!brand) {
+            return sendError(res, 'Brand not found or unauthorized', null, 404);
+        }
+
+        return sendSuccess(res, { 
+            id: brand._id, 
+            name: brand.name,
+            logo_url: brand.logo_url
+        }, 'Brand updated successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }

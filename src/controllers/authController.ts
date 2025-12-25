@@ -279,6 +279,19 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
       brands.length > 0 &&
       user.currentStep === "DONE";
 
+    // Determine onboarding status
+    let onboardingStatus: 'pending_details' | 'pending_approval' | 'approved' | 'rejected' = 'pending_details';
+    if (hasCompletedOnboarding) {
+      // Check if there's an onboarding request
+      const OnboardingRequest = (await import('../models/OnboardingRequest.js')).OnboardingRequest;
+      const onboardingRequest = await OnboardingRequest.findOne({ user_id: user._id }).sort({ created_at: -1 });
+      if (onboardingRequest) {
+        onboardingStatus = onboardingRequest.status;
+      } else if (user.currentStep === 'DONE') {
+        onboardingStatus = 'pending_approval';
+      }
+    }
+
     return sendSuccess(res, {
       user: {
         id: user._id,
@@ -290,6 +303,7 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
         activeRole: req.user.activeRole,
         currentStep: user.currentStep,
         hasCompletedOnboarding,
+        onboardingStatus,
         brands: brands.map((b) => ({
           id: b._id,
           name: b.name,
