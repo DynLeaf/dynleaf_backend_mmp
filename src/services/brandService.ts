@@ -33,6 +33,17 @@ export const createBrand = async (userId: string, brandData: {
         website?: string;
     };
 }): Promise<IBrand> => {
+    // Check if brand with same name already exists for this user
+    const existingUserBrand = await Brand.findOne({ 
+        name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
+        admin_user_id: userId,
+        is_active: true
+    });
+    
+    if (existingUserBrand) {
+        throw new Error(`You already have a brand named "${brandData.name}". Please choose a different name.`);
+    }
+    
     // Generate slug from name
     let slug = brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     

@@ -34,7 +34,7 @@ export interface UploadResult {
 export const saveBase64Image = async (
     base64Data: string,
     folder: 'brands' | 'outlets' | 'temp',
-    originalFilename?: string
+    customName?: string
 ): Promise<UploadResult> => {
     try {
         // Extract base64 data and mime type
@@ -50,14 +50,35 @@ export const saveBase64Image = async (
         // Determine file extension
         const extension = mimeType.split('/')[1] || 'jpg';
         
-        // Generate unique filename
-        const filename = `${uuidv4()}.${extension}`;
+        // Generate filename - use custom name if provided, otherwise use timestamp
+        let filename: string;
+        if (customName) {
+            // Sanitize custom name: lowercase, replace spaces/special chars with hyphens
+            const sanitized = customName
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/(^-|-$)/g, '');
+            const timestamp = Date.now();
+            filename = `${sanitized}-${timestamp}.${extension}`;
+        } else {
+            const timestamp = Date.now();
+            const randomStr = Math.random().toString(36).substring(2, 11);
+            filename = `img_${timestamp}_${randomStr}.${extension}`;
+        }
+        
         const folderPath = path.join(UPLOAD_DIR, folder);
         const filePath = path.join(folderPath, filename);
+
+        // Ensure directory exists
+        if (!fs.existsSync(folderPath)) {
+            fs.mkdirSync(folderPath, { recursive: true });
+        }
 
         // Convert base64 to buffer and save
         const buffer = Buffer.from(base64Content, 'base64');
         fs.writeFileSync(filePath, buffer);
+
+        console.log(`✅ Image saved successfully: ${filePath} (${buffer.length} bytes)`);
 
         // Return URL (relative path for serving)
         const url = `/uploads/${folder}/${filename}`;
@@ -68,6 +89,7 @@ export const saveBase64Image = async (
             path: filePath
         };
     } catch (error: any) {
+        console.error(`❌ Failed to save image:`, error);
         throw new Error(`Failed to save image: ${error.message}`);
     }
 };

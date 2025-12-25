@@ -14,11 +14,14 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
     try {
         const { name, logo, description, operationModel, cuisines, website, email } = req.body;
 
+        
+        
         // Handle logo upload if base64
         let logoUrl = logo;
         if (logo && logo.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(logo, 'brands');
+            const uploadResult = await saveBase64Image(logo, 'brands', name);
             logoUrl = uploadResult.url;
+        } else if (logo) {
         }
 
         // Map operation model to operating_modes
@@ -78,11 +81,14 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         const { brandId } = req.params;
         const { name, logo, description, cuisines, website, instagram, operationModel } = req.body;
 
+        
+        
         // Handle logo upload if base64
         let logoUrl = logo;
         if (logo && logo.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(logo, 'brands');
+            const uploadResult = await saveBase64Image(logo, 'brands', name);
             logoUrl = uploadResult.url;
+        } else if (logo) {
         }
 
         const updateData: any = {};

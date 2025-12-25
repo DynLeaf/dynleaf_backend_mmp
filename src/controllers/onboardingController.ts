@@ -26,9 +26,14 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         if (!brandId) {
             // Handle logo upload
             let logoUrl = brand.logo;
+            console.log('📸 Onboarding brand logo:', logoUrl ? `${logoUrl.substring(0, 50)}...` : 'No logo');
             if (logoUrl && logoUrl.startsWith('data:')) {
-                const uploadResult = await saveBase64Image(logoUrl, 'brands');
+                console.log('💾 Saving brand logo to brands folder...');
+                const uploadResult = await saveBase64Image(logoUrl, 'brands', brand.name);
                 logoUrl = uploadResult.url;
+                console.log('✅ Brand logo saved, URL:', logoUrl);
+            } else if (logoUrl) {
+                console.log('⚠️ Brand logo provided but not base64, using as-is:', logoUrl);
             }
 
             // Map operation model
@@ -53,9 +58,14 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
 
         // Step 2: Create outlet
         let coverImageUrl = outlet.coverImage;
+        console.log('📸 Onboarding outlet cover:', coverImageUrl ? `${coverImageUrl.substring(0, 50)}...` : 'No cover');
         if (coverImageUrl && coverImageUrl.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(coverImageUrl, 'outlets');
+            console.log('💾 Saving outlet cover to outlets folder...');
+            const uploadResult = await saveBase64Image(coverImageUrl, 'outlets', outlet.name);
             coverImageUrl = uploadResult.url;
+            console.log('✅ Outlet cover saved, URL:', coverImageUrl);
+        } else if (coverImageUrl) {
+            console.log('⚠️ Outlet cover provided but not base64, using as-is:', coverImageUrl);
         }
 
         const newOutlet = await outletService.createOutlet(req.user.id, brandId, {
