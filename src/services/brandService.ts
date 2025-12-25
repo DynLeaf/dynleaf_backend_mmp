@@ -33,26 +33,25 @@ export const createBrand = async (userId: string, brandData: {
         website?: string;
     };
 }): Promise<IBrand> => {
-    // Check if brand with same name already exists for this user
-    const existingUserBrand = await Brand.findOne({ 
+    // Check if brand with same name already exists globally (across all users)
+    const existingBrandByName = await Brand.findOne({ 
         name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
-        admin_user_id: userId,
         is_active: true
     });
     
-    if (existingUserBrand) {
-        throw new Error(`You already have a brand named "${brandData.name}". Please choose a different name.`);
+    if (existingBrandByName) {
+        throw new Error(`A brand named "${brandData.name}" already exists. Please choose a different name.`);
     }
     
     // Generate slug from name
     let slug = brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
     
     // Check if slug already exists and make it unique
-    let existingBrand = await Brand.findOne({ slug });
+    let existingBrandBySlug = await Brand.findOne({ slug });
     let counter = 1;
-    while (existingBrand) {
+    while (existingBrandBySlug) {
         slug = `${brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${counter}`;
-        existingBrand = await Brand.findOne({ slug });
+        existingBrandBySlug = await Brand.findOne({ slug });
         counter++;
     }
     
@@ -60,9 +59,9 @@ export const createBrand = async (userId: string, brandData: {
         ...brandData,
         slug,
         admin_user_id: userId,
-        verification_status: 'pending',
+        verification_status: 'approved',
         is_active: true,
-        is_public: false,
+        is_public: true,
         is_featured: false
     });
 
@@ -82,6 +81,19 @@ export const updateBrand = async (
     
     if (!brand) {
         throw new Error('Brand not found or unauthorized');
+    }
+
+    // Check if new name already exists globally (excluding current brand)
+    if (updateData.name && updateData.name !== brand.name) {
+        const existingBrandByName = await Brand.findOne({ 
+            name: { $regex: new RegExp(`^${updateData.name}$`, 'i') },
+            _id: { $ne: brandId },
+            is_active: true
+        });
+        
+        if (existingBrandByName) {
+            throw new Error(`A brand named "${updateData.name}" already exists. Please choose a different name.`);
+        }
     }
 
     // Update allowed fields
@@ -105,38 +117,81 @@ export const updateBrand = async (
  * Get sample/public brands for selection
  */
 export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
-    const query: any = { is_active: true };
+    let query: any;
     
-    // Include user's own brands and public brands
+    // Include user's own brands and all approved public brands
     if (userId) {
-        query.$or = [
-            { admin_user_id: userId },
-            { is_public: true }
-        ];
+        query = {
+            is_active: true,
+            $or: [
+                { admin_user_id: userId },
+                { is_public: true, verification_status: 'approved' }
+            ]
+        };
     } else {
-        query.is_public = true;
+        query = {
+            is_active: true,
+            is_public: true,
+            verification_status: 'approved'
+        };
     }
     
-    return await Brand.find(query).limit(50);
+    console.log('🔍 Brand Query:', JSON.stringify(query));
+    console.log('🔍 User ID:', userId);
+    
+    const brands = await Brand.find(query).limit(50);
+    console.log('✅ Found brands:', brands.length);
+    
+    // Log first brand details if any
+    if (brands.length > 0) {
+        console.log('📦 First brand:', {
+            name: brands[0].name,
+            is_public: brands[0].is_public,
+            is_active: brands[0].is_active,
+            verification_status: brands[0].verification_status
+        });
+    } else {
+        // Check total brands in DB
+        const totalBrands = await Brand.countDocuments();
+        console.log('⚠️ Total brands in DB:', totalBrands);
+        
+        if (totalBrands > 0) {
+            const sampleBrand = await Brand.findOne();
+            console.log('📦 Sample brand from DB:', {
+                name: sampleBrand?.name,
+                is_public: sampleBrand?.is_public,
+                is_active: sampleBrand?.is_active,
+                verification_status: sampleBrand?.verification_status
+            });
+        }
+    }
+    
+    return brands;
 };
 
 /**
  * Search brands by name
  */
 export const searchBrands = async (query: string, userId?: string): Promise<IBrand[]> => {
-    const searchQuery: any = {
-        name: { $regex: query, $options: 'i' },
-        is_active: true
-    };
+    let searchQuery: any;
 
-    // Include user's own brands and public brands
+    // Include user's own brands and all approved public brands
     if (userId) {
-        searchQuery.$or = [
-            { admin_user_id: userId },
-            { is_public: true }
-        ];
+        searchQuery = {
+            name: { $regex: query, $options: 'i' },
+            is_active: true,
+            $or: [
+                { admin_user_id: userId },
+                { is_public: true, verification_status: 'approved' }
+            ]
+        };
     } else {
-        searchQuery.is_public = true;
+        searchQuery = {
+            name: { $regex: query, $options: 'i' },
+            is_active: true,
+            is_public: true,
+            verification_status: 'approved'
+        };
     }
 
     return await Brand.find(searchQuery).limit(20);

@@ -9,6 +9,7 @@
     "seed": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/utils/seed.ts",
     "seed:admin": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/scripts/seedAdmin.ts",
     "test:api": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/utils/test-api.ts",
+    "update:brands": "set NODE_OPTIONS=--loader ts-node/esm --no-warnings && npx ts-node src/scripts/updateBrands.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -43,12 +43,12 @@ const brandSchema = new Schema<IBrand>({
         website: String,
         google_review: String
     },
-    verification_status: { type: String, default: 'pending' },
+    verification_status: { type: String, default: 'approved' },
     verified_by: { type: Schema.Types.ObjectId, ref: 'User' },
     verified_at: { type: Date },
     admin_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     is_active: { type: Boolean, default: true },
-    is_public: { type: Boolean, default: false },
+    is_public: { type: Boolean, default: true },
     is_featured: { type: Boolean, default: false }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
