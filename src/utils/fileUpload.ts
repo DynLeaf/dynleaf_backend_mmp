@@ -37,7 +37,7 @@ export interface UploadResult {
  */
 export const saveBase64Image = async (
     base64Data: string,
-    folder: 'brands' | 'outlets' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food' | 'temp',
+    folder: 'brands' | 'outlets' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food'| 'menu' | 'temp',
     customName?: string
 ): Promise<UploadResult> => {
     try {
