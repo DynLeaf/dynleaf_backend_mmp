@@ -5,11 +5,11 @@
   "main": "index.js",
   "scripts": {
     "start": "node dist/server.js",
-    "dev": "nodemon --exec node --loader ts-node/esm --no-warnings src/server.ts",
-    "seed": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/utils/seed.ts",
-    "seed:admin": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/scripts/seedAdmin.ts",
-    "test:api": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' npx ts-node src/utils/test-api.ts",
-    "update:brands": "set NODE_OPTIONS=--loader ts-node/esm --no-warnings && npx ts-node src/scripts/updateBrands.ts",
+    "dev": "tsx watch src/server.ts",
+    "seed": "tsx src/utils/seed.ts",
+    "seed:admin": "tsx src/scripts/seedAdmin.ts",
+    "test:api": "tsx src/utils/test-api.ts",
+    "update:brands": "tsx src/scripts/updateBrands.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -43,6 +43,7 @@
     "@types/uuid": "^11.0.0",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

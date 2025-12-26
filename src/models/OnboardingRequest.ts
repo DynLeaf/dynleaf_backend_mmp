@@ -10,11 +10,7 @@ export interface IOnboardingRequest extends Document {
     reviewed_by?: mongoose.Types.ObjectId;
     reviewed_at?: Date;
     rejection_reason?: string;
-    compliance_data?: {
-        fssai?: string;
-        gst_no?: string;
-        gst_percent?: number;
-    };
+    compliance_id?: mongoose.Types.ObjectId;
 }
 
 const onboardingRequestSchema = new Schema<IOnboardingRequest>({
@@ -35,11 +31,7 @@ const onboardingRequestSchema = new Schema<IOnboardingRequest>({
     reviewed_by: { type: Schema.Types.ObjectId, ref: 'User' },
     reviewed_at: { type: Date },
     rejection_reason: { type: String },
-    compliance_data: {
-        fssai: String,
-        gst_no: String,
-        gst_percent: Number
-    }
+    compliance_id: { type: Schema.Types.ObjectId, ref: 'Compliance' }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 export const OnboardingRequest = mongoose.model<IOnboardingRequest>('OnboardingRequest', onboardingRequestSchema);

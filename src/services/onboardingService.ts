@@ -12,11 +12,7 @@ export const createOnboardingRequest = async (
     brandId: string,
     outletId: string,
     menuStrategy: 'brand' | 'outlet',
-    complianceData?: {
-        fssai?: string;
-        gst_no?: string;
-        gst_percent?: number;
-    }
+    complianceId?: string | null
 ): Promise<IOnboardingRequest> => {
     const onboardingRequest = new OnboardingRequest({
         user_id: userId,
@@ -25,7 +21,7 @@ export const createOnboardingRequest = async (
         menu_strategy: menuStrategy,
         status: 'pending_approval',
         submitted_at: new Date(),
-        compliance_data: complianceData
+        compliance_id: complianceId ? new mongoose.Types.ObjectId(complianceId) : undefined
     });
 
     await onboardingRequest.save();
@@ -106,11 +102,7 @@ export const completeOnboarding = async (
     brandId: string,
     outletId: string,
     menuStrategy: 'brand' | 'outlet',
-    complianceData?: {
-        fssai?: string;
-        gst_no?: string;
-        gst_percent?: number;
-    }
+    complianceId?: string | null
 ): Promise<{
     onboardingRequest: IOnboardingRequest;
     user: any;
@@ -121,7 +113,7 @@ export const completeOnboarding = async (
         brandId,
         outletId,
         menuStrategy,
-        complianceData
+        complianceId
     );
 
     // Assign restaurant_owner role
