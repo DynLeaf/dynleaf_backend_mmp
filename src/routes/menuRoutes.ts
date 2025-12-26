@@ -16,7 +16,15 @@ import {
     updateVariant,
     createMenu,
     listMenus,
-    updateMenuStructure
+    updateMenuStructure,
+    createAddOn,
+    listAddOns,
+    updateAddOn,
+    deleteAddOn,
+    createCombo,
+    listCombos,
+    updateCombo,
+    deleteCombo
 } from '../controllers/menuController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -44,9 +52,22 @@ router.post('/food-items/bulk-delete', protect, bulkDeleteFoodItems);
 router.post('/food-items/:foodItemId/variants', protect, createVariant);
 router.patch('/variants/:variantId', protect, updateVariant);
 
+// Add-ons
+router.post('/brands/:brandId/addons', protect, createAddOn);
+router.get('/brands/:brandId/addons', listAddOns);
+router.patch('/addons/:addOnId', protect, updateAddOn);
+router.delete('/addons/:addOnId', protect, deleteAddOn);
+
+// Combos
+router.post('/brands/:brandId/combos', protect, createCombo);
+router.get('/brands/:brandId/combos', listCombos);
+router.patch('/combos/:comboId', protect, updateCombo);
+router.delete('/combos/:comboId', protect, deleteCombo);
+
 // Menus
 router.post('/brands/:brandId/menus', protect, createMenu);
 router.get('/brands/:brandId/menus', listMenus);
 router.put('/menus/:menuId/structure', protect, updateMenuStructure);
 
 export default router;
+// trigger restart

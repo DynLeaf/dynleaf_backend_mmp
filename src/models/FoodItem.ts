@@ -10,6 +10,7 @@ export interface IFoodItem extends Document {
     base_price: number;
     tax_percentage: number;
     image_url?: string;
+    addon_ids?: mongoose.Types.ObjectId[];
     tags?: string[];
     order?: number;
     preparation_time?: number;
@@ -30,6 +31,7 @@ const foodItemSchema = new Schema<IFoodItem>({
     base_price: { type: Number, required: true },
     tax_percentage: { type: Number, default: 5 },
     image_url: { type: String },
+    addon_ids: [{ type: Schema.Types.ObjectId, ref: 'AddOn' }],
     tags: [{ type: String }],
     order: { type: Number, default: 0 },
     preparation_time: { type: Number },

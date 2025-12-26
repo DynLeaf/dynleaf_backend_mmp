@@ -3,7 +3,23 @@ import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Menu } from '../models/Menu.js';
 import { FoodVariant } from '../models/FoodVariant.js';
+import { AddOn } from '../models/AddOn.js';
+import { Combo } from '../models/Combo.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+
+const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: number }>, discountPercentage: number) => {
+    const foodItemIds = items.map(i => i.foodItemId);
+    const foodItems = await FoodItem.find({ _id: { $in: foodItemIds } });
+    const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.base_price]));
+
+    const originalPrice = items.reduce((sum, i) => {
+        const basePrice = priceById.get(i.foodItemId) ?? 0;
+        return sum + basePrice * i.quantity;
+    }, 0);
+
+    const discountedPrice = Math.max(0, originalPrice * (1 - (discountPercentage || 0) / 100));
+    return { originalPrice, discountedPrice };
+};
 
 export const createCategory = async (req: Request, res: Response) => {
     try {
@@ -47,7 +63,7 @@ export const updateCategory = async (req: Request, res: Response) => {
 export const createFoodItem = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const { name, description, categoryId, isVeg, basePrice, taxPercentage, imageUrl, isActive } = req.body;
+        const { name, description, categoryId, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
 
        
         const foodItem = await FoodItem.create({
@@ -59,11 +75,12 @@ export const createFoodItem = async (req: Request, res: Response) => {
             base_price: basePrice,
             tax_percentage: taxPercentage,
             image_url: imageUrl,
-            is_active: isActive
+            is_active: isActive,
+            addon_ids: addonIds
         });
 
         
-        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, name: foodItem.name, isVeg: foodItem.is_veg, basePrice: foodItem.base_price, isActive: foodItem.is_active }, null, 201);
+        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, isVeg: foodItem.is_veg, basePrice: foodItem.base_price, isActive: foodItem.is_active }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -108,6 +125,7 @@ export const listFoodItems = async (req: Request, res: Response) => {
         const mappedItems = items.map(i => ({
             id: i._id,
             categoryId: i.category_id ? i.category_id.toString() : null,
+            addonIds: i.addon_ids ? i.addon_ids.map(a => a.toString()) : [],
             name: i.name,
             description: i.description,
             isVeg: i.is_veg,
@@ -323,6 +341,236 @@ export const uploadFoodItemImage = async (req: Request, res: Response) => {
         );
 
         return sendSuccess(res, { imageUrl: imagePath }, 'Image uploaded successfully');
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const createAddOn = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const { name, price, category, isActive } = req.body;
+
+        const addOn = await AddOn.create({
+            brand_id: brandId,
+            name,
+            price,
+            category,
+            is_active: isActive
+        });
+
+        return sendSuccess(res, {
+            id: addOn._id,
+            name: addOn.name,
+            price: addOn.price,
+            category: addOn.category,
+            isActive: addOn.is_active
+        }, null, 201);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const listAddOns = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const addOns = await AddOn.find({ brand_id: brandId });
+
+        return sendSuccess(res, addOns.map(a => ({
+            id: a._id,
+            name: a.name,
+            price: a.price,
+            category: a.category,
+            isActive: a.is_active
+        })));
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const updateAddOn = async (req: Request, res: Response) => {
+    try {
+        const { addOnId } = req.params;
+        const addOn = await AddOn.findByIdAndUpdate(addOnId, req.body, { new: true });
+        return sendSuccess(res, {
+            id: addOn?._id,
+            name: addOn?.name,
+            price: addOn?.price,
+            category: addOn?.category,
+            isActive: addOn?.is_active
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const deleteAddOn = async (req: Request, res: Response) => {
+    try {
+        const { addOnId } = req.params;
+        await AddOn.findByIdAndDelete(addOnId);
+        return sendSuccess(res, null, 'Add-on deleted successfully');
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const createCombo = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const {
+            name,
+            description,
+            imageUrl,
+            items,
+            discountPercentage = 0,
+            manualPriceOverride = false,
+            price,
+            isActive
+        } = req.body;
+
+        const normalizedItems = (items || []).map((i: any) => ({
+            foodItemId: i.foodItemId ?? i.itemId,
+            quantity: i.quantity
+        }));
+
+        const { originalPrice, discountedPrice } = await computeComboPricing(normalizedItems, discountPercentage);
+        const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
+
+        const combo = await Combo.create({
+            brand_id: brandId,
+            name,
+            description,
+            image_url: imageUrl,
+            items: normalizedItems.map((i: { foodItemId: string; quantity: number }) => ({
+                food_item_id: i.foodItemId,
+                quantity: i.quantity
+            })),
+            discount_percentage: discountPercentage,
+            original_price: originalPrice,
+            price: finalPrice,
+            manual_price_override: manualPriceOverride,
+            is_active: isActive
+        });
+
+        return sendSuccess(res, {
+            id: combo._id,
+            name: combo.name,
+            description: combo.description,
+            imageUrl: combo.image_url,
+            items: combo.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+            discountPercentage: combo.discount_percentage,
+            originalPrice: combo.original_price,
+            price: combo.price,
+            manualPriceOverride: combo.manual_price_override,
+            isActive: combo.is_active
+        }, null, 201);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const listCombos = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const combos = await Combo.find({ brand_id: brandId });
+
+        return sendSuccess(res, combos.map(c => ({
+            id: c._id,
+            name: c.name,
+            description: c.description,
+            imageUrl: c.image_url,
+            items: c.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+            discountPercentage: c.discount_percentage,
+            originalPrice: c.original_price,
+            price: c.price,
+            manualPriceOverride: c.manual_price_override,
+            isActive: c.is_active
+        })));
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const updateCombo = async (req: Request, res: Response) => {
+    try {
+        const { comboId } = req.params;
+
+        const {
+            name,
+            description,
+            imageUrl,
+            items,
+            discountPercentage,
+            manualPriceOverride,
+            price,
+            isActive
+        } = req.body;
+
+        const updates: any = {};
+        if (name !== undefined) updates.name = name;
+        if (description !== undefined) updates.description = description;
+        if (imageUrl !== undefined) updates.image_url = imageUrl;
+        if (discountPercentage !== undefined) updates.discount_percentage = discountPercentage;
+        if (manualPriceOverride !== undefined) updates.manual_price_override = manualPriceOverride;
+        if (isActive !== undefined) updates.is_active = isActive;
+
+        const existing = await Combo.findById(comboId);
+        if (!existing) {
+            return sendError(res, 'Combo not found', 404);
+        }
+
+        const isItemsProvided = items !== undefined;
+        const normalizedItems: Array<{ foodItemId: string; quantity: number }> = isItemsProvided
+            ? (items || []).map((i: any) => ({
+                foodItemId: i.foodItemId ?? i.itemId,
+                quantity: i.quantity
+            }))
+            : [];
+
+        if (isItemsProvided) {
+            updates.items = normalizedItems.map((i: { foodItemId: string; quantity: number }) => ({
+                food_item_id: i.foodItemId,
+                quantity: i.quantity
+            }));
+        }
+
+        const effectiveItems = isItemsProvided
+            ? normalizedItems
+            : existing.items.map((i: any) => ({
+                foodItemId: i.food_item_id.toString(),
+                quantity: i.quantity
+            }));
+        const effectiveDiscount = discountPercentage !== undefined ? discountPercentage : existing.discount_percentage;
+        const effectiveManualOverride = manualPriceOverride !== undefined ? manualPriceOverride : existing.manual_price_override;
+
+        const { originalPrice, discountedPrice } = await computeComboPricing(effectiveItems, effectiveDiscount);
+        updates.original_price = originalPrice;
+        updates.price = effectiveManualOverride ? (price ?? existing.price) : discountedPrice;
+
+        const combo = await Combo.findByIdAndUpdate(comboId, updates, { new: true });
+
+        return sendSuccess(res, {
+            id: combo?._id,
+            name: combo?.name,
+            description: combo?.description,
+            imageUrl: combo?.image_url,
+            items: combo?.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+            discountPercentage: combo?.discount_percentage,
+            originalPrice: combo?.original_price,
+            price: combo?.price,
+            manualPriceOverride: combo?.manual_price_override,
+            isActive: combo?.is_active
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const deleteCombo = async (req: Request, res: Response) => {
+    try {
+        const { comboId } = req.params;
+        await Combo.findByIdAndDelete(comboId);
+        return sendSuccess(res, null, 'Combo deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }
