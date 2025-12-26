@@ -70,6 +70,30 @@ export const getUserOutlets = async (req: AuthRequest, res: Response) => {
     }
 };
 
+export const getUserOutletsList = async (req: AuthRequest, res: Response) => {
+    try {
+        const outlets = await outletService.getUserOutletsList(req.user.id);
+        return sendSuccess(res, { outlets });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getOutletById = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const outlet = await outletService.getOutletById(outletId);
+        
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+        
+        return sendSuccess(res, { outlet });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
 export const updateOutlet = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;

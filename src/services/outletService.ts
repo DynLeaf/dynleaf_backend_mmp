@@ -4,12 +4,23 @@ import { Compliance } from '../models/Compliance.js';
 import mongoose from 'mongoose';
 
 /**
- * Get all outlets for a user
+ * Get all outlets for a user (full details)
  */
 export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
     return await Outlet.find({ created_by_user_id: userId })
         .populate('brand_id')
         .sort({ created_at: -1 });
+};
+
+/**
+ * Get outlet list for dropdown (lightweight - only essential fields)
+ */
+export const getUserOutletsList = async (userId: string) => {
+    return await Outlet.find({ created_by_user_id: userId })
+        .select('_id name brand_id status approval_status media.cover_image_url address.city')
+        .populate('brand_id', 'name')
+        .sort({ created_at: -1 })
+        .lean();
 };
 
 /**

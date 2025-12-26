@@ -1,7 +1,9 @@
 import express from 'express';
 import {
     createOutlet,
+    getOutletById,
     getUserOutlets,
+    getUserOutletsList,
     updateOutlet,
     saveCompliance,
     updateOperatingHours,
@@ -23,6 +25,8 @@ const router = express.Router();
 
 router.post('/', protect, createOutlet);
 router.get('/my-outlets', protect, getUserOutlets);
+router.get('/my-outlets-list', protect, getUserOutletsList); // Lightweight for dropdown
+router.get('/:outletId', protect, getOutletById);
 router.put('/:outletId', protect, updateOutlet);
 router.post('/:outletId/compliance', protect, saveCompliance);
 router.put('/:outletId/operating-hours', protect, updateOperatingHours);
