@@ -82,6 +82,27 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             delete updateData.coverImage;
         }
 
+        // Handle opening hours
+        if (updateData.openingHours !== undefined) {
+            updateData.opening_hours = updateData.openingHours;
+            delete updateData.openingHours;
+        }
+
+        // Handle amenities
+        if (updateData.amenities !== undefined) {
+            updateData.amenities = updateData.amenities;
+        }
+
+        // Handle seating capacity and table count
+        if (updateData.seatingCapacity !== undefined) {
+            updateData.seating_capacity = updateData.seatingCapacity;
+            delete updateData.seatingCapacity;
+        }
+        if (updateData.tableCount !== undefined) {
+            updateData.table_count = updateData.tableCount;
+            delete updateData.tableCount;
+        }
+
         const outlet = await outletService.updateOutlet(outletId, req.user.id, updateData);
         
         if (!outlet) {
@@ -109,6 +130,79 @@ export const saveCompliance = async (req: Request, res: Response) => {
         );
 
         return sendSuccess(res, null, 'Compliance saved');
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { category, image } = req.body;
+
+        if (!category || !['interior', 'exterior', 'food'].includes(category)) {
+            return sendError(res, 'Invalid category. Must be interior, exterior, or food', null, 400);
+        }
+
+        if (!image || !image.startsWith('data:')) {
+            return sendError(res, 'Invalid image data', null, 400);
+        }
+
+        // Upload image to server in category-specific folder
+        const folderPath = `gallery/${category}` as 'gallery/interior' | 'gallery/exterior' | 'gallery/food';
+        const uploadResult = await saveBase64Image(image, folderPath, `${category}-${Date.now()}`);
+
+        // Get current outlet
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Initialize photo_gallery if not exists
+        if (!outlet.photo_gallery) {
+            outlet.photo_gallery = { interior: [], exterior: [], food: [] };
+        }
+
+        // Add new photo to the appropriate category
+        if (!outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']) {
+            outlet.photo_gallery[category as 'interior' | 'exterior' | 'food'] = [];
+        }
+        outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']!.push(uploadResult.url);
+
+        await outlet.save();
+
+        return sendSuccess(res, { 
+            url: uploadResult.url,
+            category 
+        }, 'Photo uploaded successfully');
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const deletePhotoGallery = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { category, photoUrl } = req.body;
+
+        if (!category || !['interior', 'exterior', 'food'].includes(category)) {
+            return sendError(res, 'Invalid category', null, 400);
+        }
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Remove photo from the appropriate category
+        if (outlet.photo_gallery && outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']) {
+            outlet.photo_gallery[category as 'interior' | 'exterior' | 'food'] = 
+                outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']!.filter(url => url !== photoUrl);
+        }
+
+        await outlet.save();
+
+        return sendSuccess(res, null, 'Photo deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }

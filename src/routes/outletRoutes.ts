@@ -5,6 +5,8 @@ import {
     updateOutlet,
     saveCompliance,
     updateOperatingHours,
+    uploadPhotoGallery,
+    deletePhotoGallery,
     getProfileOverview,
     getProfileAbout
 } from '../controllers/outletController.js';
@@ -24,6 +26,8 @@ router.get('/my-outlets', protect, getUserOutlets);
 router.put('/:outletId', protect, updateOutlet);
 router.post('/:outletId/compliance', protect, saveCompliance);
 router.put('/:outletId/operating-hours', protect, updateOperatingHours);
+router.post('/:outletId/photo-gallery', protect, uploadPhotoGallery);
+router.delete('/:outletId/photo-gallery', protect, deletePhotoGallery);
 router.put('/:outletId/social-links', protect, updateSocialLinks);
 
 router.get('/:outletId/profile/overview', getProfileOverview);

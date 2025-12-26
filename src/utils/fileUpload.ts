@@ -10,6 +10,10 @@ const ensureDirectories = () => {
         UPLOAD_DIR,
         path.join(UPLOAD_DIR, 'brands'),
         path.join(UPLOAD_DIR, 'outlets'),
+        path.join(UPLOAD_DIR, 'gallery'),
+        path.join(UPLOAD_DIR, 'gallery', 'interior'),
+        path.join(UPLOAD_DIR, 'gallery', 'exterior'),
+        path.join(UPLOAD_DIR, 'gallery', 'food'),
         path.join(UPLOAD_DIR, 'temp')
     ];
 
@@ -33,7 +37,7 @@ export interface UploadResult {
  */
 export const saveBase64Image = async (
     base64Data: string,
-    folder: 'brands' | 'outlets' | 'temp',
+    folder: 'brands' | 'outlets' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food' | 'temp',
     customName?: string
 ): Promise<UploadResult> => {
     try {
@@ -99,7 +103,7 @@ export const saveBase64Image = async (
  */
 export const saveUploadedFile = async (
     file: Express.Multer.File,
-    folder: 'brands' | 'outlets' | 'temp'
+    folder: 'brands' | 'outlets' | 'gallery' | 'temp'
 ): Promise<UploadResult> => {
     try {
         const filename = `${uuidv4()}${path.extname(file.originalname)}`;
