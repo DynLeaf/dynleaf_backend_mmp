@@ -121,9 +121,44 @@ router.get("/brands", adminAuth, async (req, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const search = (req.query.search as string) || "";
+    const verificationStatus = req.query.verification_status as string;
+    const operatingMode = req.query.operating_mode as string;
+    const isFeatured = req.query.is_featured as string;
     const skip = (page - 1) * limit;
 
-    const query = search ? { name: { $regex: search, $options: "i" } } : {};
+    const query: any = {};
+
+    // Search filter
+    if (search) {
+      query.name = { $regex: search, $options: "i" };
+    }
+
+    // Verification status filter
+    if (verificationStatus && verificationStatus !== 'all') {
+      query.verification_status = verificationStatus;
+    }
+
+    // Operating mode filter
+    if (operatingMode && operatingMode !== 'all') {
+      if (operatingMode === 'corporate') {
+        query['operating_modes.corporate'] = true;
+        query['operating_modes.franchise'] = false;
+      } else if (operatingMode === 'franchise') {
+        query['operating_modes.corporate'] = false;
+        query['operating_modes.franchise'] = true;
+      } else if (operatingMode === 'hybrid') {
+        query['operating_modes.corporate'] = true;
+        query['operating_modes.franchise'] = true;
+      } else if (operatingMode === 'open') {
+        query['operating_modes.corporate'] = false;
+        query['operating_modes.franchise'] = false;
+      }
+    }
+
+    // Featured filter
+    if (isFeatured && isFeatured !== 'all') {
+      query.is_featured = isFeatured === 'true';
+    }
 
     const [brands, total] = await Promise.all([
       Brand.find(query)
