@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
  * Get all brands for a user
  */
 export const getUserBrands = async (userId: string): Promise<IBrand[]> => {
-    return await Brand.find({ admin_user_id: userId, is_active: true });
+    return await Brand.find({ admin_user_id: userId, verification_status: 'approved' });
 };
 
 /**
@@ -36,7 +36,7 @@ export const createBrand = async (userId: string, brandData: {
     // Check if brand with same name already exists globally (across all users)
     const existingBrandByName = await Brand.findOne({ 
         name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
-        is_active: true
+        verification_status: 'approved'
     });
     
     if (existingBrandByName) {
@@ -59,9 +59,8 @@ export const createBrand = async (userId: string, brandData: {
         ...brandData,
         slug,
         admin_user_id: userId,
-        verification_status: 'approved',
-        is_active: true,
-        is_public: true,
+        created_by: userId,
+        verification_status: 'pending',
         is_featured: false
     });
 
@@ -88,7 +87,7 @@ export const updateBrand = async (
         const existingBrandByName = await Brand.findOne({ 
             name: { $regex: new RegExp(`^${updateData.name}$`, 'i') },
             _id: { $ne: brandId },
-            is_active: true
+            verification_status: 'approved'
         });
         
         if (existingBrandByName) {
@@ -119,19 +118,16 @@ export const updateBrand = async (
 export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
     let query: any;
     
-    // Include user's own brands and all approved public brands
+    // Include user's own brands (pending or approved) and approved brands from others
     if (userId) {
         query = {
-            is_active: true,
             $or: [
-                { admin_user_id: userId },
-                { is_public: true, verification_status: 'approved' }
+                { created_by: userId },
+                { verification_status: 'approved' }
             ]
         };
     } else {
         query = {
-            is_active: true,
-            is_public: true,
             verification_status: 'approved'
         };
     }
@@ -146,8 +142,6 @@ export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
     if (brands.length > 0) {
         console.log('📦 First brand:', {
             name: brands[0].name,
-            is_public: brands[0].is_public,
-            is_active: brands[0].is_active,
             verification_status: brands[0].verification_status
         });
     } else {
@@ -175,14 +169,14 @@ export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
 export const searchBrands = async (query: string, userId?: string): Promise<IBrand[]> => {
     let searchQuery: any;
 
-    // Include user's own brands and all approved public brands
+    // Include user's own brands (any status) and approved public brands
     if (userId) {
         searchQuery = {
             name: { $regex: query, $options: 'i' },
             is_active: true,
             $or: [
-                { admin_user_id: userId },
-                { is_public: true, verification_status: 'approved' }
+                { created_by: userId },
+                { is_public: true, approval_status: 'APPROVED' }
             ]
         };
     } else {
@@ -190,7 +184,7 @@ export const searchBrands = async (query: string, userId?: string): Promise<IBra
             name: { $regex: query, $options: 'i' },
             is_active: true,
             is_public: true,
-            verification_status: 'approved'
+            approval_status: 'APPROVED'
         };
     }
 

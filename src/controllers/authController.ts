@@ -7,6 +7,7 @@ import * as otpService from "../services/otpService.js";
 import * as tokenService from "../services/tokenService.js";
 import * as sessionService from "../services/sessionService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import jwt from "jsonwebtoken";
 
 interface AuthRequest extends Request {
   user?: any;
@@ -418,6 +419,62 @@ export const deleteSession = async (req: AuthRequest, res: Response) => {
     return sendSuccess(res, null, "Session deleted successfully");
   } catch (error: any) {
     console.error("Delete session error:", error);
+    return sendError(res, error.message);
+  }
+};
+
+export const adminLogin = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return sendError(res, "Email and password are required", null, 400);
+    }
+
+    // Hardcoded admin credentials
+    const ADMIN_EMAIL = "admin@gmail.com";
+    const ADMIN_PASSWORD = "pass@123";
+
+    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+      return sendError(res, "Invalid credentials", null, 401);
+    }
+
+    // Create admin user object
+    const adminUser = {
+      id: "admin",
+      email: ADMIN_EMAIL,
+      name: "Admin",
+      role: "admin",
+    };
+
+    // Generate simple JWT token for admin
+    const token = jwt.sign(
+      { userId: "admin", email: ADMIN_EMAIL, role: "admin" },
+      process.env.JWT_SECRET || "secret",
+      { expiresIn: "7d" }
+    );
+
+    // Set HTTP-only cookie
+    res.cookie("admin_token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    return sendSuccess(res, { user: adminUser }, "Login successful");
+  } catch (error: any) {
+    console.error("Admin login error:", error);
+    return sendError(res, error.message);
+  }
+};
+
+export const adminLogout = async (req: Request, res: Response) => {
+  try {
+    res.clearCookie("admin_token");
+    return sendSuccess(res, null, "Logout successful");
+  } catch (error: any) {
+    console.error("Admin logout error:", error);
     return sendError(res, error.message);
   }
 };

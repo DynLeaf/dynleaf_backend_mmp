@@ -17,12 +17,11 @@ export interface IBrand extends Document {
         website?: string;
         google_review?: string;
     };
-    verification_status: string;
+    verification_status: 'pending' | 'approved' | 'rejected' | 'cancelled';
     verified_by?: mongoose.Types.ObjectId;
     verified_at?: Date;
     admin_user_id: mongoose.Types.ObjectId;
-    is_active: boolean;
-    is_public: boolean;
+    created_by: mongoose.Types.ObjectId;
     is_featured: boolean;
 }
 
@@ -43,12 +42,11 @@ const brandSchema = new Schema<IBrand>({
         website: String,
         google_review: String
     },
-    verification_status: { type: String, default: 'approved' },
+    verification_status: { type: String, enum: ['pending', 'approved', 'rejected', 'cancelled'], default: 'pending' },
     verified_by: { type: Schema.Types.ObjectId, ref: 'User' },
     verified_at: { type: Date },
     admin_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    is_active: { type: Boolean, default: true },
-    is_public: { type: Boolean, default: true },
+    created_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     is_featured: { type: Boolean, default: false }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

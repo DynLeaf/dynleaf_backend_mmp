@@ -7,7 +7,9 @@ import {
     getCurrentUser, 
     switchRole,
     getSessions,
-    deleteSession
+    deleteSession,
+    adminLogin,
+    adminLogout
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { otpSendLimiter, otpVerifyLimiter } from '../middleware/rateLimiter.js';
@@ -23,5 +25,9 @@ router.get('/me', authenticate, getCurrentUser);
 router.post('/switch-role', authenticate, switchRole);
 router.get('/sessions', authenticate, getSessions);
 router.delete('/sessions/:sessionId', authenticate, deleteSession);
+
+// Admin routes
+router.post('/admin/login', adminLogin);
+router.post('/admin/logout', adminLogout);
 
 export default router;

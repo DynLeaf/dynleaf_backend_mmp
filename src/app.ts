@@ -7,6 +7,7 @@ import brandRoutes from './routes/brandRoutes.js';
 import outletRoutes from './routes/outletRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
 import onboardingRoutes from './routes/onboardingRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 import logger from './middleware/logger.js';
 import errorHandler from './middleware/errorMiddleware.js';
 import path from 'path';
@@ -18,7 +19,12 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5001',
+    origin: [
+        process.env.FRONTEND_URL || 'http://localhost:5001',
+        'http://localhost:5173', // Main frontend
+        'http://localhost:5174', // Admin portal
+        'http://localhost:5175', // Admin portal (alternate)
+    ],
     credentials: true
 }));
 app.use(cookieParser());
@@ -39,6 +45,7 @@ app.use('/v1/auth', authRoutes);
 app.use('/v1/brands', brandRoutes);
 app.use('/v1/outlets', outletRoutes);
 app.use('/v1/onboarding', onboardingRoutes);
+app.use('/v1/admin', adminRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths
 
 // Global error handler (should be after routes)
