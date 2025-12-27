@@ -258,6 +258,7 @@ export const duplicateFoodItem = async (req: Request, res: Response) => {
 
         const duplicatedItem = await FoodItem.create({
             brand_id: originalItem.brand_id,
+            category_id: originalItem.category_id,
             name: `${originalItem.name} (Copy)`,
             description: originalItem.description,
             is_veg: originalItem.is_veg,
