@@ -21,7 +21,6 @@ export interface IBrand extends Document {
     verified_by?: mongoose.Types.ObjectId;
     verified_at?: Date;
     admin_user_id: mongoose.Types.ObjectId;
-    created_by: mongoose.Types.ObjectId;
     is_featured: boolean;
 }
 
@@ -46,7 +45,6 @@ const brandSchema = new Schema<IBrand>({
     verified_by: { type: Schema.Types.ObjectId, ref: 'User' },
     verified_at: { type: Date },
     admin_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    created_by: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     is_featured: { type: Boolean, default: false }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

@@ -4,6 +4,7 @@ import { Brand } from "../models/Brand.js";
 import { Outlet } from "../models/Outlet.js";
 import { User } from "../models/User.js";
 import { Menu } from "../models/Menu.js";
+import { Compliance } from "../models/Compliance.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 const router = express.Router();
@@ -50,17 +51,60 @@ router.get("/onboarding/requests", adminAuth, async (req, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
+    const statusFilter = req.query.status as string;
 
-    const [requests, total] = await Promise.all([
-      Outlet.find()
-        .populate("brand_id", "name")
-        .populate("created_by", "phone email")
+    // Build query - filter by approval_status if provided
+    const query: any = {};
+    if (statusFilter && statusFilter !== 'all') {
+      // Map frontend status to backend approval_status
+      if (statusFilter === 'pending_approval') {
+        query.approval_status = 'PENDING';
+      } else if (statusFilter === 'approved') {
+        query.approval_status = 'APPROVED';
+      } else if (statusFilter === 'rejected') {
+        query.approval_status = 'REJECTED';
+      }
+    }
+
+    const [outlets, total] = await Promise.all([
+      Outlet.find(query)
+        .populate("brand_id", "name logo_url")
+        .populate("created_by_user_id", "phone email username")
+        .select('name slug address contact approval_status approval.submitted_at approval.rejection_reason')
         .sort({ created_at: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Outlet.countDocuments(),
+      Outlet.countDocuments(query),
     ]);
+
+    // Map outlets to match frontend interface
+    const requests = outlets.map((outlet: any) => ({
+      _id: outlet._id,
+      user_id: {
+        _id: outlet.created_by_user_id?._id,
+        phone: outlet.created_by_user_id?.phone,
+        email: outlet.created_by_user_id?.email,
+        name: outlet.created_by_user_id?.username,
+      },
+      brand_id: {
+        _id: outlet.brand_id?._id,
+        name: outlet.brand_id?.name,
+        logo: outlet.brand_id?.logo_url,
+      },
+      outlet_id: {
+        _id: outlet._id,
+        name: outlet.name,
+        address: {
+          city: outlet.address?.city,
+          full: outlet.address?.full,
+        },
+      },
+      status: outlet.approval_status === 'PENDING' ? 'pending_approval' : outlet.approval_status?.toLowerCase(),
+      submitted_at: outlet.approval?.submitted_at || outlet.created_at,
+      menu_strategy: 'standard', // Default value, adjust if you have this field
+      rejection_reason: outlet.approval?.rejection_reason,
+    }));
 
     return sendSuccess(res, {
       requests,
@@ -75,12 +119,80 @@ router.get("/onboarding/requests", adminAuth, async (req, res) => {
   }
 });
 
+// Get onboarding request detail
+router.get("/onboarding/requests/:id", adminAuth, async (req, res) => {
+  try {
+    const outlet = await Outlet.findById(req.params.id)
+      .populate("brand_id", "name logo_url description cuisines verification_status")
+      .populate("created_by_user_id", "phone email username")
+      .lean();
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", null, 404);
+    }
+
+    // Get compliance data for this outlet
+    const compliance = await Compliance.findOne({ outlet_id: req.params.id }).lean();
+
+    // Map to frontend interface
+    const request = {
+      _id: outlet._id,
+      user_id: {
+        _id: outlet.created_by_user_id?._id,
+        phone: outlet.created_by_user_id?.phone,
+        email: outlet.created_by_user_id?.email,
+        name: outlet.created_by_user_id?.username,
+      },
+      brand_id: {
+        _id: outlet.brand_id?._id,
+        name: outlet.brand_id?.name,
+        logo: outlet.brand_id?.logo_url,
+        description: outlet.brand_id?.description,
+        cuisine_types: outlet.brand_id?.cuisines,
+        verification_status: outlet.brand_id?.verification_status,
+      },
+      outlet_id: {
+        _id: outlet._id,
+        name: outlet.name,
+        address: outlet.address,
+        contact: outlet.contact,
+        approval_status: outlet.approval_status,
+        status: outlet.status,
+      },
+      compliance: compliance ? {
+        _id: compliance._id,
+        fssai_number: compliance.fssai_number,
+        gst_number: compliance.gst_number,
+        gst_percentage: compliance.gst_percentage,
+        is_verified: compliance.is_verified,
+        verified_at: compliance.verified_at,
+      } : null,
+      status: outlet.approval_status === 'PENDING' ? 'pending_approval' : outlet.approval_status?.toLowerCase(),
+      submitted_at: outlet.approval?.submitted_at || outlet.created_at,
+      menu_strategy: 'standard',
+      rejection_reason: outlet.approval?.rejection_reason,
+      approved_at: outlet.approval?.reviewed_at && outlet.approval_status === 'APPROVED' ? outlet.approval.reviewed_at : undefined,
+      rejected_at: outlet.approval?.reviewed_at && outlet.approval_status === 'REJECTED' ? outlet.approval.reviewed_at : undefined,
+    };
+
+    return sendSuccess(res, request);
+  } catch (error: any) {
+    console.error("Get onboarding request detail error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // Approve onboarding request
 router.post("/onboarding/:id/approve", adminAuth, async (req, res) => {
   try {
     const outlet = await Outlet.findByIdAndUpdate(
       req.params.id,
-      { approval_status: "APPROVED" },
+      { 
+        approval_status: "APPROVED",
+        status: "ACTIVE",
+        'approval.reviewed_at': new Date(),
+        'approval.reviewed_by': req.user?.userId
+      },
       { new: true }
     );
 
@@ -98,9 +210,21 @@ router.post("/onboarding/:id/approve", adminAuth, async (req, res) => {
 // Reject onboarding request
 router.post("/onboarding/:id/reject", adminAuth, async (req, res) => {
   try {
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return sendError(res, "Rejection reason is required", null, 400);
+    }
+
     const outlet = await Outlet.findByIdAndUpdate(
       req.params.id,
-      { approval_status: "REJECTED" },
+      { 
+        approval_status: "REJECTED",
+        status: "REJECTED",
+        'approval.rejection_reason': reason,
+        'approval.reviewed_at': new Date(),
+        'approval.reviewed_by': req.user?.userId
+      },
       { new: true }
     );
 
@@ -162,7 +286,6 @@ router.get("/brands", adminAuth, async (req, res) => {
 
     const [brands, total] = await Promise.all([
       Brand.find(query)
-        .populate("created_by", "phone email username")
         .populate("admin_user_id", "phone email username")
         .sort({ created_at: -1 })
         .skip(skip)
@@ -171,14 +294,8 @@ router.get("/brands", adminAuth, async (req, res) => {
       Brand.countDocuments(query),
     ]);
 
-    // Map brands to ensure created_by is always populated (fallback to admin_user_id)
-    const mappedBrands = brands.map((brand: any) => ({
-      ...brand,
-      created_by: brand.created_by || brand.admin_user_id,
-    }));
-
     return sendSuccess(res, {
-      brands: mappedBrands,
+      brands,
       total,
       page,
       limit,
@@ -194,7 +311,6 @@ router.get("/brands", adminAuth, async (req, res) => {
 router.get("/brands/:id", adminAuth, async (req, res) => {
   try {
     const brand = await Brand.findById(req.params.id)
-      .populate("created_by", "phone email username")
       .populate("admin_user_id", "phone email username")
       .populate("verified_by", "email")
       .lean();
@@ -363,6 +479,36 @@ router.patch("/brands/:id/toggle-featured", adminAuth, async (req, res) => {
     );
   } catch (error: any) {
     console.error("Toggle featured error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Toggle compliance verification status
+router.patch("/compliance/:id/toggle-verification", adminAuth, async (req, res) => {
+  try {
+    const compliance = await Compliance.findById(req.params.id);
+
+    if (!compliance) {
+      return sendError(res, "Compliance not found", null, 404);
+    }
+
+    const updatedCompliance = await Compliance.findByIdAndUpdate(
+      req.params.id,
+      { 
+        is_verified: !compliance.is_verified,
+        verified_at: !compliance.is_verified ? new Date() : undefined,
+        verified_by: !compliance.is_verified ? req.user?.userId : undefined
+      },
+      { new: true }
+    );
+
+    return sendSuccess(
+      res,
+      updatedCompliance,
+      `Compliance is now ${updatedCompliance?.is_verified ? "verified" : "not verified"}`
+    );
+  } catch (error: any) {
+    console.error("Toggle compliance verification error:", error);
     return sendError(res, error.message);
   }
 });
