@@ -519,9 +519,32 @@ router.get("/outlets", adminAuth, async (req, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const search = (req.query.search as string) || "";
+    const status = req.query.status as string;
+    const approvalStatus = req.query.approval_status as string;
+    const operatingMode = req.query.operating_mode as string;
     const skip = (page - 1) * limit;
 
-    const query = search ? { name: { $regex: search, $options: "i" } } : {};
+    const query: any = {};
+    
+    // Search filter
+    if (search) {
+      query.name = { $regex: search, $options: "i" };
+    }
+
+    // Status filter
+    if (status && status !== "all") {
+      query.status = status;
+    }
+
+    // Approval status filter
+    if (approvalStatus && approvalStatus !== "all") {
+      query.approval_status = approvalStatus;
+    }
+
+    // Operating mode filter
+    if (operatingMode && operatingMode !== "all") {
+      query.operating_mode = operatingMode;
+    }
 
     const [outlets, total] = await Promise.all([
       Outlet.find(query)
@@ -542,6 +565,190 @@ router.get("/outlets", adminAuth, async (req, res) => {
     });
   } catch (error: any) {
     console.error("Get outlets error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Get outlet by ID with full details
+router.get("/outlets/:id", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const outlet = await Outlet.findById(id)
+      .populate("brand_id", "name logo description cuisine_types verification_status")
+      .populate("created_by_user_id", "name email phone")
+      .lean();
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", 404);
+    }
+
+    // Get compliance information
+    const compliance = await Compliance.findOne({ outlet_id: id }).lean();
+
+    // Get menus for this outlet
+    const menus = await Menu.find({ outlet_id: id })
+      .select("name description is_active")
+      .lean();
+
+    // Add items count to each menu
+    const menusWithCount = await Promise.all(
+      menus.map(async (menu: any) => {
+        const itemsCount = await Menu.aggregate([
+          { $match: { _id: menu._id } },
+          { $unwind: "$categories" },
+          { $unwind: "$categories.items" },
+          { $count: "total" }
+        ]);
+        return {
+          ...menu,
+          items_count: itemsCount[0]?.total || 0
+        };
+      })
+    );
+
+    // TODO: Get activities (if you have an Activity model)
+    // const activities = await Activity.find({ outlet_id: id })
+    //   .populate("performed_by", "name email")
+    //   .sort({ created_at: -1 })
+    //   .limit(10)
+    //   .lean();
+
+    const outletData = {
+      ...outlet,
+      compliance,
+      menus: menusWithCount,
+      activities: [], // Add actual activities when Activity model is available
+    };
+
+    return sendSuccess(res, outletData);
+  } catch (error: any) {
+    console.error("Get outlet detail error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Approve outlet
+router.post("/outlets/:id/approve", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const outlet = await Outlet.findByIdAndUpdate(
+      id,
+      {
+        approval_status: "APPROVED",
+        status: "ACTIVE",
+        "approval.reviewed_by": req.user?._id,
+        "approval.reviewed_at": new Date(),
+      },
+      { new: true }
+    );
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", 404);
+    }
+
+    return sendSuccess(res, outlet, "Outlet approved successfully");
+  } catch (error: any) {
+    console.error("Approve outlet error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Reject outlet
+router.post("/outlets/:id/reject", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason) {
+      return sendError(res, "Rejection reason is required", 400);
+    }
+
+    const outlet = await Outlet.findByIdAndUpdate(
+      id,
+      {
+        approval_status: "REJECTED",
+        status: "REJECTED",
+        "approval.reviewed_by": req.user?._id,
+        "approval.reviewed_at": new Date(),
+        "approval.rejection_reason": reason,
+      },
+      { new: true }
+    );
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", 404);
+    }
+
+    return sendSuccess(res, outlet, "Outlet rejected successfully");
+  } catch (error: any) {
+    console.error("Reject outlet error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Change outlet status
+router.patch("/outlets/:id/status", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return sendError(res, "Status is required", 400);
+    }
+
+    const validStatuses = ["DRAFT", "ACTIVE", "INACTIVE", "REJECTED", "ARCHIVED"];
+    if (!validStatuses.includes(status)) {
+      return sendError(res, "Invalid status", 400);
+    }
+
+    const outlet = await Outlet.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", 404);
+    }
+
+    return sendSuccess(res, outlet, "Outlet status updated successfully");
+  } catch (error: any) {
+    console.error("Update outlet status error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Change outlet owner
+router.patch("/outlets/:id/change-owner", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.body;
+
+    if (!user_id) {
+      return sendError(res, "User ID is required", 400);
+    }
+
+    // Verify user exists
+    const user = await User.findById(user_id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    const outlet = await Outlet.findByIdAndUpdate(
+      id,
+      { created_by_user_id: user_id },
+      { new: true }
+    ).populate("created_by_user_id", "name email phone");
+
+    if (!outlet) {
+      return sendError(res, "Outlet not found", 404);
+    }
+
+    return sendSuccess(res, outlet, "Outlet owner updated successfully");
+  } catch (error: any) {
+    console.error("Change outlet owner error:", error);
     return sendError(res, error.message);
   }
 });
