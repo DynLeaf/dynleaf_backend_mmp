@@ -591,3 +591,50 @@ export const deleteCombo = async (req: Request, res: Response) => {
         return sendError(res, error.message);
     }
 };
+
+// Get trending dishes based on location
+export const getTrendingDishes = async (req: Request, res: Response) => {
+    try {
+        const { latitude, longitude, limit = 20 } = req.query;
+        
+        if (!latitude || !longitude) {
+            return sendError(res, 'Latitude and longitude are required', null, 400);
+        }
+
+        const limitNum = parseInt(limit as string);
+
+        // Get popular food items from brands
+        // For now, return items sorted by rating/popularity
+        // In production, you'd calculate this based on orders, ratings, etc.
+        const foodItems = await FoodItem.find({ 
+            is_active: true 
+        })
+        .populate('brand_id', 'name logo_url')
+        .populate('category_id', 'name')
+        .sort({ created_at: -1 })
+        .limit(limitNum)
+        .lean();
+
+        const formattedItems = foodItems.map(item => ({
+            id: item._id,
+            name: item.name,
+            description: item.description,
+            image: item.image_url,
+            price: item.base_price,
+            isVeg: item.is_veg,
+            rating: 4.5, // Placeholder - calculate from reviews
+            restaurant: {
+                id: (item.brand_id as any)?._id,
+                name: (item.brand_id as any)?.name,
+                logo: (item.brand_id as any)?.logo_url
+            },
+            category: (item.category_id as any)?.name
+        }));
+
+        return sendSuccess(res, { dishes: formattedItems });
+    } catch (error: any) {
+        console.error('getTrendingDishes error:', error);
+        return sendError(res, error.message);
+    }
+};
+

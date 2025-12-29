@@ -10,6 +10,10 @@
     "seed:admin": "tsx src/scripts/seedAdmin.ts",
     "test:api": "tsx src/utils/test-api.ts",
     "update:brands": "tsx src/scripts/updateBrands.ts",
+    "fix-coordinates": "tsx src/scripts/fixOutletCoordinates.ts",
+    "set-coordinates": "tsx src/scripts/setOutletCoordinates.ts",
+    "fix-indexes": "tsx src/scripts/fixDuplicateIndexes.ts",
+    "check-outlets": "tsx src/scripts/checkAllOutletCoordinates.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

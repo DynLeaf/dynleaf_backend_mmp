@@ -24,11 +24,15 @@ import {
     createCombo,
     listCombos,
     updateCombo,
-    deleteCombo
+    deleteCombo,
+    getTrendingDishes
 } from '../controllers/menuController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// Public routes
+router.get('/trending-dishes', getTrendingDishes);
 
 // Categories
 router.post('/brands/:brandId/categories', protect, createCategory);

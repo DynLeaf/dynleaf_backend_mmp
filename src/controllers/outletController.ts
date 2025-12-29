@@ -18,14 +18,19 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             brandId, 
             name, 
             address, 
-            location, 
+            location,
+            latitude,
+            longitude,
             contact,
             coverImage,
             restaurantType, 
             vendorTypes, 
             seatingCapacity, 
             tableCount,
-            socialMedia
+            socialMedia,
+            priceRange,
+            isPureVeg,
+            deliveryTime
         } = req.body;
 
         // Handle cover image upload if base64
@@ -35,11 +40,20 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             coverImageUrl = uploadResult.url;
         }
 
+        // Prepare location object with GeoJSON format
+        let locationData = location;
+        if (latitude && longitude) {
+            locationData = {
+                type: 'Point',
+                coordinates: [parseFloat(longitude), parseFloat(latitude)] // [lng, lat]
+            };
+        }
+
         const outlet = await outletService.createOutlet(req.user.id, brandId, {
             name,
             contact,
             address,
-            location,
+            location: locationData,
             media: {
                 cover_image_url: coverImageUrl
             },
@@ -49,6 +63,15 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             table_count: tableCount,
             social_media: socialMedia
         });
+
+        // Update additional fields if provided
+        if (priceRange || isPureVeg !== undefined || deliveryTime) {
+            await Outlet.findByIdAndUpdate(outlet._id, {
+                ...(priceRange && { price_range: priceRange }),
+                ...(isPureVeg !== undefined && { is_pure_veg: isPureVeg }),
+                ...(deliveryTime && { delivery_time: deliveryTime })
+            });
+        }
 
         return sendSuccess(res, { 
             id: outlet._id, 
@@ -307,6 +330,332 @@ export const getProfileAbout = async (req: Request, res: Response) => {
             otherOutlets: []
         });
     } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+// Get all outlets for a brand (public route)
+export const getBrandOutlets = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        
+        const outlets = await Outlet.find({ 
+            brand_id: brandId,
+            is_active: true 
+        }).populate('brand_id', 'name logo_url').lean();
+
+        const formattedOutlets = outlets.map(outlet => ({
+            id: outlet._id,
+            name: outlet.name,
+            address: outlet.address,
+            location: outlet.location,
+            contact: outlet.contact,
+            coverImage: outlet.media?.cover_image_url,
+            seatingCapacity: outlet.seating_capacity,
+            restaurantType: outlet.restaurant_type,
+            socialMedia: outlet.social_media,
+            isActive: (outlet as any).is_active || true
+        }));
+
+        return sendSuccess(res, { outlets: formattedOutlets });
+    } catch (error: any) {
+        console.error('getBrandOutlets error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Get nearby outlets based on location with filters (like Zomato/Swiggy)
+export const getNearbyOutlets = async (req: Request, res: Response) => {
+    try {
+        const { 
+            latitude, 
+            longitude, 
+            radius = 10000, // Default 10km in meters
+            page = 1, 
+            limit = 20,
+            cuisines,
+            priceRange,
+            minRating,
+            sortBy = 'distance', // distance, rating, popularity
+            isVeg,
+            search
+        } = req.query;
+        
+        if (!latitude || !longitude) {
+            return sendError(res, 'Latitude and longitude are required', null, 400);
+        }
+
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
+        const radiusMeters = parseInt(radius as string);
+        const pageNum = parseInt(page as string);
+        const limitNum = parseInt(limit as string);
+        const skip = (pageNum - 1) * limitNum;
+
+        // Build match query for outlets
+        const outletMatchQuery: any = {
+            status: 'ACTIVE',
+            approval_status: 'APPROVED',
+            'location.coordinates': { $exists: true, $ne: [] }
+        };
+
+        if (priceRange) {
+            outletMatchQuery.price_range = { $in: (priceRange as string).split(',').map(Number) };
+        }
+
+        if (minRating) {
+            outletMatchQuery.avg_rating = { $gte: parseFloat(minRating as string) };
+        }
+
+        if (isVeg === 'true') {
+            outletMatchQuery.is_pure_veg = true;
+        }
+
+        if (search) {
+            outletMatchQuery.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { 'address.city': { $regex: search, $options: 'i' } },
+                { 'address.state': { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Build aggregation pipeline
+        const pipeline: any[] = [
+            {
+                $geoNear: {
+                    near: {
+                        type: 'Point',
+                        coordinates: [lng, lat] // [longitude, latitude]
+                    },
+                    distanceField: 'distance',
+                    maxDistance: radiusMeters,
+                    query: outletMatchQuery,
+                    spherical: true
+                }
+            },
+            {
+                $lookup: {
+                    from: 'brands',
+                    localField: 'brand_id',
+                    foreignField: '_id',
+                    as: 'brand'
+                }
+            },
+            {
+                $unwind: '$brand'
+            },
+            {
+                $match: {
+                    'brand.verification_status': 'approved',
+                    $or: [
+                        { 'brand.is_active': true },
+                        { 'brand.is_active': { $exists: false } } // Include brands where is_active is not set
+                    ]
+                }
+            }
+        ];
+
+        // Add cuisine filter if provided
+        if (cuisines) {
+            const cuisineArray = (cuisines as string).split(',');
+            pipeline.push({
+                $match: {
+                    'brand.cuisines': { $in: cuisineArray }
+                }
+            });
+        }
+
+        // Sort based on preference
+        if (sortBy === 'rating') {
+            pipeline.push({ $sort: { avg_rating: -1, distance: 1 } });
+        } else if (sortBy === 'popularity') {
+            pipeline.push({ $sort: { total_reviews: -1, distance: 1 } });
+        } else {
+            pipeline.push({ $sort: { distance: 1 } });
+        }
+
+        // Add pagination
+        pipeline.push(
+            { $skip: skip },
+            { $limit: limitNum }
+        );
+
+        // Project final result
+        pipeline.push({
+            $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                address: 1,
+                location: 1,
+                distance: { $round: ['$distance', 0] },
+                avg_rating: 1,
+                total_reviews: 1,
+                price_range: 1,
+                delivery_time: 1,
+                is_pure_veg: 1,
+                media: 1,
+                contact: 1,
+                vendor_types: 1,
+                restaurant_type: 1,
+                brand: {
+                    _id: '$brand._id',
+                    name: '$brand.name',
+                    slug: '$brand.slug',
+                    logo_url: '$brand.logo_url',
+                    cuisines: '$brand.cuisines',
+                    is_featured: '$brand.is_featured'
+                }
+            }
+        });
+
+        const outlets = await Outlet.aggregate(pipeline);
+
+        // Count total for pagination
+        const countPipeline = pipeline.slice(0, -3); // Remove skip, limit, project
+        countPipeline.push({ $count: 'total' });
+        const countResult = await Outlet.aggregate(countPipeline);
+        const total = countResult.length > 0 ? countResult[0].total : 0;
+
+        // If no nearby outlets, fall back to state/city search
+        if (outlets.length === 0) {
+            const fallbackOutlets = await Outlet.find({
+                status: 'ACTIVE',
+                approval_status: 'APPROVED'
+            })
+            .populate('brand_id', 'name slug logo_url cuisines is_featured')
+            .select('name slug address location avg_rating total_reviews price_range delivery_time is_pure_veg media contact')
+            .skip(skip)
+            .limit(limitNum)
+            .lean();
+
+            const fallbackTotal = await Outlet.countDocuments({
+                status: 'ACTIVE',
+                approval_status: 'APPROVED'
+            });
+
+            return sendSuccess(res, {
+                outlets: fallbackOutlets.map((outlet: any) => ({
+                    ...outlet,
+                    distance: null,
+                    brand: outlet.brand_id
+                })),
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    total: fallbackTotal,
+                    totalPages: Math.ceil(fallbackTotal / limitNum),
+                    hasMore: pageNum * limitNum < fallbackTotal
+                },
+                message: 'No nearby outlets found. Showing all available outlets.'
+            });
+        }
+
+        return sendSuccess(res, {
+            outlets,
+            pagination: {
+                page: pageNum,
+                limit: limitNum,
+                total,
+                totalPages: Math.ceil(total / limitNum),
+                hasMore: pageNum * limitNum < total
+            }
+        });
+    } catch (error: any) {
+        console.error('getNearbyOutlets error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Get featured outlets near location
+export const getFeaturedOutlets = async (req: Request, res: Response) => {
+    try {
+        const { latitude, longitude, limit = 10 } = req.query;
+        
+        if (!latitude || !longitude) {
+            return sendError(res, 'Latitude and longitude are required', null, 400);
+        }
+
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
+        const limitNum = parseInt(limit as string);
+
+        const pipeline = [
+            {
+                $match: {
+                    status: 'ACTIVE',
+                    approval_status: 'APPROVED',
+                    'flags.is_featured': true,
+                    'location.coordinates': { $exists: true, $ne: [] }
+                }
+            },
+            {
+                $geoNear: {
+                    near: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    distanceField: 'distance',
+                    maxDistance: 50000, // 50km for featured
+                    spherical: true
+                }
+            },
+            {
+                $lookup: {
+                    from: 'brands',
+                    localField: 'brand_id',
+                    foreignField: '_id',
+                    as: 'brand'
+                }
+            },
+            {
+                $unwind: '$brand'
+            },
+            {
+                $match: {
+                    'brand.verification_status': 'approved',
+                    $or: [
+                        { 'brand.is_active': true },
+                        { 'brand.is_active': { $exists: false } } // Include brands where is_active is not set
+                    ]
+                }
+            },
+            {
+                $sort: { distance: 1, avg_rating: -1 }
+            },
+            {
+                $limit: limitNum
+            },
+            {
+                $project: {
+                    _id: 1,
+                    name: 1,
+                    slug: 1,
+                    address: 1,
+                    distance: { $round: ['$distance', 0] },
+                    avg_rating: 1,
+                    total_reviews: 1,
+                    price_range: 1,
+                    delivery_time: 1,
+                    is_pure_veg: 1,
+                    media: 1,
+                    brand: {
+                        _id: '$brand._id',
+                        name: '$brand.name',
+                        slug: '$brand.slug',
+                        logo_url: '$brand.logo_url',
+                        cuisines: '$brand.cuisines',
+                        is_featured: '$brand.is_featured'
+                    }
+                }
+            }
+        ];
+
+        const outlets = await Outlet.aggregate(pipeline as any);
+
+        return sendSuccess(res, { outlets });
+    } catch (error: any) {
+        console.error('getFeaturedOutlets error:', error);
         return sendError(res, error.message);
     }
 };

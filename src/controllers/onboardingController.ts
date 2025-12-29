@@ -84,6 +84,30 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             console.log('⚠️ Outlet cover provided but not base64, using as-is:', coverImageUrl);
         }
 
+        // Log coordinates for debugging
+        console.log('📍 Outlet coordinates - Latitude:', outlet.latitude, 'Longitude:', outlet.longitude);
+        
+        // Validate coordinates if present
+        if (outlet.latitude && outlet.longitude) {
+            const lat = parseFloat(outlet.latitude);
+            const lng = parseFloat(outlet.longitude);
+            
+            if (isNaN(lat) || isNaN(lng)) {
+                return res.status(400).json({ message: 'Invalid coordinates: must be valid numbers' });
+            }
+            
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                return res.status(400).json({ 
+                    message: 'Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180' 
+                });
+            }
+            
+            console.log('✅ Coordinates validated:', { latitude: lat, longitude: lng });
+        } else {
+            console.warn('⚠️  No coordinates provided for outlet');
+            return res.status(400).json({ message: 'Location coordinates are required. Please select a valid location.' });
+        }
+
         const newOutlet = await outletService.createOutlet(req.user.id, brandId, {
             name: outlet.name,
             contact: {
@@ -97,8 +121,9 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
                 country: 'India',
                 pincode: outlet.zip
             },
-            location: outlet.location ? {
-                coordinates: [outlet.location.lng, outlet.location.lat]
+            location: (outlet.latitude && outlet.longitude) ? {
+                type: 'Point',
+                coordinates: [parseFloat(outlet.longitude), parseFloat(outlet.latitude)] // [lng, lat]
             } : undefined,
             media: {
                 cover_image_url: coverImageUrl

@@ -47,6 +47,7 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
         pincode?: string;
     };
     location?: {
+        type?: string;
         coordinates: number[];
     };
     media?: {
@@ -64,6 +65,9 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
 }): Promise<IOutlet> => {
     // Generate slug from name
     const slug = outletData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    
+    // Log location data for debugging
+    console.log('🗺️  Creating outlet with location:', JSON.stringify(outletData.location, null, 2));
     
     const outlet = new Outlet({
         brand_id: brandId,
@@ -91,6 +95,10 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
     });
 
     await outlet.save();
+    console.log('✅ Outlet saved successfully');
+    console.log('   Name:', outlet.name);
+    console.log('   Location:', JSON.stringify(outlet.location, null, 2));
+    console.log('   Coordinates:', outlet.location?.coordinates);
     return outlet;
 };
 

@@ -37,8 +37,13 @@ export interface IOutlet extends Document {
     };
     location?: {
         type: string;
-        coordinates: number[];
+        coordinates: [number, number]; // [longitude, latitude]
     };
+    price_range?: number; // 1-4 (₹, ₹₹, ₹₹₹, ₹₹₹₹)
+    avg_rating?: number;
+    total_reviews?: number;
+    delivery_time?: number; // in minutes
+    is_pure_veg?: boolean;
     timezone?: string;
     restaurant_type?: string;
     vendor_types?: string[];
@@ -98,9 +103,23 @@ const outletSchema = new Schema<IOutlet>({
         pincode: String
     },
     location: {
-        type: { type: String, default: 'Point' },
-        coordinates: { type: [Number], index: '2dsphere' }
+        type: { type: String, enum: ['Point'], default: 'Point' },
+        coordinates: {
+            type: [Number],
+            required: false,
+            validate: {
+                validator: function(v: number[]) {
+                    return !v || (v.length === 2 && v[0] >= -180 && v[0] <= 180 && v[1] >= -90 && v[1] <= 90);
+                },
+                message: 'Coordinates must be [longitude, latitude] with valid ranges'
+            }
+        }
     },
+    price_range: { type: Number, min: 1, max: 4 },
+    avg_rating: { type: Number, min: 0, max: 5, default: 0 },
+    total_reviews: { type: Number, default: 0 },
+    delivery_time: { type: Number },
+    is_pure_veg: { type: Boolean, default: false },
     timezone: { type: String },
     restaurant_type: { type: String },
     vendor_types: [String],
@@ -123,5 +142,12 @@ const outletSchema = new Schema<IOutlet>({
         google_review: String
     }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Create 2dsphere index for geospatial queries
+outletSchema.index({ location: '2dsphere' });
+outletSchema.index({ 'address.city': 1, 'address.state': 1 });
+outletSchema.index({ status: 1, approval_status: 1 });
+outletSchema.index({ brand_id: 1, status: 1 });
+outletSchema.index({ price_range: 1, avg_rating: -1 });
 
 export const Outlet = mongoose.model<IOutlet>('Outlet', outletSchema);

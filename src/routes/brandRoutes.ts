@@ -1,9 +1,23 @@
 import express from 'express';
-import { createBrand, searchBrands, joinBrand, requestAccess, getUserBrands, updateBrand } from '../controllers/brandController.js';
+import { 
+    createBrand, 
+    searchBrands, 
+    joinBrand, 
+    requestAccess, 
+    getUserBrands, 
+    updateBrand,
+    getNearbyBrands,
+    getFeaturedBrands
+} from '../controllers/brandController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
+// Public location-based routes
+router.get('/nearby', getNearbyBrands);
+router.get('/featured', getFeaturedBrands);
+
+// Protected routes
 router.post('/', protect, createBrand);
 router.get('/', protect, searchBrands);
 router.get('/my-brands', protect, getUserBrands);

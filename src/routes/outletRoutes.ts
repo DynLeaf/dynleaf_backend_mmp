@@ -10,7 +10,10 @@ import {
     uploadPhotoGallery,
     deletePhotoGallery,
     getProfileOverview,
-    getProfileAbout
+    getProfileAbout,
+    getBrandOutlets,
+    getNearbyOutlets,
+    getFeaturedOutlets
 } from '../controllers/outletController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -23,6 +26,12 @@ import {
 
 const router = express.Router();
 
+// Public routes
+router.get('/nearby', getNearbyOutlets);
+router.get('/featured', getFeaturedOutlets);
+router.get('/brand/:brandId/outlets', getBrandOutlets);
+
+// Protected routes
 router.post('/', protect, createOutlet);
 router.get('/my-outlets', protect, getUserOutlets);
 router.get('/my-outlets-list', protect, getUserOutletsList); // Lightweight for dropdown
