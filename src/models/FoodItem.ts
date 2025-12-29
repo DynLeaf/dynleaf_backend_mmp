@@ -5,6 +5,7 @@ export interface IFoodItem extends Document {
     category_id?: mongoose.Types.ObjectId;
     name: string;
     description?: string;
+    item_type: 'food' | 'beverage';
     is_veg: boolean;
     is_active: boolean;
     base_price: number;
@@ -26,6 +27,7 @@ const foodItemSchema = new Schema<IFoodItem>({
     category_id: { type: Schema.Types.ObjectId, ref: 'Category' },
     name: { type: String, required: true },
     description: { type: String },
+    item_type: { type: String, enum: ['food', 'beverage'], default: 'food', required: true },
     is_veg: { type: Boolean, default: true },
     is_active: { type: Boolean, default: true },
     base_price: { type: Number, required: true },

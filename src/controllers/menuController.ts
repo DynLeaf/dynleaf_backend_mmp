@@ -63,7 +63,7 @@ export const updateCategory = async (req: Request, res: Response) => {
 export const createFoodItem = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const { name, description, categoryId, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
+        const { name, description, categoryId, itemType, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
 
        
         const foodItem = await FoodItem.create({
@@ -71,6 +71,7 @@ export const createFoodItem = async (req: Request, res: Response) => {
             category_id: categoryId,
             name,
             description,
+            item_type: itemType || 'food',
             is_veg: isVeg,
             base_price: basePrice,
             tax_percentage: taxPercentage,
@@ -80,7 +81,7 @@ export const createFoodItem = async (req: Request, res: Response) => {
         });
 
         
-        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, isVeg: foodItem.is_veg, basePrice: foodItem.base_price, isActive: foodItem.is_active }, null, 201);
+        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.base_price, isActive: foodItem.is_active }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -89,7 +90,7 @@ export const createFoodItem = async (req: Request, res: Response) => {
 export const listFoodItems = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const { search, category, tags, isVeg, isActive, page = '1', limit = '50', sortBy = 'created_at', sortOrder = 'desc' } = req.query;
+        const { search, category, tags, isVeg, isActive, itemType, page = '1', limit = '50', sortBy = 'created_at', sortOrder = 'desc' } = req.query;
 
         const query: any = { brand_id: brandId };
         
@@ -108,6 +109,10 @@ export const listFoodItems = async (req: Request, res: Response) => {
         
         if (isActive !== undefined) {
             query.is_active = isActive === 'true';
+        }
+        
+        if (itemType && (itemType === 'food' || itemType === 'beverage')) {
+            query.item_type = itemType;
         }
 
         const pageNum = parseInt(page as string);
@@ -128,6 +133,7 @@ export const listFoodItems = async (req: Request, res: Response) => {
             addonIds: i.addon_ids ? i.addon_ids.map(a => a.toString()) : [],
             name: i.name,
             description: i.description,
+            itemType: i.item_type,
             isVeg: i.is_veg,
             basePrice: i.base_price,
             taxPercentage: i.tax_percentage,
@@ -291,17 +297,26 @@ export const bulkUpdateFoodItems = async (req: Request, res: Response) => {
     try {
         const { itemIds, updates } = req.body;
 
+        console.log('Bulk update request:', { itemIds, updates });
+
         if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
             return sendError(res, 'Item IDs are required', 400);
         }
 
-        await FoodItem.updateMany(
+        if (!updates || typeof updates !== 'object') {
+            return sendError(res, 'Updates object is required', 400);
+        }
+
+        const result = await FoodItem.updateMany(
             { _id: { $in: itemIds } },
             { $set: updates }
         );
 
+        console.log('Bulk update result:', result);
+
         return sendSuccess(res, null, `${itemIds.length} items updated successfully`);
     } catch (error: any) {
+        console.error('Bulk update error:', error);
         return sendError(res, error.message);
     }
 };

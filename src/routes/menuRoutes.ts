@@ -39,14 +39,16 @@ router.delete('/categories/:categoryId', protect, deleteCategory);
 // Food Items
 router.post('/brands/:brandId/food-items', protect, createFoodItem);
 router.get('/brands/:brandId/food-items', listFoodItems);
+
+// Bulk Operations (MUST be before parameterized routes)
+router.patch('/food-items/bulk-update', protect, bulkUpdateFoodItems);
+router.post('/food-items/bulk-delete', protect, bulkDeleteFoodItems);
+
+// Individual Food Item Operations (parameterized routes come after)
 router.patch('/food-items/:foodItemId', protect, updateFoodItem);
 router.delete('/food-items/:foodItemId', protect, deleteFoodItem);
 router.post('/food-items/:foodItemId/duplicate', protect, duplicateFoodItem);
 router.post('/food-items/:foodItemId/upload-image', protect, uploadFoodItemImage);
-
-// Bulk Operations
-router.patch('/food-items/bulk-update', protect, bulkUpdateFoodItems);
-router.post('/food-items/bulk-delete', protect, bulkDeleteFoodItems);
 
 // Variants
 router.post('/food-items/:foodItemId/variants', protect, createVariant);
