@@ -14,6 +14,7 @@
     "set-coordinates": "tsx src/scripts/setOutletCoordinates.ts",
     "fix-indexes": "tsx src/scripts/fixDuplicateIndexes.ts",
     "check-outlets": "tsx src/scripts/checkAllOutletCoordinates.ts",
+    "verify:outlets": "tsx src/scripts/verifyOutletData.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -596,7 +596,7 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = 20, radius = 10000 } = req.query;
+        const { latitude, longitude, limit = 20, radius = 50000 } = req.query;
         
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
@@ -607,22 +607,72 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
         const limitNum = parseInt(limit as string);
         const radiusNum = parseInt(radius as string); // radius in meters
 
-        // Step 1: Find nearby outlets using $geoNear
-        // Use collection directly to avoid Mongoose middleware
-        const nearbyOutlets = await Outlet.collection.aggregate([
+        console.log(`🔍 Finding trending dishes near [${lat}, ${lng}] within ${radiusNum}m`);
+
+        // Step 1: Find nearby outlets using aggregation with distance calculation
+        const nearbyOutlets = await Outlet.aggregate([
             {
-                $geoNear: {
-                    near: {
-                        type: 'Point',
-                        coordinates: [lng, lat]
-                    },
-                    distanceField: 'distance',
-                    maxDistance: radiusNum,
-                    spherical: true,
-                    query: {
-                        is_active: true
+                $match: {
+                    status: 'ACTIVE',
+                    approval_status: 'APPROVED',
+                    'location.coordinates': { $exists: true, $ne: [] }
+                }
+            },
+            {
+                $addFields: {
+                    distance: {
+                        $let: {
+                            vars: {
+                                lat1: { $arrayElemAt: ['$location.coordinates', 1] },
+                                lon1: { $arrayElemAt: ['$location.coordinates', 0] },
+                                lat2: lat,
+                                lon2: lng
+                            },
+                            in: {
+                                $multiply: [
+                                    6371000, // Earth radius in meters
+                                    {
+                                        $acos: {
+                                            $max: [
+                                                -1,
+                                                {
+                                                    $min: [
+                                                        1,
+                                                        {
+                                                            $add: [
+                                                                {
+                                                                    $multiply: [
+                                                                        { $sin: { $multiply: [{ $divide: ['$$lat1', 57.2958] }, 1] } },
+                                                                        { $sin: { $multiply: [{ $divide: ['$$lat2', 57.2958] }, 1] } }
+                                                                    ]
+                                                                },
+                                                                {
+                                                                    $multiply: [
+                                                                        { $cos: { $multiply: [{ $divide: ['$$lat1', 57.2958] }, 1] } },
+                                                                        { $cos: { $multiply: [{ $divide: ['$$lat2', 57.2958] }, 1] } },
+                                                                        { $cos: { $multiply: [{ $divide: [{ $subtract: ['$$lon2', '$$lon1'] }, 57.2958] }, 1] } }
+                                                                    ]
+                                                                }
+                                                            ]
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+                        }
                     }
                 }
+            },
+            {
+                $match: {
+                    distance: { $lte: radiusNum }
+                }
+            },
+            {
+                $sort: { distance: 1 }
             },
             {
                 $lookup: {
@@ -643,44 +693,35 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                         { 'brand.is_active': { $exists: false } }
                     ]
                 }
-            },
-            {
-                $project: {
-                    _id: 1,
-                    brand_id: 1,
-                    distance: 1,
-                    'brand.name': 1,
-                    'brand.logo_url': 1
-                }
-            },
-            {
-                $limit: 50 // Get up to 50 nearby outlets
             }
-        ]).toArray();
+        ]);
+
+        console.log(`📍 Found ${nearbyOutlets.length} nearby outlets`);
 
         if (nearbyOutlets.length === 0) {
-            return sendSuccess(res, { dishes: [] });
+            return sendSuccess(res, { dishes: [], metadata: { nearbyOutletsCount: 0, message: 'No outlets found within the search radius' } });
         }
 
-        // Step 2: Get brand IDs from nearby outlets
-        const brandIds = [...new Set(nearbyOutlets.map(outlet => outlet.brand_id))];
+        // Step 2: Extract unique brand IDs
+        const brandIds = [...new Set(nearbyOutlets.map((outlet: any) => outlet.brand_id))];
+        console.log(`🏢 Found ${brandIds.length} unique brands`);
 
-        // Step 3: Find trending dishes from these brands
-        // For now, sort by created_at (newest first)
-        // In production, you'd use metrics like order count, ratings, etc.
+        // Step 3: Fetch food items from those brands
         const foodItems = await FoodItem.find({ 
             brand_id: { $in: brandIds },
             is_active: true 
         })
         .populate('brand_id', 'name logo_url')
         .populate('category_id', 'name')
-        .sort({ created_at: -1 }) // Sort by newest - can be changed to popularity metric
+        .sort({ created_at: -1 }) // Sort by newest first
         .limit(limitNum)
         .lean();
 
+        console.log(`🍽️ Found ${foodItems.length} food items`);
+
         // Step 4: Format response with outlet information
         const formattedItems = foodItems.map(item => {
-            const outlet = nearbyOutlets.find(o => o.brand_id.toString() === (item.brand_id as any)._id.toString());
+            const outlet = nearbyOutlets.find((o: any) => o.brand_id.toString() === (item.brand_id as any)._id.toString());
             
             return {
                 id: item._id,
@@ -695,10 +736,11 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                     name: (item.brand_id as any)?.name,
                     logo: (item.brand_id as any)?.logo_url
                 },
-                outlet: {
-                    id: outlet?._id,
-                    distance: outlet?.distance ? Math.round(outlet.distance) : null
-                },
+                outlet: outlet ? {
+                    id: outlet._id,
+                    name: outlet.name,
+                    distance: Math.round(outlet.distance)
+                } : null,
                 category: (item.category_id as any)?.name
             };
         });
@@ -707,7 +749,8 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             dishes: formattedItems,
             metadata: {
                 nearbyOutletsCount: nearbyOutlets.length,
-                radius: radiusNum
+                brandsCount: brandIds.length,
+                searchRadius: radiusNum
             }
         });
     } catch (error: any) {
