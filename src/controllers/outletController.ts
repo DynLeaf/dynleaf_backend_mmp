@@ -580,82 +580,124 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
         const lng = parseFloat(longitude as string);
         const limitNum = parseInt(limit as string);
 
-        const pipeline = [
-            {
-                $match: {
-                    status: 'ACTIVE',
-                    approval_status: 'APPROVED',
-                    'flags.is_featured': true,
-                    'location.coordinates': { $exists: true, $ne: [] }
-                }
-            },
-            {
-                $geoNear: {
-                    near: {
-                        type: 'Point',
-                        coordinates: [lng, lat]
-                    },
-                    distanceField: 'distance',
-                    maxDistance: 50000, // 50km for featured
-                    spherical: true
-                }
-            },
-            {
-                $lookup: {
-                    from: 'brands',
-                    localField: 'brand_id',
-                    foreignField: '_id',
-                    as: 'brand'
-                }
-            },
-            {
-                $unwind: '$brand'
-            },
-            {
-                $match: {
-                    'brand.verification_status': 'approved',
-                    $or: [
-                        { 'brand.is_active': true },
-                        { 'brand.is_active': { $exists: false } } // Include brands where is_active is not set
-                    ]
-                }
-            },
-            {
-                $sort: { distance: 1, avg_rating: -1 }
-            },
-            {
-                $limit: limitNum
-            },
-            {
-                $project: {
-                    _id: 1,
-                    name: 1,
-                    slug: 1,
-                    address: 1,
-                    distance: { $round: ['$distance', 0] },
-                    avg_rating: 1,
-                    total_reviews: 1,
-                    price_range: 1,
-                    delivery_time: 1,
-                    is_pure_veg: 1,
-                    media: 1,
-                    brand: {
-                        _id: '$brand._id',
-                        name: '$brand.name',
-                        slug: '$brand.slug',
-                        logo_url: '$brand.logo_url',
-                        cuisines: '$brand.cuisines',
-                        is_featured: '$brand.is_featured'
-                    }
-                }
-            }
-        ];
+        // Step 1: Find featured outlets nearby
+        const featuredOutlets = await Outlet.find({
+            status: 'ACTIVE',
+            approval_status: 'APPROVED',
+            'flags.is_featured': true,
+            'location.coordinates': { $exists: true, $ne: [] }
+        })
+        .populate('brand_id', 'name slug logo_url cuisines verification_status is_active is_featured')
+        .lean();
 
-        const outlets = await Outlet.aggregate(pipeline as any);
+        console.log(`🌟 Found ${featuredOutlets.length} featured outlets`);
 
-        return sendSuccess(res, { outlets });
+        // Step 2: Filter by approved brands and calculate distance
+        const validOutlets = featuredOutlets
+            .map(outlet => {
+                const brand = outlet.brand_id as any;
+                if (!brand || brand.verification_status !== 'approved' || (brand.is_active === false)) {
+                    return null;
+                }
+
+                if (outlet.location?.coordinates?.length === 2) {
+                    const [lng2, lat2] = outlet.location.coordinates;
+                    const distance = calculateDistance(lat, lng, lat2, lng2);
+                    
+                    return {
+                        ...outlet,
+                        distance,
+                        brand: {
+                            _id: brand._id,
+                            name: brand.name,
+                            slug: brand.slug,
+                            logo_url: brand.logo_url,
+                            cuisines: brand.cuisines,
+                            is_featured: brand.is_featured
+                        }
+                    };
+                }
+                return null;
+            })
+            .filter(outlet => outlet !== null && outlet.distance <= 50000) // 50km radius
+            .sort((a: any, b: any) => a.distance - b.distance)
+            .slice(0, limitNum);
+
+        console.log(`✅ Returning ${validOutlets.length} featured outlets`);
+
+        const formattedOutlets = validOutlets.map(outlet => ({
+            _id: outlet._id,
+            name: outlet.name,
+            slug: outlet.slug,
+            address: outlet.address,
+            distance: Math.round(outlet.distance),
+            avg_rating: outlet.avg_rating,
+            total_reviews: outlet.total_reviews,
+            price_range: outlet.price_range,
+            delivery_time: outlet.delivery_time,
+            is_pure_veg: outlet.is_pure_veg,
+            media: outlet.media,
+            brand: outlet.brand
+        }));
+
+        return sendSuccess(res, { outlets: formattedOutlets });
     } catch (error: any) {
         console.error('getFeaturedOutlets error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Helper function to calculate distance
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371e3; // Earth radius in meters
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+}
+
+// Toggle featured status (Admin only)
+export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { is_featured } = req.body;
+
+        // TODO: Add admin role check
+        // if (req.user?.role !== 'admin') {
+        //     return sendError(res, 'Unauthorized', null, 403);
+        // }
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        outlet.flags = {
+            ...outlet.flags,
+            is_featured: is_featured
+        };
+
+        await outlet.save();
+
+        console.log(`🌟 Outlet ${outlet.name} featured status set to: ${is_featured}`);
+
+        return sendSuccess(res, { 
+            outlet: {
+                _id: outlet._id,
+                name: outlet.name,
+                is_featured: outlet.flags?.is_featured
+            },
+            message: `Outlet ${is_featured ? 'featured' : 'unfeatured'} successfully`
+        });
+    } catch (error: any) {
+        console.error('toggleFeaturedStatus error:', error);
         return sendError(res, error.message);
     }
 };

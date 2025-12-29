@@ -13,7 +13,8 @@ import {
     getProfileAbout,
     getBrandOutlets,
     getNearbyOutlets,
-    getFeaturedOutlets
+    getFeaturedOutlets,
+    toggleFeaturedStatus
 } from '../controllers/outletController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -37,6 +38,7 @@ router.get('/my-outlets', protect, getUserOutlets);
 router.get('/my-outlets-list', protect, getUserOutletsList); // Lightweight for dropdown
 router.get('/:outletId', protect, getOutletById);
 router.put('/:outletId', protect, updateOutlet);
+router.patch('/:outletId/featured', protect, toggleFeaturedStatus); // Toggle featured status
 router.post('/:outletId/compliance', protect, saveCompliance);
 router.put('/:outletId/operating-hours', protect, updateOperatingHours);
 router.post('/:outletId/photo-gallery', protect, uploadPhotoGallery);
