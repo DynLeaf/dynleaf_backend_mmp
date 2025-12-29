@@ -88,8 +88,7 @@ const userSchema = new Schema<IUser>({
     }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-userSchema.index({ phone: 1 });
-userSchema.index({ email: 1 });
+// Indexes - phone and email already have indexes from unique: true in schema
 userSchema.index({ 'roles.brandId': 1 });
 userSchema.index({ 'roles.outletId': 1 });
 userSchema.index({ is_active: 1, is_suspended: 1 });
