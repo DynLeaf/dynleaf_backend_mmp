@@ -5,6 +5,7 @@ import { Menu } from '../models/Menu.js';
 import { FoodVariant } from '../models/FoodVariant.js';
 import { AddOn } from '../models/AddOn.js';
 import { Combo } from '../models/Combo.js';
+import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
 const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: number }>, discountPercentage: number) => {
@@ -595,43 +596,120 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = 20 } = req.query;
+        const { latitude, longitude, limit = 20, radius = 10000 } = req.query;
         
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
 
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
         const limitNum = parseInt(limit as string);
+        const radiusNum = parseInt(radius as string); // radius in meters
 
-        // Get popular food items from brands
-        // For now, return items sorted by rating/popularity
-        // In production, you'd calculate this based on orders, ratings, etc.
+        // Step 1: Find nearby outlets using $geoNear
+        // Use collection directly to avoid Mongoose middleware
+        const nearbyOutlets = await Outlet.collection.aggregate([
+            {
+                $geoNear: {
+                    near: {
+                        type: 'Point',
+                        coordinates: [lng, lat]
+                    },
+                    distanceField: 'distance',
+                    maxDistance: radiusNum,
+                    spherical: true,
+                    query: {
+                        is_active: true
+                    }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'brands',
+                    localField: 'brand_id',
+                    foreignField: '_id',
+                    as: 'brand'
+                }
+            },
+            {
+                $unwind: '$brand'
+            },
+            {
+                $match: {
+                    'brand.verification_status': 'approved',
+                    $or: [
+                        { 'brand.is_active': true },
+                        { 'brand.is_active': { $exists: false } }
+                    ]
+                }
+            },
+            {
+                $project: {
+                    _id: 1,
+                    brand_id: 1,
+                    distance: 1,
+                    'brand.name': 1,
+                    'brand.logo_url': 1
+                }
+            },
+            {
+                $limit: 50 // Get up to 50 nearby outlets
+            }
+        ]).toArray();
+
+        if (nearbyOutlets.length === 0) {
+            return sendSuccess(res, { dishes: [] });
+        }
+
+        // Step 2: Get brand IDs from nearby outlets
+        const brandIds = [...new Set(nearbyOutlets.map(outlet => outlet.brand_id))];
+
+        // Step 3: Find trending dishes from these brands
+        // For now, sort by created_at (newest first)
+        // In production, you'd use metrics like order count, ratings, etc.
         const foodItems = await FoodItem.find({ 
+            brand_id: { $in: brandIds },
             is_active: true 
         })
         .populate('brand_id', 'name logo_url')
         .populate('category_id', 'name')
-        .sort({ created_at: -1 })
+        .sort({ created_at: -1 }) // Sort by newest - can be changed to popularity metric
         .limit(limitNum)
         .lean();
 
-        const formattedItems = foodItems.map(item => ({
-            id: item._id,
-            name: item.name,
-            description: item.description,
-            image: item.image_url,
-            price: item.base_price,
-            isVeg: item.is_veg,
-            rating: 4.5, // Placeholder - calculate from reviews
-            restaurant: {
-                id: (item.brand_id as any)?._id,
-                name: (item.brand_id as any)?.name,
-                logo: (item.brand_id as any)?.logo_url
-            },
-            category: (item.category_id as any)?.name
-        }));
+        // Step 4: Format response with outlet information
+        const formattedItems = foodItems.map(item => {
+            const outlet = nearbyOutlets.find(o => o.brand_id.toString() === (item.brand_id as any)._id.toString());
+            
+            return {
+                id: item._id,
+                name: item.name,
+                description: item.description,
+                image: item.image_url,
+                price: item.base_price,
+                isVeg: item.is_veg,
+                rating: 4.5, // Placeholder - calculate from reviews
+                restaurant: {
+                    id: (item.brand_id as any)?._id,
+                    name: (item.brand_id as any)?.name,
+                    logo: (item.brand_id as any)?.logo_url
+                },
+                outlet: {
+                    id: outlet?._id,
+                    distance: outlet?.distance ? Math.round(outlet.distance) : null
+                },
+                category: (item.category_id as any)?.name
+            };
+        });
 
-        return sendSuccess(res, { dishes: formattedItems });
+        return sendSuccess(res, { 
+            dishes: formattedItems,
+            metadata: {
+                nearbyOutletsCount: nearbyOutlets.length,
+                radius: radiusNum
+            }
+        });
     } catch (error: any) {
         console.error('getTrendingDishes error:', error);
         return sendError(res, error.message);

@@ -32,7 +32,7 @@ import { protect } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 // Public routes
-router.get('/trending-dishes', getTrendingDishes);
+router.get('/menu/trending-dishes', getTrendingDishes);
 
 // Categories
 router.post('/brands/:brandId/categories', protect, createCategory);
