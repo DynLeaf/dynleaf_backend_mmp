@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { OutletMenuItem } from '../models/OutletMenuItem.js';
+import { FoodItem } from '../models/FoodItem.js';
 
 /**
  * NEW: Get nearby food items using OutletMenuItem
@@ -291,7 +292,7 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     console.log(`🔥 Finding trending dishes near [${lat}, ${lng}]`);
 
     const pipeline: any[] = [
-      // Geospatial search
+      // Geospatial search on FoodItem.location
       {
         $geoNear: {
           near: {
@@ -303,21 +304,11 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
           spherical: true,
           query: {
             is_available: true,
-            orders_at_outlet: { $gt: 0 } // Must have orders
+            is_active: true,
+            order_count: { $gt: 0 } // Must have orders
           }
         }
       },
-      
-      // Lookup food item
-      {
-        $lookup: {
-          from: 'fooditems',
-          localField: 'food_item_id',
-          foreignField: '_id',
-          as: 'food_item'
-        }
-      },
-      { $unwind: '$food_item' },
       
       // Lookup outlet
       {
@@ -330,36 +321,46 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
       },
       { $unwind: '$outlet' },
       
-      // Lookup brand
+      // Lookup brand from outlet
       {
         $lookup: {
           from: 'brands',
-          localField: 'brand_id',
+          localField: 'outlet.brand_id',
           foreignField: '_id',
           as: 'brand'
         }
       },
       { $unwind: '$brand' },
       
+      // Lookup category
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category_id',
+          foreignField: '_id',
+          as: 'category'
+        }
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      
       // Filter
       {
         $match: {
           'outlet.status': 'ACTIVE',
-          'outlet.approval_status': 'APPROVED',
-          'food_item.is_active': true
+          'outlet.approval_status': 'APPROVED'
         }
       }
     ];
 
-    // Veg filter
+    // Veg filter - now using food_type
     if (isVeg === 'true') {
-      pipeline.push({ $match: { 'food_item.is_veg': true } });
+      pipeline.push({ $match: { food_type: { $in: ['veg', 'vegan'] } } });
     }
 
     // Sort by popularity (orders), then by distance
     pipeline.push({
       $sort: {
-        orders_at_outlet: -1,
+        order_count: -1,
         distance: 1
       }
     });
@@ -370,11 +371,12 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     // Project
     pipeline.push({
       $project: {
-        _id: '$food_item._id',
-        name: '$food_item.name',
-        image: '$food_item.image_url',
-        is_veg: '$food_item.is_veg',
-        price: { $ifNull: ['$price_override', '$food_item.base_price'] },
+        _id: '$_id',
+        name: '$name',
+        image: '$primary_image',
+        is_veg: '$is_veg',
+        food_type: '$food_type',
+        price: '$price',
         outlet: {
           _id: '$outlet._id',
           name: '$outlet.name',
@@ -385,12 +387,18 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
           name: '$brand.name',
           logo_url: '$brand.logo_url'
         },
-        orders: '$orders_at_outlet',
-        rating: '$rating_at_outlet'
+        category: {
+          _id: '$category._id',
+          name: '$category.name'
+        },
+        orders: '$order_count',
+        rating: '$avg_rating',
+        is_bestseller: '$is_bestseller',
+        is_new: '$is_new'
       }
     });
 
-    const results = await OutletMenuItem.aggregate(pipeline);
+    const results = await FoodItem.aggregate(pipeline);
 
     console.log(`🔥 Found ${results.length} trending dishes`);
 

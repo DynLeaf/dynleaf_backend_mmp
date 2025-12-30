@@ -1,18 +1,19 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
-import { OutletMenuItem } from '../models/OutletMenuItem.js';
+import { Category } from '../models/Category.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 /**
- * Get outlet's menu with all items
+ * Get outlet's menu with all items (NEW: Direct from FoodItem, no junction table)
  * GET /api/v1/outlets/:outletId/menu
- * Query params: category, isVeg, isAvailable, search, sortBy
+ * Query params: category, foodType, isAvailable, search, sortBy
  */
 export const getOutletMenu = async (req: Request, res: Response) => {
   try {
     const { outletId } = req.params;
-    const { category, isVeg, isAvailable, search, sortBy = 'display_order' } = req.query;
+    const { category, foodType, isVeg, isAvailable, search, sortBy = 'category' } = req.query;
 
     // Verify outlet exists
     const outlet = await Outlet.findById(outletId).populate('brand_id', 'name logo_url cuisines');
@@ -23,102 +24,168 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       });
     }
 
-    // Build query for OutletMenuItem
-    const query: any = { outlet_id: outletId };
-    
+    // Build aggregation pipeline
+    const pipeline: any[] = [
+      { $match: { outlet_id: new mongoose.Types.ObjectId(outletId), is_active: true } }
+    ];
+
+    // Filter by availability
     if (isAvailable === 'true') {
-      query.is_available = true;
+      pipeline.push({ $match: { is_available: true } });
     }
 
-    // Get outlet menu items with populated food items
-    let menuItems = await OutletMenuItem.find(query)
-      .populate({
-        path: 'food_item_id',
-        populate: { path: 'category_id', select: 'name slug' }
-      })
-      .lean();
-
-    // Filter by category
-    if (category) {
-      menuItems = menuItems.filter((item: any) => 
-        item.food_item_id?.category_id?.slug === category ||
-        item.food_item_id?.category_id?.name === category
-      );
+    // Filter by food type
+    if (foodType) {
+      pipeline.push({ $match: { food_type: foodType } });
     }
 
-    // Filter by veg
+    // Filter by veg (backward compatibility)
     if (isVeg === 'true') {
-      menuItems = menuItems.filter((item: any) => item.food_item_id?.is_veg === true);
+      pipeline.push({ $match: { is_veg: true } });
     } else if (isVeg === 'false') {
-      menuItems = menuItems.filter((item: any) => item.food_item_id?.is_veg === false);
+      pipeline.push({ $match: { is_veg: false } });
     }
 
     // Search filter
     if (search) {
-      const searchLower = (search as string).toLowerCase();
-      menuItems = menuItems.filter((item: any) => 
-        item.food_item_id?.name?.toLowerCase().includes(searchLower) ||
-        item.food_item_id?.description?.toLowerCase().includes(searchLower) ||
-        item.food_item_id?.tags?.some((tag: string) => tag.toLowerCase().includes(searchLower))
-      );
+      pipeline.push({
+        $match: {
+          $or: [
+            { name: { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+            { tags: { $in: [new RegExp(search as string, 'i')] } }
+          ]
+        }
+      });
+    }
+
+    // Lookup category
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category_id',
+          foreignField: '_id',
+          as: 'category'
+        }
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Filter by category if specified
+    if (category) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'category.slug': category },
+            { 'category.name': category }
+          ]
+        }
+      });
     }
 
     // Sort
     if (sortBy === 'price_low') {
-      menuItems.sort((a: any, b: any) => {
-        const priceA = a.price_override || a.food_item_id?.base_price || 0;
-        const priceB = b.price_override || b.food_item_id?.base_price || 0;
-        return priceA - priceB;
-      });
+      pipeline.push({ $sort: { price: 1 } });
     } else if (sortBy === 'price_high') {
-      menuItems.sort((a: any, b: any) => {
-        const priceA = a.price_override || a.food_item_id?.base_price || 0;
-        const priceB = b.price_override || b.food_item_id?.base_price || 0;
-        return priceB - priceA;
-      });
+      pipeline.push({ $sort: { price: -1 } });
     } else if (sortBy === 'popular') {
-      menuItems.sort((a: any, b: any) => b.orders_at_outlet - a.orders_at_outlet);
+      pipeline.push({ $sort: { order_count: -1 } });
+    } else if (sortBy === 'rating') {
+      pipeline.push({ $sort: { avg_rating: -1 } });
     } else {
-      // Default: display_order
-      menuItems.sort((a: any, b: any) => a.display_order - b.display_order);
+      // Default: group by category
+      pipeline.push({ $sort: { 'category.display_order': 1, display_order: 1 } });
     }
 
-    // Format response
-    const formattedMenu = menuItems.map((item: any) => ({
-      _id: item._id,
-      food_item_id: item.food_item_id?._id,
-      name: item.food_item_id?.name,
-      description: item.food_item_id?.description,
-      image_url: item.food_item_id?.image_url,
-      images: item.food_item_id?.images,
-      is_veg: item.food_item_id?.is_veg,
-      category: item.food_item_id?.category_id,
-      
-      // Pricing (outlet-specific or base)
-      price: item.price_override || item.food_item_id?.base_price,
-      base_price: item.food_item_id?.base_price,
-      discount: item.discount_override || item.food_item_id?.discount_percentage,
-      
-      // Availability
-      is_available: item.is_available,
-      stock_status: item.stock_status,
-      
-      // Engagement
-      orders: item.orders_at_outlet,
-      rating: item.rating_at_outlet,
-      votes: item.votes_at_outlet,
-      
-      // Other details
-      preparation_time: item.preparation_time_override || item.food_item_id?.preparation_time,
-      spice_level: item.food_item_id?.spice_level,
-      allergens: item.food_item_id?.allergens,
-      calories: item.food_item_id?.calories,
-      tags: item.food_item_id?.tags,
-      
-      is_featured: item.is_featured_at_outlet,
-      display_order: item.display_order,
-      custom_note: item.custom_note
-    }));
+    const menuItems = await FoodItem.aggregate(pipeline);
+
+    // Group by category if not searching/filtering heavily
+    let formattedMenu;
+    if (!search && sortBy === 'category') {
+      const grouped = menuItems.reduce((acc: any, item: any) => {
+        const categoryId = item.category?._id?.toString() || 'uncategorized';
+        const categoryName = item.category?.name || 'Other Items';
+        
+        if (!acc[categoryId]) {
+          acc[categoryId] = {
+            category_id: item.category?._id,
+            category_name: categoryName,
+            category_slug: item.category?.slug,
+            display_order: item.category?.display_order || 999,
+            items: []
+          };
+        }
+        
+        acc[categoryId].items.push({
+          _id: item._id,
+          name: item.name,
+          slug: item.slug,
+          description: item.description,
+          image_url: item.image_url,
+          images: item.images,
+          food_type: item.food_type,
+          is_veg: item.is_veg,
+          price: item.price,
+          original_price: item.original_price,
+          discount_percentage: item.discount_percentage,
+          is_available: item.is_available,
+          stock_status: item.stock_status,
+          preparation_time: item.preparation_time,
+          spice_level: item.spice_level,
+          allergens: item.allergens,
+          ingredients: item.ingredients,
+          cuisines: item.cuisines,
+          tags: item.tags,
+          calories: item.calories,
+          serves: item.serves,
+          avg_rating: item.avg_rating,
+          total_votes: item.total_votes,
+          order_count: item.order_count,
+          is_featured: item.is_featured,
+          is_bestseller: item.is_bestseller,
+          is_signature: item.is_signature,
+          is_new: item.is_new
+        });
+        
+        return acc;
+      }, {});
+
+      formattedMenu = Object.values(grouped).sort((a: any, b: any) => a.display_order - b.display_order);
+    } else {
+      // Flat list for search/special sorting
+      formattedMenu = menuItems.map(item => ({
+        _id: item._id,
+        name: item.name,
+        slug: item.slug,
+        description: item.description,
+        image_url: item.image_url,
+        images: item.images,
+        food_type: item.food_type,
+        is_veg: item.is_veg,
+        category: item.category,
+        price: item.price,
+        original_price: item.original_price,
+        discount_percentage: item.discount_percentage,
+        is_available: item.is_available,
+        stock_status: item.stock_status,
+        preparation_time: item.preparation_time,
+        spice_level: item.spice_level,
+        allergens: item.allergens,
+        ingredients: item.ingredients,
+        cuisines: item.cuisines,
+        tags: item.tags,
+        calories: item.calories,
+        serves: item.serves,
+        avg_rating: item.avg_rating,
+        total_votes: item.total_votes,
+        order_count: item.order_count,
+        is_featured: item.is_featured,
+        is_bestseller: item.is_bestseller,
+        is_signature: item.is_signature,
+        is_new: item.is_new
+      }));
+    }
 
     res.json({
       status: true,
@@ -131,7 +198,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           contact: outlet.contact
         },
         menu: formattedMenu,
-        total_items: formattedMenu.length
+        total_items: menuItems.length
       }
     });
   } catch (error: any) {
@@ -144,24 +211,15 @@ export const getOutletMenu = async (req: Request, res: Response) => {
 };
 
 /**
- * Update outlet menu item (availability, price, order)
- * PATCH /api/v1/outlets/:outletId/menu/:menuItemId
+ * Update food item at outlet (NEW: Direct update, no junction table)
+ * PATCH /api/v1/outlets/:outletId/menu/:foodItemId
  */
 export const updateOutletMenuItem = async (req: AuthRequest, res: Response) => {
   try {
-    const { outletId, menuItemId } = req.params;
-    const {
-      is_available,
-      stock_status,
-      price_override,
-      discount_override,
-      display_order,
-      is_featured_at_outlet,
-      preparation_time_override,
-      custom_note
-    } = req.body;
+    const { outletId, foodItemId } = req.params;
+    const updateData = req.body;
 
-    // Verify outlet exists and user has access
+    // Verify outlet exists
     const outlet = await Outlet.findById(outletId);
     if (!outlet) {
       return res.status(404).json({
@@ -173,44 +231,55 @@ export const updateOutletMenuItem = async (req: AuthRequest, res: Response) => {
     // Check if user is owner/manager
     // TODO: Add proper authorization check
 
-    // Find and update menu item
-    const menuItem = await OutletMenuItem.findOne({
-      _id: menuItemId,
+    // Find and update food item
+    const foodItem = await FoodItem.findOne({
+      _id: foodItemId,
       outlet_id: outletId
     });
 
-    if (!menuItem) {
+    if (!foodItem) {
       return res.status(404).json({
         status: false,
-        message: 'Menu item not found'
+        message: 'Food item not found'
       });
     }
 
-    // Update fields
-    if (is_available !== undefined) {
-      menuItem.is_available = is_available;
-      menuItem.last_stock_update = new Date();
-    }
-    if (stock_status) menuItem.stock_status = stock_status;
-    if (price_override !== undefined) menuItem.price_override = price_override;
-    if (discount_override !== undefined) menuItem.discount_override = discount_override;
-    if (display_order !== undefined) menuItem.display_order = display_order;
-    if (is_featured_at_outlet !== undefined) menuItem.is_featured_at_outlet = is_featured_at_outlet;
-    if (preparation_time_override !== undefined) menuItem.preparation_time_override = preparation_time_override;
-    if (custom_note !== undefined) menuItem.custom_note = custom_note;
+    // Update fields (only allowed fields)
+    const allowedUpdates = [
+      'is_available',
+      'stock_status',
+      'stock_quantity',
+      'price',
+      'discount_percentage',
+      'display_order',
+      'is_featured',
+      'is_bestseller',
+      'is_signature',
+      'is_new',
+      'preparation_time',
+      'description',
+      'images',
+      'tags'
+    ];
 
-    await menuItem.save();
+    Object.keys(updateData).forEach(key => {
+      if (allowedUpdates.includes(key)) {
+        (foodItem as any)[key] = updateData[key];
+      }
+    });
+
+    await foodItem.save();
 
     res.json({
       status: true,
-      data: menuItem,
-      message: 'Menu item updated successfully'
+      data: foodItem,
+      message: 'Food item updated successfully'
     });
   } catch (error: any) {
-    console.error('Error updating menu item:', error);
+    console.error('Error updating food item:', error);
     res.status(500).json({
       status: false,
-      message: error.message || 'Failed to update menu item'
+      message: error.message || 'Failed to update food item'
     });
   }
 };

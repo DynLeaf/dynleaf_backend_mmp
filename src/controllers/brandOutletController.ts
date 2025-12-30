@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
-import { OutletMenuItem } from '../models/OutletMenuItem.js';
+import { FoodItem } from '../models/FoodItem.js';
+import { Category } from '../models/Category.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import mongoose from 'mongoose';
 
@@ -378,32 +379,25 @@ export const getOutletDetail = async (req: Request, res: Response) => {
     }));
 
     // Get available items count
-    const itemsCount = await OutletMenuItem.countDocuments({
+    const itemsCount = await FoodItem.countDocuments({
       outlet_id: outletId,
-      is_available: true
+      is_available: true,
+      is_active: true
     });
 
     // Get menu categories with item counts
-    const categories = await OutletMenuItem.aggregate([
+    const categories = await FoodItem.aggregate([
       {
         $match: {
           outlet_id: new mongoose.Types.ObjectId(outletId),
-          is_available: true
+          is_available: true,
+          is_active: true
         }
       },
-      {
-        $lookup: {
-          from: 'fooditems',
-          localField: 'food_item_id',
-          foreignField: '_id',
-          as: 'food_item'
-        }
-      },
-      { $unwind: '$food_item' },
       {
         $lookup: {
           from: 'categories',
-          localField: 'food_item.category_id',
+          localField: 'category_id',
           foreignField: '_id',
           as: 'category'
         }

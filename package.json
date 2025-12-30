@@ -20,6 +20,7 @@
     "fix:outlet-indexes": "tsx src/scripts/fixOutletIndexes.ts",
     "diagnose:outlets": "tsx src/scripts/diagnoseOutlets.ts",
     "fix:brands": "tsx src/scripts/fixBrandStatus.ts",
+    "migrate:outlet-centric": "tsx src/scripts/migrateToOutletCentric.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
