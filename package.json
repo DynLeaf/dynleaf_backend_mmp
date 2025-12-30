@@ -15,6 +15,11 @@
     "fix-indexes": "tsx src/scripts/fixDuplicateIndexes.ts",
     "check-outlets": "tsx src/scripts/checkAllOutletCoordinates.ts",
     "verify:outlets": "tsx src/scripts/verifyOutletData.ts",
+    "migrate:outlet-menus": "tsx src/scripts/migrateOutletMenuItems.ts",
+    "cleanup:outlet-menus": "tsx src/scripts/cleanupOutletMenuItems.ts",
+    "fix:outlet-indexes": "tsx src/scripts/fixOutletIndexes.ts",
+    "diagnose:outlets": "tsx src/scripts/diagnoseOutlets.ts",
+    "fix:brands": "tsx src/scripts/fixBrandStatus.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -57,6 +57,8 @@ export interface IOutlet extends Document {
     flags?: {
         is_featured: boolean;
         is_trending: boolean;
+        accepts_online_orders: boolean;
+        is_open_now: boolean;
     };
     social_media?: {
         instagram?: string;
@@ -132,7 +134,9 @@ const outletSchema = new Schema<IOutlet>({
     qr_code_url: String,
     flags: {
         is_featured: { type: Boolean, default: false },
-        is_trending: { type: Boolean, default: false }
+        is_trending: { type: Boolean, default: false },
+        accepts_online_orders: { type: Boolean, default: true },
+        is_open_now: { type: Boolean, default: false }
     },
     social_media: {
         instagram: String,
@@ -143,11 +147,14 @@ const outletSchema = new Schema<IOutlet>({
     }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
-// Create 2dsphere index for geospatial queries
-outletSchema.index({ location: '2dsphere' });
+// Create indexes for queries
+outletSchema.index({ location: '2dsphere' }); // Single 2dsphere index for geospatial queries
 outletSchema.index({ 'address.city': 1, 'address.state': 1 });
 outletSchema.index({ status: 1, approval_status: 1 });
-outletSchema.index({ brand_id: 1, status: 1 });
+outletSchema.index({ brand_id: 1, status: 1, approval_status: 1 });
 outletSchema.index({ price_range: 1, avg_rating: -1 });
+outletSchema.index({ 'flags.is_featured': 1 }); // Featured outlets (removed duplicate 2dsphere)
+outletSchema.index({ slug: 1 }, { unique: true });
+outletSchema.index({ created_by_user_id: 1 });
 
 export const Outlet = mongoose.model<IOutlet>('Outlet', outletSchema);
