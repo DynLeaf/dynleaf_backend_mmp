@@ -7,6 +7,7 @@ import brandRoutes from './routes/brandRoutes.js';
 import outletRoutes from './routes/outletRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
 import outletMenuRoutes from './routes/outletMenuRoutes.js';
+import outletMenuManagementRoutes from './routes/outletMenuManagementRoutes.js';
 import foodSearchRoutes from './routes/foodSearchRoutes.js';
 import brandOutletRoutes from './routes/brandOutletRoutes.js';
 import onboardingRoutes from './routes/onboardingRoutes.js';
@@ -64,7 +65,8 @@ app.use('/v1/brands', brandOutletRoutes); // Brand routes (includes /featured)
 app.use('/v1/brands', brandRoutes);
 app.use('/v1/outlets', brandOutletRoutes); // Outlet routes (includes /nearby and /:outletId/detail)
 app.use('/v1/outlets', outletRoutes);
-app.use('/v1/outlets', outletMenuRoutes); // Outlet menu management
+app.use('/v1/outlets', outletMenuRoutes); // Outlet menu management (public)
+app.use('/v1/outlets', outletMenuManagementRoutes); // Outlet menu management (CRUD)
 app.use('/v1/food', foodSearchRoutes); // NEW: Food search with OutletMenuItem
 app.use('/v1/onboarding', onboardingRoutes);
 app.use('/v1/admin', adminRoutes);

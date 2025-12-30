@@ -27,15 +27,33 @@ export const createCategory = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { name, description, imageUrl, isActive } = req.body;
 
+        // Get the first outlet for this brand
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
+        }
+
+        // Generate slug from name
+        const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        let slug = baseSlug;
+        let counter = 1;
+        
+        // Ensure slug is unique for this outlet
+        while (await Category.findOne({ outlet_id: outlet._id, slug })) {
+            slug = `${baseSlug}-${counter}`;
+            counter++;
+        }
+
         const category = await Category.create({
-            brand_id: brandId,
+            outlet_id: outlet._id,
             name,
+            slug,
             description,
             image_url: imageUrl,
-            is_active: isActive
+            is_active: isActive ?? true
         });
 
-        return sendSuccess(res, { id: category._id, name: category.name, isActive: category.is_active }, null, 201);
+        return sendSuccess(res, { id: category._id, name: category.name, slug: category.slug, isActive: category.is_active }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -44,8 +62,15 @@ export const createCategory = async (req: Request, res: Response) => {
 export const listCategories = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const categories = await Category.find({ brand_id: brandId });
-        return sendSuccess(res, categories.map(c => ({ id: c._id, name: c.name, isActive: c.is_active })));
+        
+        // Get the first outlet for this brand
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendSuccess(res, []); // Return empty array if no outlet
+        }
+        
+        const categories = await Category.find({ outlet_id: outlet._id });
+        return sendSuccess(res, categories.map(c => ({ id: c._id, name: c.name, slug: c.slug, isActive: c.is_active })));
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -66,23 +91,44 @@ export const createFoodItem = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { name, description, categoryId, itemType, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
 
+        // Get the first outlet for this brand
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
+        }
+
+        // Determine food_type from isVeg
+        const foodType = isVeg ? 'veg' : 'non-veg';
        
-        const foodItem = await FoodItem.create({
-            brand_id: brandId,
+        // Prepare food item data
+        const foodItemData: any = {
+            outlet_id: outlet._id,
             category_id: categoryId,
             name,
             description,
             item_type: itemType || 'food',
-            is_veg: isVeg,
-            base_price: basePrice,
-            tax_percentage: taxPercentage,
+            food_type: foodType,
+            is_veg: isVeg ?? true,
+            price: basePrice,
+            tax_percentage: taxPercentage ?? 5,
             image_url: imageUrl,
-            is_active: isActive,
-            addon_ids: addonIds
-        });
+            is_active: isActive ?? true,
+            is_available: isActive ?? true,
+            addon_ids: addonIds || []
+        };
+
+        // Copy location from outlet if available (for geospatial queries)
+        if (outlet.location && outlet.location.coordinates && outlet.location.coordinates.length === 2) {
+            foodItemData.location = {
+                type: 'Point',
+                coordinates: outlet.location.coordinates
+            };
+        }
+
+        const foodItem = await FoodItem.create(foodItemData);
 
         
-        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.base_price, isActive: foodItem.is_active }, null, 201);
+        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.price, isActive: foodItem.is_active }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -93,7 +139,13 @@ export const listFoodItems = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { search, category, tags, isVeg, isActive, itemType, page = '1', limit = '50', sortBy = 'created_at', sortOrder = 'desc' } = req.query;
 
-        const query: any = { brand_id: brandId };
+        // Get the first outlet for this brand
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendSuccess(res, { items: [], pagination: { page: 1, limit: 50, total: 0, pages: 0 } });
+        }
+
+        const query: any = { outlet_id: outlet._id };
         
         if (search) {
             query.name = { $regex: search, $options: 'i' };
@@ -136,7 +188,7 @@ export const listFoodItems = async (req: Request, res: Response) => {
             description: i.description,
             itemType: i.item_type,
             isVeg: i.is_veg,
-            basePrice: i.base_price,
+            basePrice: i.price,
             taxPercentage: i.tax_percentage,
             imageUrl: i.image_url,
             isActive: i.is_active,
@@ -264,13 +316,16 @@ export const duplicateFoodItem = async (req: Request, res: Response) => {
         }
 
         const duplicatedItem = await FoodItem.create({
-            brand_id: originalItem.brand_id,
+            outlet_id: originalItem.outlet_id,
             category_id: originalItem.category_id,
             name: `${originalItem.name} (Copy)`,
             description: originalItem.description,
+            item_type: originalItem.item_type,
+            food_type: originalItem.food_type,
             is_veg: originalItem.is_veg,
             is_active: originalItem.is_active,
-            base_price: originalItem.base_price,
+            is_available: originalItem.is_available,
+            price: originalItem.price,
             tax_percentage: originalItem.tax_percentage,
             image_url: originalItem.image_url,
             tags: originalItem.tags,
@@ -286,7 +341,7 @@ export const duplicateFoodItem = async (req: Request, res: Response) => {
             id: duplicatedItem._id, 
             name: duplicatedItem.name,
             isVeg: duplicatedItem.is_veg,
-            basePrice: duplicatedItem.base_price,
+            basePrice: duplicatedItem.price,
             isActive: duplicatedItem.is_active
         }, 'Food item duplicated successfully', 201);
     } catch (error: any) {
