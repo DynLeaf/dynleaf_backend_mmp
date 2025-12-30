@@ -17,7 +17,6 @@ export interface IOutlet extends Document {
     media?: {
         cover_image_url?: string;
     };
-    opening_hours?: string;
     amenities?: string[];
     photo_gallery?: {
         interior?: string[];
@@ -86,7 +85,6 @@ const outletSchema = new Schema<IOutlet>({
     media: {
         cover_image_url: String
     },
-    opening_hours: String,
     amenities: [String],
     photo_gallery: {
         interior: [String],

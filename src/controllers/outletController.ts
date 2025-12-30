@@ -7,6 +7,7 @@ import { User } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as outletService from '../services/outletService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
+import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -87,7 +88,24 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
 export const getUserOutlets = async (req: AuthRequest, res: Response) => {
     try {
         const outlets = await outletService.getUserOutlets(req.user.id);
-        return sendSuccess(res, { outlets });
+        
+        // Fetch operating hours for each outlet
+        const outletsWithHours = await Promise.all(
+            outlets.map(async (outlet: any) => {
+                const operatingHours = await OperatingHours.find({ outlet_id: outlet._id }).sort({ day_of_week: 1 });
+                return {
+                    ...outlet.toObject(),
+                    operatingHours: operatingHours.map(h => ({
+                        dayOfWeek: h.day_of_week,
+                        open: h.open_time,
+                        close: h.close_time,
+                        isClosed: h.is_closed
+                    }))
+                };
+            })
+        );
+        
+        return sendSuccess(res, { outlets: outletsWithHours });
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -111,7 +129,20 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
         
-        return sendSuccess(res, { outlet });
+        // Fetch operating hours from OperatingHours collection
+        const operatingHours = await OperatingHours.find({ outlet_id: outletId }).sort({ day_of_week: 1 });
+        
+        return sendSuccess(res, { 
+            outlet: {
+                ...outlet.toObject(),
+                operatingHours: operatingHours.map(h => ({
+                    dayOfWeek: h.day_of_week,
+                    open: h.open_time,
+                    close: h.close_time,
+                    isClosed: h.is_closed
+                }))
+            }
+        });
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -129,10 +160,17 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             delete updateData.coverImage;
         }
 
-        // Handle opening hours
-        if (updateData.openingHours !== undefined) {
-            updateData.opening_hours = updateData.openingHours;
-            delete updateData.openingHours;
+        // Handle operating hours - save to OperatingHours collection
+        if (updateData.operatingHours !== undefined) {
+            const operatingHours = updateData.operatingHours;
+            delete updateData.operatingHours;
+            
+            // Save to OperatingHours collection
+            await updateOperatingHoursFromEndpoint(
+                outletId,
+                'Asia/Kolkata', // Default timezone
+                operatingHours
+            );
         }
 
         // Handle amenities
@@ -260,21 +298,17 @@ export const updateOperatingHours = async (req: Request, res: Response) => {
         const { outletId } = req.params;
         const { timezone, days } = req.body;
 
-        await Outlet.findByIdAndUpdate(outletId, { timezone });
+        // Validate days array
+        if (!Array.isArray(days) || days.length === 0) {
+            return sendError(res, 'Days array is required', 400);
+        }
 
-        // Delete old hours and insert new
-        await OperatingHours.deleteMany({ outlet_id: outletId });
-        const hours = days.map((day: any) => ({
-            outlet_id: outletId,
-            day_of_week: day.dayOfWeek,
-            open_time: day.open,
-            close_time: day.close,
-            is_closed: day.isClosed
-        }));
-        await OperatingHours.insertMany(hours);
+        // Use the service to update and sync both storage locations
+        await updateOperatingHoursFromEndpoint(outletId, timezone, days);
 
-        return sendSuccess(res, null, 'Operating hours updated');
+        return sendSuccess(res, null, 'Operating hours updated and synced successfully');
     } catch (error: any) {
+        console.error('updateOperatingHours error:', error);
         return sendError(res, error.message);
     }
 };

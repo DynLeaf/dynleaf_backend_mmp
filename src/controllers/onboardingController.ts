@@ -6,6 +6,7 @@ import * as outletService from '../services/outletService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { OnboardingSession } from '../models/OnboardingSession.js';
 import { Compliance } from '../models/Compliance.js';
+import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -135,7 +136,19 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             social_media: outlet.socialLinks
         });
 
-        // Step 3: Create compliance document separately
+        // Step 3: Save operating hours if provided
+        if (outlet.operatingHours && Array.isArray(outlet.operatingHours)) {
+            try {
+                console.log('⏰ Saving operating hours for outlet...');
+                await saveOperatingHoursFromOnboarding(newOutlet._id.toString(), outlet.operatingHours);
+                console.log('✅ Operating hours saved successfully');
+            } catch (hoursError: any) {
+                console.warn('⚠️ Failed to save operating hours:', hoursError.message);
+                // Continue without operating hours if saving fails
+            }
+        }
+
+        // Step 4: Create compliance document separately
         let complianceId: string | null = null;
         if (compliance && (compliance.fssai || compliance.gstNo)) {
             try {
@@ -154,7 +167,7 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             }
         }
 
-        // Step 4: Complete onboarding
+        // Step 5: Complete onboarding
         const result = await onboardingService.completeOnboarding(
             req.user.id,
             brandId,
