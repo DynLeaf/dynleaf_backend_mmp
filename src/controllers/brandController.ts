@@ -409,3 +409,37 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
         return sendError(res, error.message);
     }
 };
+
+export const getBrandById = async (req: Request, res: Response) => {
+    try {
+        const { brandId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(brandId)) {
+            return sendError(res, 'Invalid brand ID', 400);
+        }
+
+        const brand = await Brand.findById(brandId)
+            .select('name slug logo_url description cuisines social_media verification_status');
+
+        if (!brand) {
+            return sendError(res, 'Brand not found', 404);
+        }
+
+        // Get the nearest outlet for this brand
+        const outlet = await Outlet.findOne({
+            brand_id: brandId,
+            status: 'ACTIVE',
+            approval_status: 'APPROVED'
+        })
+            .select('name slug address location contact media flags avg_rating total_reviews is_pure_veg')
+            .lean();
+
+        return sendSuccess(res, {
+            ...brand.toObject(),
+            outlet: outlet || null
+        });
+    } catch (error: any) {
+        console.error('getBrandById error:', error);
+        return sendError(res, error.message);
+    }
+};

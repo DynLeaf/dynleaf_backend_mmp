@@ -7,7 +7,8 @@ import {
     getUserBrands, 
     updateBrand,
     getNearbyBrands,
-    getFeaturedBrands
+    getFeaturedBrands,
+    getBrandById
 } from '../controllers/brandController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -16,6 +17,7 @@ const router = express.Router();
 // Public location-based routes
 router.get('/nearby', getNearbyBrands);
 router.get('/featured', getFeaturedBrands);
+router.get('/:brandId', getBrandById);
 
 // Protected routes
 router.post('/', protect, createBrand);
