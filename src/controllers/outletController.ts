@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Outlet } from '../models/Outlet.js';
 import { Brand } from '../models/Brand.js';
 import { Compliance } from '../models/Compliance.js';
@@ -373,28 +374,56 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
         
+        // Validate brandId
+        if (!mongoose.Types.ObjectId.isValid(brandId)) {
+            return res.status(400).json({
+                status: false,
+                message: 'Invalid brand ID'
+            });
+        }
+        
+        // Find all active and approved outlets for this brand
         const outlets = await Outlet.find({ 
             brand_id: brandId,
-            is_active: true 
-        }).populate('brand_id', 'name logo_url').lean();
+            status: 'ACTIVE',
+            approval_status: 'APPROVED'
+        })
+        .select('name slug address location contact media restaurant_type vendor_types social_media avg_rating total_reviews')
+        .lean();
 
         const formattedOutlets = outlets.map(outlet => ({
             id: outlet._id,
             name: outlet.name,
-            address: outlet.address,
+            slug: outlet.slug,
+            address: {
+                full_address: outlet.address?.full || `${outlet.address?.city || ''}, ${outlet.address?.state || ''}`.trim(),
+                street: outlet.address?.street,
+                city: outlet.address?.city,
+                state: outlet.address?.state,
+                country: outlet.address?.country,
+                pincode: outlet.address?.pincode
+            },
             location: outlet.location,
             contact: outlet.contact,
             coverImage: outlet.media?.cover_image_url,
-            seatingCapacity: outlet.seating_capacity,
-            restaurantType: outlet.restaurant_type,
-            socialMedia: outlet.social_media,
-            isActive: (outlet as any).is_active || true
+            restaurant_type: outlet.restaurant_type,
+            vendor_types: outlet.vendor_types,
+            social_media: outlet.social_media,
+            rating: outlet.avg_rating || 0,
+            total_reviews: outlet.total_reviews || 0
         }));
 
-        return sendSuccess(res, { outlets: formattedOutlets });
+        return res.json({
+            status: true,
+            data: { outlets: formattedOutlets },
+            message: `Found ${formattedOutlets.length} outlet(s) for this brand`
+        });
     } catch (error: any) {
         console.error('getBrandOutlets error:', error);
-        return sendError(res, error.message);
+        return res.status(500).json({
+            status: false,
+            message: error.message || 'Failed to fetch brand outlets'
+        });
     }
 };
 

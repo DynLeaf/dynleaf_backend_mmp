@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { OutletMenuItem } from '../models/OutletMenuItem.js';
+import { OperatingHours } from '../models/OperatingHours.js';
 import mongoose from 'mongoose';
 
 /**
@@ -360,6 +361,22 @@ export const getOutletDetail = async (req: Request, res: Response) => {
       });
     }
 
+    // Get operating hours from OperatingHours collection
+    const operatingHours = await OperatingHours.find({
+      outlet_id: outletId
+    })
+    .sort({ day_of_week: 1 })
+    .select('day_of_week open_time close_time is_closed')
+    .lean();
+
+    // Transform operating hours to match frontend format
+    const formattedHours = operatingHours.map(oh => ({
+      dayOfWeek: oh.day_of_week,
+      open: oh.open_time,
+      close: oh.close_time,
+      isClosed: oh.is_closed
+    }));
+
     // Get available items count
     const itemsCount = await OutletMenuItem.countDocuments({
       outlet_id: outletId,
@@ -408,7 +425,8 @@ export const getOutletDetail = async (req: Request, res: Response) => {
       data: {
         outlet: {
           ...outlet,
-          available_items_count: itemsCount
+          available_items_count: itemsCount,
+          opening_hours: formattedHours
         },
         categories
       }
