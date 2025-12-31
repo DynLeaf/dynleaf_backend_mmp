@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
+import { Combo } from '../models/Combo.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 /**
@@ -99,6 +100,40 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     }
 
     const menuItems = await FoodItem.aggregate(pipeline);
+
+    // Fetch active combos for the outlet
+    const combos = await Combo.find({
+      outlet_id: new mongoose.Types.ObjectId(outletId),
+      is_active: true
+    })
+      .populate('items.food_item_id')
+      .sort({ display_order: 1, order_count: -1 })
+      .lean();
+
+    // Format combos
+    const formattedCombos = combos.map((combo: any) => ({
+      _id: combo._id,
+      name: combo.name,
+      slug: combo.slug,
+      description: combo.description,
+      image_url: combo.image_url,
+      items: combo.items.map((item: any) => ({
+        food_item_id: item.food_item_id?._id,
+        name: item.food_item_id?.name,
+        image_url: item.food_item_id?.image_url,
+        food_type: item.food_item_id?.food_type,
+        quantity: item.quantity,
+        individual_price: item.food_item_id?.price
+      })),
+      combo_price: combo.combo_price,
+      original_price: combo.original_price,
+      discount_percentage: combo.discount_percentage,
+      food_type: combo.food_type,
+      is_available: combo.is_available,
+      avg_rating: combo.avg_rating,
+      total_votes: combo.total_votes,
+      order_count: combo.order_count
+    }));
 
     // Group by category if not searching/filtering heavily
     let formattedMenu;
@@ -198,7 +233,9 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           contact: outlet.contact
         },
         menu: formattedMenu,
-        total_items: menuItems.length
+        combos: formattedCombos,
+        total_items: menuItems.length,
+        total_combos: combos.length
       }
     });
   } catch (error: any) {
