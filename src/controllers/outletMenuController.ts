@@ -70,7 +70,16 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           as: 'category'
         }
       },
-      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      // Lookup addons
+      {
+        $lookup: {
+          from: 'addons',
+          localField: 'addon_ids',
+          foreignField: '_id',
+          as: 'addons'
+        }
+      }
     );
 
     // Filter by category if specified
@@ -183,7 +192,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           is_featured: item.is_featured,
           is_bestseller: item.is_bestseller,
           is_signature: item.is_signature,
-          is_new: item.is_new
+          is_new: item.is_new,
+          addons: item.addons || []
         });
         
         return acc;
@@ -224,7 +234,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         is_featured: item.is_featured,
         is_bestseller: item.is_bestseller,
         is_signature: item.is_signature,
-        is_new: item.is_new
+        is_new: item.is_new,
+        addons: item.addons || []
       }));
     }
 
