@@ -67,7 +67,9 @@ export interface IFoodItem extends Document {
     };
     
     // Outlet-level engagement metrics
-    total_votes?: number;
+    total_votes?: number; // Legacy or total interaction count
+    upvote_count?: number; // Displayed count
+    downvote_count?: number; // Analytics only
     avg_rating?: number;
     total_reviews?: number;
     view_count?: number;
@@ -156,6 +158,8 @@ const foodItemSchema = new Schema<IFoodItem>({
     
     // Engagement metrics
     total_votes: { type: Number, default: 0 },
+    upvote_count: { type: Number, default: 0 },
+    downvote_count: { type: Number, default: 0 },
     avg_rating: { type: Number, default: 0 },
     total_reviews: { type: Number, default: 0 },
     view_count: { type: Number, default: 0 },

@@ -30,3 +30,15 @@ export const apiLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false
 });
+
+export const voteRateLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // Max 10 votes per minute per user/IP
+    message: { error: 'Too many vote requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: Request) => {
+        // Use user ID if authenticated, otherwise use IP
+        return (req as any).user?.id || req.ip || 'unknown';
+    }
+});

@@ -27,7 +27,9 @@ import {
     deleteCombo,
     getTrendingDishes
 } from '../controllers/menuController.js';
+import { toggleVote, getUserVote, getVoteAnalytics } from '../controllers/voteController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { voteRateLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -57,6 +59,11 @@ router.post('/food-items/:foodItemId/upload-image', protect, uploadFoodItemImage
 // Variants
 router.post('/food-items/:foodItemId/variants', protect, createVariant);
 router.patch('/variants/:variantId', protect, updateVariant);
+
+// Vote routes (with rate limiting)
+router.post('/food-items/:foodItemId/vote', protect, voteRateLimiter, toggleVote);
+router.get('/food-items/:foodItemId/user-vote', protect, getUserVote);
+router.get('/food-items/:foodItemId/vote-analytics', getVoteAnalytics);
 
 // Add-ons
 router.post('/brands/:brandId/addons', protect, createAddOn);
