@@ -6,7 +6,7 @@ export interface IComboItem {
 }
 
 export interface ICombo extends Document {
-    brand_id: mongoose.Types.ObjectId;
+    outlet_id: mongoose.Types.ObjectId;
     name: string;
     description?: string;
     image_url?: string;
@@ -24,7 +24,7 @@ const comboItemSchema = new Schema<IComboItem>({
 }, { _id: false });
 
 const comboSchema = new Schema<ICombo>({
-    brand_id: { type: Schema.Types.ObjectId, ref: 'Brand', required: true },
+    outlet_id: { type: Schema.Types.ObjectId, ref: 'Outlet', required: true, index: true },
     name: { type: String, required: true },
     description: { type: String },
     image_url: { type: String },

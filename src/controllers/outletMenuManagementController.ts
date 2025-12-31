@@ -418,9 +418,9 @@ export const createAddOnForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        // Add-ons are brand-level, so use brand_id from outlet
+        // Add-ons are outlet-level, so use outlet_id
         const addOn = await AddOn.create({
-            brand_id: outlet.brand_id,
+            outlet_id: outletId,
             name,
             price,
             category,
@@ -443,13 +443,13 @@ export const listAddOnsForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
 
-        // Get outlet to find brand_id
+        // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
         if (!outlet) {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const addOns = await AddOn.find({ brand_id: outlet.brand_id });
+        const addOns = await AddOn.find({ outlet_id: outletId });
 
         return sendSuccess(res, addOns.map(a => ({
             id: a._id,
@@ -546,9 +546,9 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
         const discountedPrice = Math.max(0, originalPrice * (1 - (discountPercentage || 0) / 100));
         const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
 
-        // Combos are brand-level
+        // Combos are outlet-level
         const combo = await Combo.create({
-            brand_id: outlet.brand_id,
+            outlet_id: outletId,
             name,
             description,
             image_url: imageUrl,
@@ -584,13 +584,13 @@ export const listCombosForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
 
-        // Get outlet to find brand_id
+        // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
         if (!outlet) {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const combos = await Combo.find({ brand_id: outlet.brand_id });
+        const combos = await Combo.find({ outlet_id: outletId });
 
         return sendSuccess(res, combos.map(c => ({
             id: c._id,
