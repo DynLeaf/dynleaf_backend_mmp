@@ -5,6 +5,7 @@ import { Outlet } from "../models/Outlet.js";
 import { User } from "../models/User.js";
 import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
+import { Story } from "../models/Story.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 
 const router = express.Router();
@@ -792,6 +793,87 @@ router.get("/users", adminAuth, async (req, res) => {
     console.error("Get users error:", error);
     return sendError(res, error.message);
   }
+});
+
+// --- Content Moderation Routes ---
+
+// Get pending stories for moderation
+router.get("/moderation/stories", adminAuth, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const query = {
+        'flags.isModerated': false,
+        status: { $in: ['live', 'active'] } // Only moderate live content
+    };
+
+    const [stories, total] = await Promise.all([
+      Story.find(query)
+        .populate({
+            path: 'outletId',
+            select: 'name brand_id',
+            populate: { path: 'brand_id', select: 'name logo_url' }
+        })
+        .populate('createdBy', 'username email')
+        .sort({ created_at: 1 }) // Oldest first
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      Story.countDocuments(query)
+    ]);
+
+    return sendSuccess(res, {
+      stories,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error: any) {
+    console.error("Get moderation stories error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Approve story (mark as moderated)
+router.post("/moderation/stories/:id/approve", adminAuth, async (req, res) => {
+    try {
+        const story = await Story.findByIdAndUpdate(
+            req.params.id,
+            {
+                'flags.isModerated': true,
+                'flags.isRejected': false
+            },
+            { new: true }
+        );
+        if (!story) return sendError(res, "Story not found", null, 404);
+        return sendSuccess(res, story, "Story approved");
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+});
+
+// Reject story
+router.post("/moderation/stories/:id/reject", adminAuth, async (req, res) => {
+    try {
+        const { reason } = req.body;
+        const story = await Story.findByIdAndUpdate(
+            req.params.id,
+            {
+                'flags.isModerated': true,
+                'flags.isRejected': true,
+                'flags.rejectionReason': reason,
+                status: 'archived'
+            },
+            { new: true }
+        );
+        if (!story) return sendError(res, "Story not found", null, 404);
+        return sendSuccess(res, story, "Story rejected");
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
 });
 
 export default router;

@@ -14,6 +14,7 @@ import onboardingRoutes from './routes/onboardingRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import subscriptionRoutes from './routes/subscriptionRoutes.js';
 import offerRoutes from './routes/offerRoutes.js';
+import storyRoutes from './routes/storyRoutes.js';
 import logger from './middleware/logger.js';
 import errorHandler from './middleware/errorMiddleware.js';
 import path from 'path';
@@ -71,9 +72,10 @@ app.use('/v1/outlets', outletMenuRoutes); // Outlet menu management (public)
 app.use('/v1/outlets', outletMenuManagementRoutes); // Outlet menu management (CRUD)
 app.use('/v1/food', foodSearchRoutes); // NEW: Food search with OutletMenuItem
 app.use('/v1/onboarding', onboardingRoutes);
-app.use('/v1/admin', adminRoutes);
+// app.use('/v1/admin', adminRoutes); // Admin module removed
 app.use('/v1/admin', subscriptionRoutes);
 app.use('/v1/outlets', offerRoutes);
+app.use('/v1/stories', storyRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths
 
 // Global error handler (should be after routes)
