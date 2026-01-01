@@ -11,13 +11,32 @@ const offerSchema = new mongoose.Schema({
     description: String,
     offer_type: String,
     banner_image_url: String,
+    background_image_url: String,
     badge_text: String,
+    code: String,
+    terms: String,
+    
+    // Discount details
+    discount_percentage: Number,
+    discount_amount: Number,
+    max_discount_amount: Number,
+    
+    // Conditions
+    min_order_amount: Number,
     applicable_category_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
     applicable_food_item_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodItem' }],
+    
+    // Time-based rules
+    days_of_week: [Number],
+    time_from: String,
+    time_to: String,
+    
     visibility_scope: String,
     visibility_priority: Number,
+    display_order: { type: Number, default: 0 },
     valid_from: Date,
     valid_till: Date,
+    show_on_menu: { type: Boolean, default: true },
     approval_required: Boolean,
     approval_status: { type: String, default: 'pending' },
     reviewed_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

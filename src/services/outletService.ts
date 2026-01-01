@@ -99,6 +99,32 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
     console.log('   Name:', outlet.name);
     console.log('   Location:', JSON.stringify(outlet.location, null, 2));
     console.log('   Coordinates:', outlet.location?.coordinates);
+    
+    // Assign outlet-level restaurant_owner role to the user
+    const User = (await import('../models/User.js')).User;
+    const user = await User.findById(userId);
+    if (user) {
+        const hasOutletRole = user.roles.some(r => 
+            r.scope === 'outlet' && 
+            r.role === 'restaurant_owner' && 
+            r.outletId?.toString() === outlet._id.toString()
+        );
+        
+        if (!hasOutletRole) {
+            user.roles.push({
+                scope: 'outlet',
+                role: 'restaurant_owner',
+                outletId: outlet._id as mongoose.Types.ObjectId,
+                brandId: brandId as unknown as mongoose.Types.ObjectId,
+                permissions: [],
+                assignedAt: new Date(),
+                assignedBy: userId as unknown as mongoose.Types.ObjectId
+            } as any);
+            await user.save();
+            console.log('✅ Assigned outlet-level role to user:', userId, 'for outlet:', outlet._id);
+        }
+    }
+    
     return outlet;
 };
 

@@ -12,9 +12,23 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
             description,
             offer_type,
             banner_image_url,
+            background_image_url,
             badge_text,
+            code,
+            terms,
+            discount_percentage,
+            discount_amount,
+            max_discount_amount,
+            min_order_amount,
+            applicable_category_ids,
+            applicable_food_item_ids,
+            days_of_week,
+            time_from,
+            time_to,
             valid_from,
             valid_till,
+            show_on_menu,
+            display_order,
             is_active
         } = req.body;
 
@@ -32,9 +46,23 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
             description,
             offer_type,
             banner_image_url,
+            background_image_url,
             badge_text,
+            code,
+            terms,
+            discount_percentage,
+            discount_amount,
+            max_discount_amount,
+            min_order_amount,
+            applicable_category_ids,
+            applicable_food_item_ids,
+            days_of_week,
+            time_from,
+            time_to,
             valid_from: valid_from ? new Date(valid_from) : undefined,
             valid_till: valid_till ? new Date(valid_till) : undefined,
+            show_on_menu: show_on_menu !== undefined ? show_on_menu : true,
+            display_order: display_order || 0,
             is_active: is_active !== undefined ? is_active : true,
             approval_status: 'approved'
         } as any);
@@ -113,9 +141,23 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
             description,
             offer_type,
             banner_image_url,
+            background_image_url,
             badge_text,
+            code,
+            terms,
+            discount_percentage,
+            discount_amount,
+            max_discount_amount,
+            min_order_amount,
+            applicable_category_ids,
+            applicable_food_item_ids,
+            days_of_week,
+            time_from,
+            time_to,
             valid_from,
             valid_till,
+            show_on_menu,
+            display_order,
             is_active
         } = req.body;
 
@@ -130,9 +172,23 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
         if (description !== undefined) offer.description = description;
         if (offer_type !== undefined) offer.offer_type = offer_type;
         if (banner_image_url !== undefined) offer.banner_image_url = banner_image_url;
+        if (background_image_url !== undefined) offer.background_image_url = background_image_url;
         if (badge_text !== undefined) offer.badge_text = badge_text;
+        if (code !== undefined) offer.code = code;
+        if (terms !== undefined) offer.terms = terms;
+        if (discount_percentage !== undefined) offer.discount_percentage = discount_percentage;
+        if (discount_amount !== undefined) offer.discount_amount = discount_amount;
+        if (max_discount_amount !== undefined) offer.max_discount_amount = max_discount_amount;
+        if (min_order_amount !== undefined) offer.min_order_amount = min_order_amount;
+        if (applicable_category_ids !== undefined) offer.applicable_category_ids = applicable_category_ids;
+        if (applicable_food_item_ids !== undefined) offer.applicable_food_item_ids = applicable_food_item_ids;
+        if (days_of_week !== undefined) offer.days_of_week = days_of_week;
+        if (time_from !== undefined) offer.time_from = time_from;
+        if (time_to !== undefined) offer.time_to = time_to;
         if (valid_from !== undefined) offer.valid_from = new Date(valid_from);
         if (valid_till !== undefined) offer.valid_till = new Date(valid_till);
+        if (show_on_menu !== undefined) offer.show_on_menu = show_on_menu;
+        if (display_order !== undefined) offer.display_order = display_order;
         if (is_active !== undefined) offer.is_active = is_active;
 
         await offer.save();

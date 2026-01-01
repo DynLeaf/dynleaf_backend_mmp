@@ -25,7 +25,7 @@ router.post(
     offerController.createOffer
 );
 
-// Get outlet offers - no subscription required (read-only)
+// Get outlet offers - read-only, no subscription required
 router.get(
     '/:outletId/offers',
     authenticate,
@@ -33,7 +33,7 @@ router.get(
     offerController.getOutletOffers
 );
 
-// Get single offer
+// Get single offer - read-only, no subscription required
 router.get(
     '/:outletId/offers/:offerId',
     authenticate,

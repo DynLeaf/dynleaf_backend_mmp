@@ -65,6 +65,30 @@ export const createBrand = async (userId: string, brandData: {
     });
 
     await brand.save();
+    
+    // Assign brand-level restaurant_owner role to the user
+    const user = await User.findById(userId);
+    if (user) {
+        const hasBrandRole = user.roles.some(r => 
+            r.scope === 'brand' && 
+            r.role === 'restaurant_owner' && 
+            r.brandId?.toString() === brand._id.toString()
+        );
+        
+        if (!hasBrandRole) {
+            user.roles.push({
+                scope: 'brand',
+                role: 'restaurant_owner',
+                brandId: brand._id as mongoose.Types.ObjectId,
+                permissions: [],
+                assignedAt: new Date(),
+                assignedBy: userId as unknown as mongoose.Types.ObjectId
+            } as any);
+            await user.save();
+            console.log('✅ Assigned brand-level role to user:', userId, 'for brand:', brand._id);
+        }
+    }
+    
     return brand;
 };
 
