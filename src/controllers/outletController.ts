@@ -457,9 +457,22 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
 
         // Build match query for outlets
         const outletMatchQuery: any = {
-            status: 'ACTIVE',
-            approval_status: 'APPROVED',
-            'location.coordinates': { $exists: true, $ne: [] }
+            'location.coordinates': { $exists: true, $ne: [] },
+            // Only filter by approval_status if it exists (for legacy data compatibility)
+            $and: [
+                {
+                    $or: [
+                        { approval_status: 'APPROVED' },
+                        { approval_status: { $exists: false } }
+                    ]
+                },
+                {
+                    $or: [
+                        { status: 'ACTIVE' },
+                        { status: { $exists: false } }
+                    ]
+                }
+            ]
         };
 
         if (priceRange) {
@@ -509,10 +522,20 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
             },
             {
                 $match: {
-                    'brand.verification_status': 'approved',
-                    $or: [
-                        { 'brand.is_active': true },
-                        { 'brand.is_active': { $exists: false } } // Include brands where is_active is not set
+                    $and: [
+                        {
+                            $or: [
+                                { 'brand.verification_status': 'approved' },
+                                { 'brand.verification_status': 'verified' },
+                                { 'brand.verification_status': { $exists: false } }
+                            ]
+                        },
+                        {
+                            $or: [
+                                { 'brand.is_active': true },
+                                { 'brand.is_active': { $exists: false } }
+                            ]
+                        }
                     ]
                 }
             }

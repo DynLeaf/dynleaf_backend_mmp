@@ -115,24 +115,28 @@ export const getStoryFeed = async (req: Request, res: Response) => {
         const { latitude, longitude, radius = 10000, userId } = req.query;
         const now = new Date();
 
-        // 1. Find nearby outlets (if location provided)
+        // 1. Find nearby outlets (if location provided) - only approved and active outlets
         let outletIds: mongoose.Types.ObjectId[] = [];
+        const outletQuery: any = {
+            status: 'ACTIVE',
+            approval_status: 'APPROVED'
+        };
+        
         if (latitude && longitude) {
-            const outlets = await Outlet.find({
-                location: {
-                    $near: {
-                        $geometry: {
-                            type: 'Point',
-                            coordinates: [parseFloat(longitude as string), parseFloat(latitude as string)]
-                        },
-                        $maxDistance: parseInt(radius as string)
-                    }
+            outletQuery.location = {
+                $near: {
+                    $geometry: {
+                        type: 'Point',
+                        coordinates: [parseFloat(longitude as string), parseFloat(latitude as string)]
+                    },
+                    $maxDistance: parseInt(radius as string)
                 }
-            }).select('_id');
+            };
+            const outlets = await Outlet.find(outletQuery).select('_id');
             outletIds = outlets.map(o => o._id);
         } else {
-            // If no location, just get all outlets (or top N)
-            const outlets = await Outlet.find().limit(50).select('_id');
+            // If no location, just get all approved outlets (or top N)
+            const outlets = await Outlet.find(outletQuery).limit(50).select('_id');
             outletIds = outlets.map(o => o._id);
         }
 
@@ -146,7 +150,16 @@ export const getStoryFeed = async (req: Request, res: Response) => {
             status: 'live',
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
-        }).populate('outletId', 'name slug media.cover_image_url location address').sort({ created_at: -1 });
+        })
+        .populate({
+            path: 'outletId',
+            select: 'name slug media.cover_image_url location address status approval_status brand_id',
+            populate: {
+                path: 'brand_id',
+                select: 'name verification_status'
+            }
+        })
+        .sort({ created_at: -1 });
 
         // 3. Get user's viewed stories if userId provided
         let viewedStoryIds = new Set<string>();
@@ -197,7 +210,14 @@ export const getOutletStories = async (req: Request, res: Response) => {
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
         })
-        .populate('outletId', 'name slug media.cover_image_url location address')
+        .populate({
+            path: 'outletId',
+            select: 'name slug media.cover_image_url location address status approval_status brand_id',
+            populate: {
+                path: 'brand_id',
+                select: 'name verification_status'
+            }
+        })
         .sort({ created_at: 1 }); // Oldest first (chronological order usually)
 
         return sendSuccess(res, stories);
