@@ -25,19 +25,15 @@ router.post(
     offerController.createOffer
 );
 
-// Get outlet offers - read-only, no subscription required
+// Get outlet offers - PUBLIC endpoint for menu browsing
 router.get(
     '/:outletId/offers',
-    authenticate,
-    requireOutletAccess,
     offerController.getOutletOffers
 );
 
-// Get single offer - read-only, no subscription required
+// Get single offer - PUBLIC endpoint for menu browsing
 router.get(
     '/:outletId/offers/:offerId',
-    authenticate,
-    requireOutletAccess,
     offerController.getOfferById
 );
 
