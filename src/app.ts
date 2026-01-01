@@ -72,7 +72,7 @@ app.use('/v1/outlets', outletMenuRoutes); // Outlet menu management (public)
 app.use('/v1/outlets', outletMenuManagementRoutes); // Outlet menu management (CRUD)
 app.use('/v1/food', foodSearchRoutes); // NEW: Food search with OutletMenuItem
 app.use('/v1/onboarding', onboardingRoutes);
-// app.use('/v1/admin', adminRoutes); // Admin module removed
+app.use('/v1/admin', adminRoutes);
 app.use('/v1/admin', subscriptionRoutes);
 app.use('/v1/outlets', offerRoutes);
 app.use('/v1/stories', storyRoutes);
