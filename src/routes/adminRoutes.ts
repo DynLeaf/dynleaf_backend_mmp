@@ -7,6 +7,7 @@ import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import * as promotionController from "../controllers/promotionController.js";
 
 const router = express.Router();
 
@@ -875,5 +876,30 @@ router.post("/moderation/stories/:id/reject", adminAuth, async (req, res) => {
         return sendError(res, error.message);
     }
 });
+
+// ============================================
+// Promotion Management Routes
+// ============================================
+
+// Create promotion
+router.post("/promotions", adminAuth, promotionController.createPromotion);
+
+// Get all promotions (with filters)
+router.get("/promotions", adminAuth, promotionController.getPromotions);
+
+// Get single promotion
+router.get("/promotions/:id", adminAuth, promotionController.getPromotion);
+
+// Update promotion
+router.patch("/promotions/:id", adminAuth, promotionController.updatePromotion);
+
+// Toggle promotion status
+router.patch("/promotions/:id/status", adminAuth, promotionController.togglePromotionStatus);
+
+// Delete promotion
+router.delete("/promotions/:id", adminAuth, promotionController.deletePromotion);
+
+// Get promotion analytics
+router.get("/promotions/:id/analytics", adminAuth, promotionController.getPromotionAnalytics);
 
 export default router;

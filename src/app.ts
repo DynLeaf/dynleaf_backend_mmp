@@ -16,6 +16,7 @@ import subscriptionRoutes from './routes/subscriptionRoutes.js';
 import offerRoutes from './routes/offerRoutes.js';
 import storyRoutes from './routes/storyRoutes.js';
 import logger from './middleware/logger.js';
+import * as promotionController from './controllers/promotionController.js';
 import errorHandler from './middleware/errorMiddleware.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -77,6 +78,11 @@ app.use('/v1/admin', subscriptionRoutes);
 app.use('/v1/outlets', offerRoutes);
 app.use('/v1/stories', storyRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths
+
+// Public promotion routes
+app.get('/v1/promotions/featured', promotionController.getFeaturedPromotions);
+app.post('/v1/promotions/:id/impression', promotionController.trackImpression);
+app.post('/v1/promotions/:id/click', promotionController.trackClick);
 
 // Global error handler (should be after routes)
 app.use(errorHandler);
