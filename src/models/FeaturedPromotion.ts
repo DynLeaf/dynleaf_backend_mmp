@@ -119,8 +119,7 @@ const FeaturedPromotionSchema = new Schema<IFeaturedPromotion>(
             conversion_rate: {
                 type: Number,
                 default: 0,
-                min: 0,
-                max: 100
+                min: 0
             }
         },
         payment: {
