@@ -66,6 +66,7 @@ export interface IOutlet extends Document {
         website?: string;
         google_review?: string;
     };
+    subscription_id?: mongoose.Types.ObjectId;
 }
 
 const outletSchema = new Schema<IOutlet>({
@@ -142,7 +143,8 @@ const outletSchema = new Schema<IOutlet>({
         x: String,
         website: String,
         google_review: String
-    }
+    },
+    subscription_id: { type: Schema.Types.ObjectId, ref: 'Subscription' }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Create indexes for queries
@@ -154,5 +156,6 @@ outletSchema.index({ price_range: 1, avg_rating: -1 });
 outletSchema.index({ 'flags.is_featured': 1 }); // Featured outlets (removed duplicate 2dsphere)
 outletSchema.index({ slug: 1 }, { unique: true });
 outletSchema.index({ created_by_user_id: 1 });
+outletSchema.index({ subscription_id: 1 });
 
 export const Outlet = mongoose.model<IOutlet>('Outlet', outletSchema);

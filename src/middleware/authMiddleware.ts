@@ -3,8 +3,10 @@ import { User } from '../models/User.js';
 import * as tokenService from '../services/tokenService.js';
 import * as sessionService from '../services/sessionService.js';
 
-interface AuthRequest extends Request {
+export interface AuthRequest extends Request {
     user?: any;
+    outlet?: any;
+    subscription?: any;
 }
 
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
