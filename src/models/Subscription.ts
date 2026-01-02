@@ -121,7 +121,7 @@ const subscriptionHistorySchema = new Schema<ISubscriptionHistory>({
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } 
 });
 
-subscriptionSchema.index({ outlet_id: 1 });
+subscriptionSchema.index({ outlet_id: 1 }, { unique: true });
 subscriptionSchema.index({ brand_id: 1 });
 subscriptionSchema.index({ status: 1, plan: 1 });
 subscriptionSchema.index({ end_date: 1, status: 1 });

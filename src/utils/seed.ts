@@ -7,7 +7,9 @@ import { Outlet } from '../models/Outlet.js';
 import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Menu } from '../models/Menu.js';
+import { Subscription, SubscriptionHistory } from '../models/Subscription.js';
 import connectDB from '../config/db.js';
+import { ensureSubscriptionForOutlet } from './subscriptionUtils.js';
 
 dotenv.config();
 
@@ -20,6 +22,8 @@ const seed = async () => {
         await User.deleteMany({});
         await Brand.deleteMany({});
         await Outlet.deleteMany({});
+        await Subscription.deleteMany({});
+        await SubscriptionHistory.deleteMany({});
         await Category.deleteMany({});
         await FoodItem.deleteMany({});
         await Menu.deleteMany({});
@@ -73,6 +77,13 @@ const seed = async () => {
             }
         });
         console.log('Created outlet.');
+
+        await ensureSubscriptionForOutlet(outlet._id.toString(), {
+            plan: 'free',
+            status: 'active',
+            assigned_by: adminUser._id,
+            notes: 'Seeded default subscription'
+        });
 
         // Update admin user with brand and outlet roles
         adminUser.roles.push({

@@ -2,6 +2,7 @@ import { Outlet, IOutlet } from '../models/Outlet.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { Compliance } from '../models/Compliance.js';
 import mongoose from 'mongoose';
+import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
 
 /**
  * Get all outlets for a user (full details)
@@ -124,6 +125,14 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
             console.log('✅ Assigned outlet-level role to user:', userId, 'for outlet:', outlet._id);
         }
     }
+
+    // Ensure the outlet has a default subscription (free + active)
+    await ensureSubscriptionForOutlet(outlet._id.toString(), {
+        plan: 'free',
+        status: 'active',
+        assigned_by: userId,
+        notes: 'Auto-created on outlet creation'
+    });
     
     return outlet;
 };

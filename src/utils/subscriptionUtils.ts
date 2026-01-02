@@ -3,15 +3,96 @@ import { Subscription, SubscriptionHistory, ISubscription } from '../models/Subs
 import { SUBSCRIPTION_PLANS, SUBSCRIPTION_FEATURES, getSubscriptionPlan } from '../config/subscriptionPlans.js';
 import mongoose from 'mongoose';
 
+const toObjectId = (id?: mongoose.Types.ObjectId | string) => {
+    if (!id) return undefined;
+    return typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id;
+};
+
 export interface SubscriptionAssignment {
     plan: 'free' | 'basic' | 'premium' | 'enterprise';
     status: 'active' | 'inactive' | 'expired' | 'trial';
     start_date?: Date;
     end_date?: Date;
     trial_ends_at?: Date;
-    assigned_by?: mongoose.Types.ObjectId;
+    assigned_by?: mongoose.Types.ObjectId | string;
     notes?: string;
 }
+
+export interface EnsureSubscriptionOptions {
+    plan?: 'free' | 'basic' | 'premium' | 'enterprise';
+    status?: 'active' | 'inactive' | 'expired' | 'trial' | 'cancelled';
+    start_date?: Date;
+    end_date?: Date;
+    trial_ends_at?: Date;
+    assigned_by?: mongoose.Types.ObjectId | string;
+    notes?: string;
+}
+
+/**
+ * Ensure an outlet has exactly one Subscription.
+ * - If missing, creates a new subscription (and history) and links it on Outlet.
+ * - If present, ensures Outlet.subscription_id points to it.
+ */
+export const ensureSubscriptionForOutlet = async (
+    outletId: string,
+    options: EnsureSubscriptionOptions = {}
+): Promise<ISubscription> => {
+    const outlet = await Outlet.findById(outletId);
+    if (!outlet) {
+        throw new Error('Outlet not found');
+    }
+
+    const existing = await Subscription.findOne({ outlet_id: outlet._id });
+    if (existing) {
+        if (!outlet.subscription_id || outlet.subscription_id.toString() !== existing._id.toString()) {
+            outlet.subscription_id = existing._id;
+            await outlet.save();
+        }
+        return existing;
+    }
+
+    const planKey = options.plan ?? 'free';
+    const planDetails = getSubscriptionPlan(planKey);
+    if (!planDetails) {
+        throw new Error(`Invalid subscription plan: ${planKey}`);
+    }
+
+    const now = new Date();
+
+    const subscription = new Subscription({
+        outlet_id: outlet._id,
+        brand_id: outlet.brand_id,
+        plan: planKey,
+        status: options.status ?? 'active',
+        features: planDetails.features,
+        start_date: options.start_date ?? now,
+        end_date: options.end_date,
+        trial_ends_at: options.trial_ends_at,
+        assigned_by: toObjectId(options.assigned_by),
+        assigned_at: now,
+        payment_status: 'pending',
+        auto_renew: false,
+        notes: options.notes
+    });
+
+    await subscription.save();
+
+    outlet.subscription_id = subscription._id;
+    await outlet.save();
+
+    await SubscriptionHistory.create({
+        subscription_id: subscription._id,
+        outlet_id: outlet._id,
+        action: 'created',
+        new_plan: subscription.plan,
+        new_status: subscription.status,
+        changed_by: toObjectId(options.assigned_by),
+        changed_at: now,
+        reason: options.notes
+    });
+
+    return subscription;
+};
 
 export const assignSubscriptionToOutlet = async (
     outletId: string,
@@ -24,50 +105,57 @@ export const assignSubscriptionToOutlet = async (
     }
 
     const outlet = await Outlet.findById(outletId);
-    
     if (!outlet) {
         throw new Error('Outlet not found');
     }
 
-    const subscription = new Subscription({
-        outlet_id: outlet._id,
-        brand_id: outlet.brand_id,
-        plan: assignment.plan,
-        status: assignment.status,
-        features: plan.features,
-        start_date: assignment.start_date || new Date(),
-        end_date: assignment.end_date,
-        assigned_by: assignment.assigned_by,
-        assigned_at: new Date(),
-        trial_ends_at: assignment.trial_ends_at,
-        payment_status: 'pending',
-        auto_renew: false,
-        notes: assignment.notes
-    });
+    const existing = await Subscription.findOne({ outlet_id: outlet._id });
 
-    await subscription.save();
+    if (!existing) {
+        return await ensureSubscriptionForOutlet(outletId, {
+            plan: assignment.plan,
+            status: assignment.status,
+            start_date: assignment.start_date,
+            end_date: assignment.end_date,
+            trial_ends_at: assignment.trial_ends_at,
+            assigned_by: assignment.assigned_by,
+            notes: assignment.notes
+        });
+    }
 
-    outlet.subscription_id = subscription._id;
-    await outlet.save();
+    if (!outlet.subscription_id || outlet.subscription_id.toString() !== existing._id.toString()) {
+        outlet.subscription_id = existing._id;
+        await outlet.save();
+    }
 
-    await SubscriptionHistory.create({
-        subscription_id: subscription._id,
-        outlet_id: outlet._id,
-        action: 'created',
-        new_plan: assignment.plan,
-        new_status: assignment.status,
-        changed_by: assignment.assigned_by,
-        changed_at: new Date(),
-        reason: assignment.notes
-    });
+    if (assignment.plan && assignment.plan !== existing.plan) {
+        await upgradeSubscriptionPlan(existing._id.toString(), assignment.plan, assignment.assigned_by);
+    }
 
-    return subscription;
+    if (assignment.status && assignment.status !== existing.status) {
+        await updateSubscriptionStatus(existing._id.toString(), assignment.status as any, assignment.assigned_by, assignment.notes);
+    }
+
+    const updated = await Subscription.findById(existing._id);
+    if (!updated) {
+        throw new Error('Subscription not found');
+    }
+
+    if (assignment.start_date !== undefined) updated.start_date = assignment.start_date;
+    if (assignment.end_date !== undefined) updated.end_date = assignment.end_date;
+    if (assignment.trial_ends_at !== undefined) updated.trial_ends_at = assignment.trial_ends_at;
+    if (assignment.assigned_by !== undefined) updated.assigned_by = toObjectId(assignment.assigned_by);
+    updated.assigned_at = new Date();
+    if (assignment.notes !== undefined) updated.notes = assignment.notes;
+
+    await updated.save();
+    return updated;
 };
 
 export const updateSubscriptionStatus = async (
     subscriptionId: string,
     status: 'active' | 'inactive' | 'expired' | 'trial' | 'cancelled',
-    changedBy: mongoose.Types.ObjectId,
+    changedBy?: mongoose.Types.ObjectId | string,
     reason?: string
 ): Promise<ISubscription | null> => {
     const subscription = await Subscription.findById(subscriptionId);
@@ -78,10 +166,11 @@ export const updateSubscriptionStatus = async (
 
     const previousStatus = subscription.status;
     subscription.status = status;
+    const changedById = toObjectId(changedBy);
     
     if (status === 'cancelled') {
         subscription.cancelled_at = new Date();
-        subscription.cancelled_by = changedBy;
+        if (changedById) subscription.cancelled_by = changedById;
         subscription.cancellation_reason = reason;
     }
     
@@ -93,7 +182,7 @@ export const updateSubscriptionStatus = async (
         action: 'status_changed',
         previous_status: previousStatus,
         new_status: status,
-        changed_by: changedBy,
+        changed_by: changedById,
         changed_at: new Date(),
         reason
     });
@@ -104,8 +193,9 @@ export const updateSubscriptionStatus = async (
 export const extendSubscription = async (
     subscriptionId: string,
     additionalDays: number,
-    changedBy: mongoose.Types.ObjectId
+    changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
+        const changedById = toObjectId(changedBy);
     const subscription = await Subscription.findById(subscriptionId);
     
     if (!subscription) {
@@ -128,7 +218,7 @@ export const extendSubscription = async (
         subscription_id: subscription._id,
         outlet_id: subscription.outlet_id,
         action: 'extended',
-        changed_by: changedBy,
+        changed_by: changedById,
         changed_at: new Date(),
         reason: `Extended by ${additionalDays} days`,
         metadata: { additional_days: additionalDays, new_end_date: newEndDate }
@@ -140,8 +230,9 @@ export const extendSubscription = async (
 export const upgradeSubscriptionPlan = async (
     subscriptionId: string,
     newPlan: 'free' | 'basic' | 'premium' | 'enterprise',
-    changedBy: mongoose.Types.ObjectId
+    changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
+        const changedById = toObjectId(changedBy);
     const plan = getSubscriptionPlan(newPlan);
     
     if (!plan) {
@@ -171,7 +262,7 @@ export const upgradeSubscriptionPlan = async (
         action,
         previous_plan: previousPlan,
         new_plan: newPlan,
-        changed_by: changedBy,
+        changed_by: changedById,
         changed_at: new Date()
     });
 
@@ -308,47 +399,76 @@ export const createTrialSubscription = async (
     }
 
     const outlet = await Outlet.findById(outletId);
-    
     if (!outlet) {
         throw new Error('Outlet not found');
     }
 
-    const trialEndsAt = new Date();
+    const now = new Date();
+    const trialEndsAt = new Date(now);
     trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
 
-    const subscription = new Subscription({
-        outlet_id: outlet._id,
-        brand_id: outlet.brand_id,
-        plan,
-        status: 'trial',
-        features: planDetails.features,
-        start_date: new Date(),
-        trial_ends_at: trialEndsAt,
-        assigned_by: assignedBy,
-        assigned_at: new Date(),
-        payment_status: 'pending',
-        auto_renew: false,
-        notes: `${trialDays}-day trial period`
-    });
+    const existing = await Subscription.findOne({ outlet_id: outlet._id });
+    if (!existing) {
+        const created = await ensureSubscriptionForOutlet(outletId, {
+            plan,
+            status: 'trial',
+            start_date: now,
+            trial_ends_at: trialEndsAt,
+            assigned_by: assignedBy,
+            notes: `${trialDays}-day trial period`
+        });
 
-    await subscription.save();
+        await SubscriptionHistory.updateOne(
+            { subscription_id: created._id, action: 'created' },
+            { $set: { metadata: { trial_days: trialDays, trial_ends_at: trialEndsAt } } }
+        );
 
-    outlet.subscription_id = subscription._id;
-    await outlet.save();
+        return created;
+    }
+
+    if (!outlet.subscription_id || outlet.subscription_id.toString() !== existing._id.toString()) {
+        outlet.subscription_id = existing._id;
+        await outlet.save();
+    }
+
+    const previousPlan = existing.plan;
+    const previousStatus = existing.status;
+
+    if (plan !== existing.plan) {
+        await upgradeSubscriptionPlan(existing._id.toString(), plan as any, assignedBy);
+    }
+
+    const sub = await Subscription.findById(existing._id);
+    if (!sub) {
+        throw new Error('Subscription not found');
+    }
+
+    sub.status = 'trial';
+    sub.start_date = now;
+    sub.trial_ends_at = trialEndsAt;
+    sub.assigned_by = assignedBy;
+    sub.assigned_at = now;
+    sub.notes = `${trialDays}-day trial period`;
+    sub.payment_status = 'pending';
+    sub.auto_renew = false;
+
+    await sub.save();
 
     await SubscriptionHistory.create({
-        subscription_id: subscription._id,
+        subscription_id: sub._id,
         outlet_id: outlet._id,
-        action: 'created',
-        new_plan: plan,
+        action: 'status_changed',
+        previous_plan: previousPlan,
+        new_plan: sub.plan,
+        previous_status: previousStatus,
         new_status: 'trial',
         changed_by: assignedBy,
-        changed_at: new Date(),
+        changed_at: now,
         reason: `${trialDays}-day trial period`,
         metadata: { trial_days: trialDays, trial_ends_at: trialEndsAt }
     });
 
-    return subscription;
+    return sub;
 };
 
 export const getSubscriptionByOutletId = async (outletId: string): Promise<ISubscription | null> => {
