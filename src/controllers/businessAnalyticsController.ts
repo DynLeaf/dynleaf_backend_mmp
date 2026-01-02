@@ -2,6 +2,8 @@ import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
+import { Subscription } from '../models/Subscription.js';
+import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
 import { sendError, sendSuccess } from '../utils/response.js';
 
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -9,20 +11,43 @@ const startOfNextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.g
 
 const shiftDays = (d: Date, days: number) => new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
 
-const clampRange = (range?: string): 'today' | 'week' | 'month' => {
-  if (range === 'week' || range === 'month') return range;
+const clampRange = (range?: string): 'today' | 'yesterday' | 'week' | 'month' | 'custom' => {
+  if (range === 'yesterday' || range === 'week' || range === 'month' || range === 'custom') return range;
   return 'today';
 };
 
-const getPeriod = (range: 'today' | 'week' | 'month') => {
+const clampDays = (raw?: string): number | null => {
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n)) return null;
+  if (n < 2) return 2;
+  if (n > 90) return 90;
+  return n;
+};
+
+const getPeriod = (range: 'today' | 'yesterday' | 'week' | 'month' | 'custom', customDays?: number | null) => {
   const now = new Date();
-  const endExclusive = startOfNextUtcDay(now);
 
   if (range === 'today') {
+    const endExclusive = startOfNextUtcDay(now);
     const start = startOfUtcDay(now);
     return { start, endExclusive, days: 1 };
   }
 
+  if (range === 'yesterday') {
+    const endExclusive = startOfUtcDay(now);
+    const start = startOfUtcDay(shiftDays(now, -1));
+    return { start, endExclusive, days: 1 };
+  }
+
+  if (range === 'custom') {
+    const days = customDays && customDays > 1 ? customDays : 7;
+    const endExclusive = startOfNextUtcDay(now);
+    const start = startOfUtcDay(shiftDays(now, -(days - 1)));
+    return { start, endExclusive, days };
+  }
+
+  const endExclusive = startOfNextUtcDay(now);
   const days = range === 'week' ? 7 : 30;
   const start = startOfUtcDay(shiftDays(now, -(days - 1)));
   return { start, endExclusive, days };
@@ -37,19 +62,44 @@ const pctChange = (current: number, previous: number) => {
   return { pct: Math.abs(pct), isUp: pct >= 0 };
 };
 
+const formatUtcDayKey = (d: Date) => {
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
 export const getOutletDashboardAnalytics = async (req: Request, res: Response) => {
   try {
     const { outletId } = req.params;
     const range = clampRange((req.query.range as string) || undefined);
+    const daysParam = clampDays((req.query.days as string) || undefined);
 
     const outlet = await Outlet.findById(outletId).select('name');
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
-    const { start, endExclusive, days } = getPeriod(range);
+    // Subscription gate: analytics requires at least BASIC plan.
+    const outletObjectId = new mongoose.Types.ObjectId(outletId);
+    let subscription = await Subscription.findOne({ outlet_id: outletObjectId }).select('plan status');
+    if (!subscription) {
+      subscription = await ensureSubscriptionForOutlet(outletId, {
+        plan: 'free',
+        status: 'active',
+        assigned_by: (req as any).user?.id,
+        notes: 'Auto-created on dashboard analytics access'
+      });
+    }
+
+    const allowedPlans = new Set(['basic', 'premium', 'enterprise']);
+    const allowedStatuses = new Set(['active', 'trial']);
+    const isAllowed = allowedPlans.has(subscription.plan) && allowedStatuses.has(subscription.status);
+    if (!isAllowed) {
+      return sendError(res, 'Subscription required', { required_plan: 'basic', current_plan: subscription.plan }, 403);
+    }
+
+    const { start, endExclusive, days } = getPeriod(range, daysParam);
     const prevStart = shiftDays(start, -days);
     const prevEndExclusive = start;
-
-    const outletObjectId = new mongoose.Types.ObjectId(outletId);
 
     const getCounts = async (startDate: Date, endDate: Date) => {
       const groups = await OutletAnalyticsEvent.aggregate([
@@ -79,6 +129,59 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
       getCounts(start, endExclusive),
       getCounts(prevStart, prevEndExclusive),
     ]);
+
+    // Daily series for simple charts (UTC days)
+    const dailyAgg = await OutletAnalyticsEvent.aggregate([
+      {
+        $match: {
+          outlet_id: outletObjectId,
+          timestamp: { $gte: start, $lt: endExclusive },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$timestamp',
+              timezone: 'UTC',
+            },
+          },
+          outlet_visits: {
+            $sum: {
+              $cond: [{ $eq: ['$event_type', 'outlet_visit'] }, 1, 0],
+            },
+          },
+          profile_views: {
+            $sum: {
+              $cond: [{ $eq: ['$event_type', 'profile_view'] }, 1, 0],
+            },
+          },
+          menu_views: {
+            $sum: {
+              $cond: [{ $eq: ['$event_type', 'menu_view'] }, 1, 0],
+            },
+          },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const dailyMap = new Map<string, { outlet_visits: number; profile_views: number; menu_views: number }>();
+    for (const row of dailyAgg as any[]) {
+      dailyMap.set(String(row._id), {
+        outlet_visits: Number(row.outlet_visits) || 0,
+        profile_views: Number(row.profile_views) || 0,
+        menu_views: Number(row.menu_views) || 0,
+      });
+    }
+
+    const series = Array.from({ length: days }, (_, i) => {
+      const day = shiftDays(start, i);
+      const key = formatUtcDayKey(day);
+      const v = dailyMap.get(key) || { outlet_visits: 0, profile_views: 0, menu_views: 0 };
+      return { date: key, ...v };
+    });
 
     // Build session-level funnel and audience breakdown from raw events.
     const sessions = await OutletAnalyticsEvent.aggregate([
@@ -184,7 +287,9 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
         key: range,
         start: start.toISOString(),
         end_exclusive: endExclusive.toISOString(),
+        days,
       },
+      series,
       kpis: {
         outlet_visits: currentCounts.outlet_visits,
         profile_views: currentCounts.profile_views,

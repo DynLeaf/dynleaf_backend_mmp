@@ -9,6 +9,7 @@ import { sendSuccess, sendError } from '../utils/response.js';
 import * as outletService from '../services/outletService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
+import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -132,17 +133,45 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
         
         // Fetch operating hours from OperatingHours collection
         const operatingHours = await OperatingHours.find({ outlet_id: outletId }).sort({ day_of_week: 1 });
+
+        const userRoles = req.user?.roles || [];
+        const outletBrandId = (outlet as any)?.brand_id?._id?.toString?.()
+            ? (outlet as any).brand_id._id.toString()
+            : (outlet as any)?.brand_id?.toString?.()
+                ? (outlet as any).brand_id.toString()
+                : null;
+
+        const hasOutletAccess = userRoles.some((r: any) => {
+            if (r.role === 'admin') return true;
+            if (r.scope === 'outlet' && r.outletId?.toString?.() === outletId) return true;
+            if (r.scope === 'brand' && r.brandId && outletBrandId) return r.brandId.toString() === outletBrandId;
+            return false;
+        });
+
+        const outletPayload: any = {
+            ...outlet.toObject(),
+            operatingHours: operatingHours.map(h => ({
+                dayOfWeek: h.day_of_week,
+                open: h.open_time,
+                close: h.close_time,
+                isClosed: h.is_closed
+            }))
+        };
+
+        // Only attach subscription details for authorized outlet/brand/admin users.
+        // (This route is used by consumer flows too, so we must not leak subscription info.)
+        if (hasOutletAccess) {
+            const summary = await getOutletSubscriptionSummary(outletId, {
+                assignedByUserId: req.user?.id,
+                notes: 'Auto-created on outlet details access'
+            });
+            outletPayload.subscription = summary.subscription;
+            outletPayload.free_tier = summary.free_tier;
+            outletPayload.had_paid_plan_before = summary.had_paid_plan_before;
+        }
         
         return sendSuccess(res, { 
-            outlet: {
-                ...outlet.toObject(),
-                operatingHours: operatingHours.map(h => ({
-                    dayOfWeek: h.day_of_week,
-                    open: h.open_time,
-                    close: h.close_time,
-                    isClosed: h.is_closed
-                }))
-            }
+            outlet: outletPayload
         });
     } catch (error: any) {
         return sendError(res, error.message);
