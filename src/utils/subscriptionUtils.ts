@@ -5,7 +5,9 @@ import mongoose from 'mongoose';
 
 const toObjectId = (id?: mongoose.Types.ObjectId | string) => {
     if (!id) return undefined;
-    return typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id;
+    if (typeof id !== 'string') return id;
+    if (!mongoose.Types.ObjectId.isValid(id)) return undefined;
+    return new mongoose.Types.ObjectId(id);
 };
 
 export interface SubscriptionAssignment {
@@ -42,7 +44,8 @@ export const ensureSubscriptionForOutlet = async (
         throw new Error('Outlet not found');
     }
 
-    const existing = await Subscription.findOne({ outlet_id: outlet._id });
+    const existing = await Subscription.findOne({ outlet_id: outlet._id })
+        .sort({ updated_at: -1, created_at: -1 });
     if (existing) {
         if (!outlet.subscription_id || outlet.subscription_id.toString() !== existing._id.toString()) {
             outlet.subscription_id = existing._id;
@@ -109,7 +112,8 @@ export const assignSubscriptionToOutlet = async (
         throw new Error('Outlet not found');
     }
 
-    const existing = await Subscription.findOne({ outlet_id: outlet._id });
+    const existing = await Subscription.findOne({ outlet_id: outlet._id })
+        .sort({ updated_at: -1, created_at: -1 });
 
     if (!existing) {
         return await ensureSubscriptionForOutlet(outletId, {
@@ -246,8 +250,17 @@ export const upgradeSubscriptionPlan = async (
     }
 
     const previousPlan = subscription.plan;
+    const previousStatus = subscription.status;
     subscription.plan = newPlan;
     subscription.features = plan.features;
+
+    // Common production issue: legacy/auto-created subscriptions can be left as `inactive`.
+    // If an outlet is upgraded to a paid plan, ensure it becomes usable immediately.
+    const isPaidPlan = newPlan !== 'free';
+    const shouldAutoActivate = isPaidPlan && subscription.status === 'inactive';
+    if (shouldAutoActivate) {
+        subscription.status = 'active';
+    }
 
     await subscription.save();
 
@@ -265,6 +278,19 @@ export const upgradeSubscriptionPlan = async (
         changed_by: changedById,
         changed_at: new Date()
     });
+
+    if (shouldAutoActivate) {
+        await SubscriptionHistory.create({
+            subscription_id: subscription._id,
+            outlet_id: subscription.outlet_id,
+            action: 'status_changed',
+            previous_status: previousStatus,
+            new_status: 'active',
+            changed_by: changedById,
+            changed_at: new Date(),
+            reason: 'Auto-activated on plan upgrade'
+        });
+    }
 
     return subscription;
 };

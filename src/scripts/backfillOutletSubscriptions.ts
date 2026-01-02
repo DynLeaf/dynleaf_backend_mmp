@@ -9,6 +9,24 @@ dotenv.config();
 const APPLY = process.argv.includes('--apply');
 const DEDUPE = process.argv.includes('--dedupe');
 
+const MIXED_PLANS = ['free', 'basic', 'premium'] as const;
+type MixedPlan = (typeof MIXED_PLANS)[number];
+
+function pickMixedPlan(outletId: string): MixedPlan {
+  // Deterministic: stable distribution without storing extra state
+  // Use last 6 hex chars of ObjectId to spread reasonably.
+  const hex = outletId.replace(/[^a-fA-F0-9]/g, '').slice(-6);
+  const n = parseInt(hex || '0', 16);
+  return MIXED_PLANS[n % MIXED_PLANS.length];
+}
+
+function getEndDateForPlan(plan: MixedPlan, now: Date): Date | undefined {
+  if (plan === 'free') return undefined;
+  const end = new Date(now);
+  end.setDate(end.getDate() + 365);
+  return end;
+}
+
 async function dedupeSubscriptionsByOutletId() {
   const dupGroups = await Subscription.aggregate([
     {
@@ -87,10 +105,13 @@ async function backfillMissingSubscriptions() {
     if (!existingSub) {
       wouldCreate++;
       if (APPLY) {
+        const now = new Date();
+        const plan = pickMixedPlan(outlet._id.toString());
         await ensureSubscriptionForOutlet(outlet._id.toString(), {
-          plan: 'free',
+          plan,
           status: 'active',
-          notes: 'Backfilled default subscription'
+          end_date: getEndDateForPlan(plan, now),
+          notes: `Backfilled subscription (${plan})`
         });
         created++;
       }

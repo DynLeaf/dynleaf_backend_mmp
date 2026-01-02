@@ -1,14 +1,53 @@
 import { Outlet, IOutlet } from '../models/Outlet.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { Compliance } from '../models/Compliance.js';
+import { User } from '../models/User.js';
 import mongoose from 'mongoose';
 import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
+
+const toObjectId = (value: unknown): mongoose.Types.ObjectId | null => {
+    if (!value) return null;
+    if (value instanceof mongoose.Types.ObjectId) return value;
+    if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) return new mongoose.Types.ObjectId(value);
+    return null;
+};
+
+const getAccessibleOutletQueryForUser = async (userId: string) => {
+    const user = await User.findById(userId).select('roles').lean();
+    if (!user) {
+        return { created_by_user_id: userId };
+    }
+
+    const isAdmin = (user as any).roles?.some((r: any) => r?.role === 'admin');
+    if (isAdmin) {
+        return {};
+    }
+
+    const outletIds = ((user as any).roles || [])
+        .filter((r: any) => r?.scope === 'outlet' && r?.outletId)
+        .map((r: any) => toObjectId(r.outletId))
+        .filter(Boolean) as mongoose.Types.ObjectId[];
+
+    const brandIds = ((user as any).roles || [])
+        .filter((r: any) => r?.scope === 'brand' && r?.brandId)
+        .map((r: any) => toObjectId(r.brandId))
+        .filter(Boolean) as mongoose.Types.ObjectId[];
+
+    return {
+        $or: [
+            { created_by_user_id: userId },
+            ...(outletIds.length ? [{ _id: { $in: outletIds } }] : []),
+            ...(brandIds.length ? [{ brand_id: { $in: brandIds } }] : []),
+        ],
+    };
+};
 
 /**
  * Get all outlets for a user (full details)
  */
 export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
-    return await Outlet.find({ created_by_user_id: userId })
+    const query = await getAccessibleOutletQueryForUser(userId);
+    return await Outlet.find(query)
         .populate('brand_id')
         .sort({ created_at: -1 });
 };
@@ -17,7 +56,8 @@ export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
  * Get outlet list for dropdown (lightweight - only essential fields)
  */
 export const getUserOutletsList = async (userId: string) => {
-    return await Outlet.find({ created_by_user_id: userId })
+    const query = await getAccessibleOutletQueryForUser(userId);
+    return await Outlet.find(query)
         .select('_id name brand_id status approval_status media.cover_image_url address.city')
         .populate('brand_id', 'name')
         .sort({ created_at: -1 })

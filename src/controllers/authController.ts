@@ -6,6 +6,7 @@ import { Session } from "../models/Session.js";
 import * as otpService from "../services/otpService.js";
 import * as tokenService from "../services/tokenService.js";
 import * as sessionService from "../services/sessionService.js";
+import * as outletService from "../services/outletService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import jwt from "jsonwebtoken";
 
@@ -130,7 +131,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
     await user.save();
 
     const brands = await Brand.find({ admin_user_id: user._id });
-    const outlets = await Outlet.find({ created_by_user_id: user._id });
+    const outlets = await outletService.getUserOutletsList(user._id.toString());
 
     const hasCompletedOnboarding =
       user.roles.some((r) => r.role === "restaurant_owner") &&
@@ -162,10 +163,10 @@ export const verifyOtp = async (req: Request, res: Response) => {
         currentStep: user.currentStep,
         hasCompletedOnboarding,
         brands: brands.map((b) => ({ id: b._id, name: b.name, slug: b.slug })),
-        outlets: outlets.map((o) => ({
+        outlets: outlets.map((o: any) => ({
           id: o._id,
           name: o.name,
-          brandId: o.brand_id,
+          brandId: o.brand_id?._id || o.brand_id,
         })),
         is_verified: user.is_verified,
         is_active: user.is_active,

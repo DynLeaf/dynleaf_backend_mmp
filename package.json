@@ -19,9 +19,11 @@
     "cleanup:outlet-menus": "tsx src/scripts/cleanupOutletMenuItems.ts",
     "fix:outlet-indexes": "tsx src/scripts/fixOutletIndexes.ts",
     "diagnose:outlets": "tsx src/scripts/diagnoseOutlets.ts",
+    "debug:analytics-access": "tsx src/scripts/debugOutletAnalyticsAccess.ts",
     "fix:brands": "tsx src/scripts/fixBrandStatus.ts",
     "migrate:outlet-centric": "tsx src/scripts/migrateToOutletCentric.ts",
     "backfill:subscriptions": "tsx src/scripts/backfillOutletSubscriptions.ts",
+    "set:outlet-subscription": "tsx src/scripts/setOutletSubscription.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -28,9 +28,9 @@ export const getOutletSubscriptionSummary = async (
 ): Promise<OutletSubscriptionSummary> => {
   const outletObjectId = new mongoose.Types.ObjectId(outletId);
 
-  let subscription: any = await Subscription.findOne({ outlet_id: outletObjectId }).select(
-    'plan status start_date end_date trial_ends_at features'
-  );
+  let subscription: any = await Subscription.findOne({ outlet_id: outletObjectId })
+    .sort({ updated_at: -1, created_at: -1 })
+    .select('plan status start_date end_date trial_ends_at features');
 
   if (!subscription) {
     subscription = (await ensureSubscriptionForOutlet(outletId, {

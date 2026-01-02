@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
-import { Subscription } from '../models/Subscription.js';
+import { Subscription, ISubscription } from '../models/Subscription.js';
 import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
 import { sendError, sendSuccess } from '../utils/response.js';
 
@@ -75,12 +75,18 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
     const range = clampRange((req.query.range as string) || undefined);
     const daysParam = clampDays((req.query.days as string) || undefined);
 
-    const outlet = await Outlet.findById(outletId).select('name');
+    const outlet = await Outlet.findById(outletId).select('name subscription_id');
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
     // Subscription gate: analytics requires at least BASIC plan.
     const outletObjectId = new mongoose.Types.ObjectId(outletId);
-    let subscription = await Subscription.findOne({ outlet_id: outletObjectId }).select('plan status');
+    // Always resolve the latest subscription by outlet_id.
+    // This avoids false "locked" states when Outlet.subscription_id is stale (or if legacy data has duplicates).
+    let subscription: ISubscription | null = await Subscription.findOne({ outlet_id: outletObjectId }).sort({
+      updated_at: -1,
+      created_at: -1,
+    });
+
     if (!subscription) {
       subscription = await ensureSubscriptionForOutlet(outletId, {
         plan: 'free',
@@ -90,11 +96,21 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
       });
     }
 
+    if (!outlet.subscription_id || outlet.subscription_id.toString() !== subscription._id.toString()) {
+      outlet.subscription_id = subscription._id;
+      await outlet.save();
+    }
+
     const allowedPlans = new Set(['basic', 'premium', 'enterprise']);
     const allowedStatuses = new Set(['active', 'trial']);
     const isAllowed = allowedPlans.has(subscription.plan) && allowedStatuses.has(subscription.status);
     if (!isAllowed) {
-      return sendError(res, 'Subscription required', { required_plan: 'basic', current_plan: subscription.plan }, 403);
+      return sendError(
+        res,
+        'Subscription required',
+        { required_plan: 'basic', current_plan: subscription.plan, current_status: subscription.status },
+        403
+      );
     }
 
     const { start, endExclusive, days } = getPeriod(range, daysParam);

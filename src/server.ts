@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import mongoose from 'mongoose';
 import app from './app.js';
 import connectDB from './config/db.js';
 import { connectRedis } from './config/redis.js';
@@ -12,6 +13,9 @@ const PORT = Number(process.env.PORT) || 5000;
 const startServer = async () => {
     try {
         await connectDB();
+        console.log(
+            `[mongo] connected host=${mongoose.connection.host} db=${mongoose.connection.name}`
+        );
         await connectRedis();
         
         // Start cron jobs

@@ -141,6 +141,13 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
             return res.status(404).json({ error: 'Outlet not found' });
         }
 
+        // Creator access: if the authenticated user created the outlet, allow access.
+        // This prevents access regressions when role assignments are missing or stale.
+        if ((outlet as any).created_by_user_id?.toString?.() === req.user.id?.toString?.()) {
+            req.outlet = outlet as any;
+            return next();
+        }
+
         // Debug logging
         console.log('=== requireOutletAccess Debug ===');
         console.log('User ID:', req.user.id);
