@@ -2,11 +2,13 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IUser extends Document {
     username?: string;
+    full_name?: string;
     email?: string;
     phone: string;
     password_hash?: string;
     google_id?: string;
     avatar_url?: string;
+    bio?: string;
     
     roles: Array<{
         scope: 'platform' | 'brand' | 'outlet';
@@ -46,11 +48,13 @@ export interface IUser extends Document {
 
 const userSchema = new Schema<IUser>({
     username: { type: String, unique: true, sparse: true },
+    full_name: { type: String },
     email: { type: String, sparse: true },
     phone: { type: String, unique: true, required: true },
     password_hash: { type: String },
     google_id: { type: String, unique: true, sparse: true },
     avatar_url: { type: String },
+    bio: { type: String, maxlength: 500 },
     
     roles: [{
         scope: { type: String, enum: ['platform', 'brand', 'outlet'], required: true },
