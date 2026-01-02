@@ -527,12 +527,33 @@ export const trackImpression = async (req: Request, res: Response) => {
         // Get IP address
         const ip_address = (req.headers['x-forwarded-for'] as string)?.split(',')[0] || req.ip || req.socket.remoteAddress;
 
+        const sid = session_id || 'anonymous';
+
+        // Dedupe: only count 1 impression per promotion per session per UTC day.
+        // (Skip dedupe when session_id is missing to avoid collapsing all traffic into 'anonymous'.)
+        if (session_id) {
+            const now = new Date();
+            const startUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+            const endUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+
+            const existing = await PromotionEvent.findOne({
+                promotion_id: promotion._id,
+                event_type: 'impression',
+                session_id: sid,
+                timestamp: { $gte: startUtc, $lt: endUtc },
+            }).select('_id');
+
+            if (existing) {
+                return sendSuccess(res, { tracked: false, deduped: true });
+            }
+        }
+
         // Save detailed event
         await PromotionEvent.create({
             promotion_id: promotion._id,
             outlet_id: promotion.outlet_id,
             event_type: 'impression',
-            session_id: session_id || 'anonymous',
+            session_id: sid,
             device_type,
             user_agent: userAgent,
             ip_address,

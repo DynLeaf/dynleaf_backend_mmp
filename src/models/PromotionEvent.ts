@@ -55,6 +55,7 @@ const promotionEventSchema = new Schema<IPromotionEvent>({
 // Compound indexes for efficient queries
 promotionEventSchema.index({ promotion_id: 1, timestamp: -1 });
 promotionEventSchema.index({ promotion_id: 1, event_type: 1, timestamp: -1 });
+promotionEventSchema.index({ promotion_id: 1, session_id: 1, event_type: 1, timestamp: -1 });
 promotionEventSchema.index({ timestamp: 1 }); // For cleanup/archival
 
 export const PromotionEvent = mongoose.model<IPromotionEvent>('PromotionEvent', promotionEventSchema);

@@ -25,6 +25,12 @@ import {
     getProfileReviews
 } from '../controllers/socialController.js';
 
+import {
+    trackOutletProfileView,
+    trackOutletMenuView,
+    trackOutletVisit
+} from '../controllers/outletAnalyticsController.js';
+
 const router = express.Router();
 
 // Public routes
@@ -50,6 +56,11 @@ router.get('/:outletId/profile/about', getProfileAbout);
 router.get('/:outletId/profile/feed', getProfileFeed);
 router.get('/:outletId/profile/photos', getProfilePhotos);
 router.get('/:outletId/profile/reviews', getProfileReviews);
+
+// Public analytics tracking
+router.post('/:outletId/analytics/profile-view', trackOutletProfileView);
+router.post('/:outletId/analytics/menu-view', trackOutletMenuView);
+router.post('/:outletId/analytics/outlet-visit', trackOutletVisit);
 
 
 export default router;

@@ -8,6 +8,7 @@ import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
+import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 
 const router = express.Router();
 
@@ -901,5 +902,8 @@ router.delete("/promotions/:id", adminAuth, promotionController.deletePromotion)
 
 // Get promotion analytics
 router.get("/promotions/:id/analytics", adminAuth, promotionController.getPromotionAnalytics);
+
+// Outlet analytics
+router.get("/outlets/:id/analytics", adminAuth, outletAnalyticsController.getOutletAnalytics);
 
 export default router;
