@@ -46,8 +46,9 @@ const getAccessibleOutletQueryForUser = async (userId: string) => {
  * Get all outlets for a user (full details)
  */
 export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
-    const query = await getAccessibleOutletQueryForUser(userId);
-    return await Outlet.find(query)
+    // Security/UX: "My outlets" should only include outlets created by this user.
+    // (Do not expand via brand/outlet roles here.)
+    return await Outlet.find({ created_by_user_id: userId })
         .populate('brand_id')
         .sort({ created_at: -1 });
 };
@@ -56,8 +57,9 @@ export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
  * Get outlet list for dropdown (lightweight - only essential fields)
  */
 export const getUserOutletsList = async (userId: string) => {
-    const query = await getAccessibleOutletQueryForUser(userId);
-    return await Outlet.find(query)
+    // Security/UX: dropdown should only list outlets created by this user.
+    // (Do not expand via brand/outlet roles here.)
+    return await Outlet.find({ created_by_user_id: userId })
         .select('_id name brand_id status approval_status media.cover_image_url address.city')
         .populate('brand_id', 'name')
         .sort({ created_at: -1 })
