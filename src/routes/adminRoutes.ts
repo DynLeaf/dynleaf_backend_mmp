@@ -6,14 +6,19 @@ import { User } from "../models/User.js";
 import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
+import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 
 const router = express.Router();
 
+interface AuthRequest extends express.Request {
+  user?: any;
+}
+
 // Check admin auth
-router.get("/me", adminAuth, async (req, res) => {
+router.get("/me", adminAuth, async (req: AuthRequest, res) => {
   try {
     return sendSuccess(res, {
       user: req.user,
@@ -25,11 +30,13 @@ router.get("/me", adminAuth, async (req, res) => {
 });
 
 // Dashboard stats
-router.get("/dashboard/stats", adminAuth, async (req, res) => {
+router.get("/dashboard/stats", adminAuth, async (req: AuthRequest, res) => {
   try {
-    const [pendingRequests, pendingBrands, totalBrands, totalOutlets, totalUsers] = await Promise.all([
+    const [pendingRequests, pendingBrands, brandUpdates, totalBrands, totalOutlets, totalUsers] = await Promise.all([
+      // Note: pendingRequests refers to pending outlet onboarding requests
       Outlet.countDocuments({ approval_status: "PENDING" }),
-      Brand.countDocuments({ approval_status: "PENDING" }),
+      Brand.countDocuments({ verification_status: "pending" }),
+      BrandUpdateRequest.countDocuments({ status: "pending" }),
       Brand.countDocuments(),
       Outlet.countDocuments(),
       User.countDocuments(),
@@ -38,6 +45,7 @@ router.get("/dashboard/stats", adminAuth, async (req, res) => {
     return sendSuccess(res, {
       pendingRequests,
       pendingBrands,
+      brandUpdates,
       totalBrands,
       totalOutlets,
       totalUsers,
@@ -49,7 +57,7 @@ router.get("/dashboard/stats", adminAuth, async (req, res) => {
 });
 
 // Onboarding requests
-router.get("/onboarding/requests", adminAuth, async (req, res) => {
+router.get("/onboarding/requests", adminAuth, async (req: AuthRequest, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -123,7 +131,7 @@ router.get("/onboarding/requests", adminAuth, async (req, res) => {
 });
 
 // Get onboarding request detail
-router.get("/onboarding/requests/:id", adminAuth, async (req, res) => {
+router.get("/onboarding/requests/:id", adminAuth, async (req: AuthRequest, res) => {
   try {
     const outlet = await Outlet.findById(req.params.id)
       .populate("brand_id", "name logo_url description cuisines verification_status")
@@ -138,21 +146,24 @@ router.get("/onboarding/requests/:id", adminAuth, async (req, res) => {
     const compliance = await Compliance.findOne({ outlet_id: req.params.id }).lean();
 
     // Map to frontend interface
+    const userDoc = outlet.created_by_user_id as any;
+    const brandDoc = outlet.brand_id as any;
+
     const request = {
       _id: outlet._id,
       user_id: {
-        _id: outlet.created_by_user_id?._id,
-        phone: outlet.created_by_user_id?.phone,
-        email: outlet.created_by_user_id?.email,
-        name: outlet.created_by_user_id?.username,
+        _id: userDoc?._id,
+        phone: userDoc?.phone,
+        email: userDoc?.email,
+        name: userDoc?.username,
       },
       brand_id: {
-        _id: outlet.brand_id?._id,
-        name: outlet.brand_id?.name,
-        logo: outlet.brand_id?.logo_url,
-        description: outlet.brand_id?.description,
-        cuisine_types: outlet.brand_id?.cuisines,
-        verification_status: outlet.brand_id?.verification_status,
+        _id: brandDoc?._id,
+        name: brandDoc?.name,
+        logo: brandDoc?.logo_url,
+        description: brandDoc?.description,
+        cuisine_types: brandDoc?.cuisines,
+        verification_status: brandDoc?.verification_status,
       },
       outlet_id: {
         _id: outlet._id,
@@ -186,11 +197,11 @@ router.get("/onboarding/requests/:id", adminAuth, async (req, res) => {
 });
 
 // Approve onboarding request
-router.post("/onboarding/:id/approve", adminAuth, async (req, res) => {
+router.post("/onboarding/:id/approve", adminAuth, async (req: AuthRequest, res) => {
   try {
     const outlet = await Outlet.findByIdAndUpdate(
       req.params.id,
-      { 
+      {
         approval_status: "APPROVED",
         status: "ACTIVE",
         'approval.reviewed_at': new Date(),
@@ -211,7 +222,7 @@ router.post("/onboarding/:id/approve", adminAuth, async (req, res) => {
 });
 
 // Reject onboarding request
-router.post("/onboarding/:id/reject", adminAuth, async (req, res) => {
+router.post("/onboarding/:id/reject", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { reason } = req.body;
 
@@ -221,7 +232,7 @@ router.post("/onboarding/:id/reject", adminAuth, async (req, res) => {
 
     const outlet = await Outlet.findByIdAndUpdate(
       req.params.id,
-      { 
+      {
         approval_status: "REJECTED",
         status: "REJECTED",
         'approval.rejection_reason': reason,
@@ -243,7 +254,7 @@ router.post("/onboarding/:id/reject", adminAuth, async (req, res) => {
 });
 
 // Get all brands
-router.get("/brands", adminAuth, async (req, res) => {
+router.get("/brands", adminAuth, async (req: AuthRequest, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -311,7 +322,7 @@ router.get("/brands", adminAuth, async (req, res) => {
 });
 
 // Get brand by ID
-router.get("/brands/:id", adminAuth, async (req, res) => {
+router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findById(req.params.id)
       .populate("admin_user_id", "phone email username")
@@ -340,14 +351,15 @@ router.get("/brands/:id", adminAuth, async (req, res) => {
     }, 0);
 
     // Ensure created_by is populated (fallback to admin_user_id)
+    const brandObj = brand as any;
     const brandData = {
-      ...brand,
-      created_by: brand.created_by || brand.admin_user_id,
+      ...brandObj,
+      created_by: brandObj.created_by || brandObj.admin_user_id,
     };
 
-    return sendSuccess(res, { 
-      brand: brandData, 
-      outlets, 
+    return sendSuccess(res, {
+      brand: brandData,
+      outlets,
       outletsCount: outlets.length,
       menus: menus.map(menu => ({
         _id: menu._id,
@@ -368,7 +380,7 @@ router.get("/brands/:id", adminAuth, async (req, res) => {
 });
 
 // Approve brand
-router.post("/brands/:id/approve", adminAuth, async (req, res) => {
+router.post("/brands/:id/approve", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findByIdAndUpdate(
       req.params.id,
@@ -391,7 +403,7 @@ router.post("/brands/:id/approve", adminAuth, async (req, res) => {
 });
 
 // Reject brand
-router.post("/brands/:id/reject", adminAuth, async (req, res) => {
+router.post("/brands/:id/reject", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findByIdAndUpdate(
       req.params.id,
@@ -414,7 +426,7 @@ router.post("/brands/:id/reject", adminAuth, async (req, res) => {
 });
 
 // Cancel/Reset brand verification
-router.post("/brands/:id/cancel", adminAuth, async (req, res) => {
+router.post("/brands/:id/cancel", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findByIdAndUpdate(
       req.params.id,
@@ -437,7 +449,7 @@ router.post("/brands/:id/cancel", adminAuth, async (req, res) => {
 });
 
 // Set brand back to pending
-router.post("/brands/:id/pending", adminAuth, async (req, res) => {
+router.post("/brands/:id/pending", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findByIdAndUpdate(
       req.params.id,
@@ -460,8 +472,144 @@ router.post("/brands/:id/pending", adminAuth, async (req, res) => {
   }
 });
 
+// --- Brand Update Request Routes ---
+
+// List all brand update requests
+router.get("/brand-updates", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { status, search } = req.query;
+    const query: any = {};
+
+    // Debug: Check if any documents exist at all
+    const totalDocs = await BrandUpdateRequest.countDocuments({});
+    console.log(`[CreateDebug] Total BrandUpdateRequests in DB: ${totalDocs}`);
+
+    // If status is provided, filter by it (unless it's 'all' or empty)
+    if (status && status !== 'all') {
+      query.status = status;
+    } else if (status === undefined) {
+      // Default to pending ONLY if status query param is completely missing
+      query.status = 'pending';
+    }
+    // If status is '' (empty string from frontend 'all'), no filter is applied
+
+    // Search by brand name if search is provided
+    if (search) {
+      const brands = await Brand.find({
+        name: { $regex: typeof search === 'string' ? search : '', $options: 'i' }
+      }).select('_id');
+      const brandIds = brands.map(b => b._id);
+      query.brand_id = { $in: brandIds };
+    }
+
+    const requests = await BrandUpdateRequest.find(query)
+      .populate("brand_id", "name logo_url")
+      .populate("requester_id", "phone email username")
+      .sort({ created_at: -1 });
+
+    return sendSuccess(res, {
+      requests,
+      total: requests.length
+    });
+  } catch (error: any) {
+    console.error("Get brand updates error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Get brand update request detail (with diff)
+router.get("/brand-updates/:id", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const request = await BrandUpdateRequest.findById(req.params.id)
+      .populate("brand_id")
+      .populate("requester_id", "phone email username")
+      .lean();
+
+    if (!request) {
+      return sendError(res, "Update request not found", null, 404);
+    }
+
+    return sendSuccess(res, request);
+  } catch (error: any) {
+    console.error("Get brand update detail error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Approve brand update request
+router.post("/brand-updates/:id/approve", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const request = await BrandUpdateRequest.findById(req.params.id);
+    if (!request) {
+      return sendError(res, "Update request not found", null, 404);
+    }
+
+    if (request.status !== 'pending') {
+      return sendError(res, "Request is already processed", null, 400);
+    }
+
+    // Apply changes to the brand
+    const brand = await Brand.findById(request.brand_id);
+    if (!brand) {
+      return sendError(res, "Brand not found", null, 404);
+    }
+
+    // Map new_data to brand
+    const newData = request.new_data;
+    if (newData.name) {
+      brand.name = newData.name;
+      // Update slug if name changed
+      brand.slug = newData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    }
+    if (newData.description !== undefined) brand.description = newData.description;
+    if (newData.logo_url) brand.logo_url = newData.logo_url;
+    if (newData.cuisines) brand.cuisines = newData.cuisines;
+    if (newData.operating_modes) brand.operating_modes = newData.operating_modes;
+    if (newData.social_media) brand.social_media = newData.social_media;
+
+    await brand.save();
+
+    // Update request status
+    request.status = 'approved';
+    request.reviewed_by = req.user?.userId;
+    request.reviewed_at = new Date();
+    await request.save();
+
+    return sendSuccess(res, brand, "Brand updates approved and applied successfully");
+  } catch (error: any) {
+    console.error("Approve brand update error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Reject brand update request
+router.post("/brand-updates/:id/reject", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { reason } = req.body;
+    if (!reason) {
+      return sendError(res, "Rejection reason is required", null, 400);
+    }
+
+    const request = await BrandUpdateRequest.findById(req.params.id);
+    if (!request) {
+      return sendError(res, "Update request not found", null, 404);
+    }
+
+    request.status = 'rejected';
+    request.rejection_reason = reason;
+    request.reviewed_by = req.user?.userId;
+    request.reviewed_at = new Date();
+    await request.save();
+
+    return sendSuccess(res, request, "Brand update rejected");
+  } catch (error: any) {
+    console.error("Reject brand update error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // Toggle brand featured status
-router.patch("/brands/:id/toggle-featured", adminAuth, async (req, res) => {
+router.patch("/brands/:id/toggle-featured", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findById(req.params.id);
 
@@ -487,7 +635,7 @@ router.patch("/brands/:id/toggle-featured", adminAuth, async (req, res) => {
 });
 
 // Toggle compliance verification status
-router.patch("/compliance/:id/toggle-verification", adminAuth, async (req, res) => {
+router.patch("/compliance/:id/toggle-verification", adminAuth, async (req: AuthRequest, res) => {
   try {
     const compliance = await Compliance.findById(req.params.id);
 
@@ -497,7 +645,7 @@ router.patch("/compliance/:id/toggle-verification", adminAuth, async (req, res) 
 
     const updatedCompliance = await Compliance.findByIdAndUpdate(
       req.params.id,
-      { 
+      {
         is_verified: !compliance.is_verified,
         verified_at: !compliance.is_verified ? new Date() : undefined,
         verified_by: !compliance.is_verified ? req.user?.userId : undefined
@@ -517,7 +665,7 @@ router.patch("/compliance/:id/toggle-verification", adminAuth, async (req, res) 
 });
 
 // Get all outlets
-router.get("/outlets", adminAuth, async (req, res) => {
+router.get("/outlets", adminAuth, async (req: AuthRequest, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -528,7 +676,7 @@ router.get("/outlets", adminAuth, async (req, res) => {
     const skip = (page - 1) * limit;
 
     const query: any = {};
-    
+
     // Search filter
     if (search) {
       query.name = { $regex: search, $options: "i" };
@@ -573,7 +721,7 @@ router.get("/outlets", adminAuth, async (req, res) => {
 });
 
 // Get outlet by ID with full details
-router.get("/outlets/:id", adminAuth, async (req, res) => {
+router.get("/outlets/:id", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -632,7 +780,7 @@ router.get("/outlets/:id", adminAuth, async (req, res) => {
 });
 
 // Approve outlet
-router.post("/outlets/:id/approve", adminAuth, async (req, res) => {
+router.post("/outlets/:id/approve", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
 
@@ -659,7 +807,7 @@ router.post("/outlets/:id/approve", adminAuth, async (req, res) => {
 });
 
 // Reject outlet
-router.post("/outlets/:id/reject", adminAuth, async (req, res) => {
+router.post("/outlets/:id/reject", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
@@ -692,7 +840,7 @@ router.post("/outlets/:id/reject", adminAuth, async (req, res) => {
 });
 
 // Change outlet status
-router.patch("/outlets/:id/status", adminAuth, async (req, res) => {
+router.patch("/outlets/:id/status", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -724,7 +872,7 @@ router.patch("/outlets/:id/status", adminAuth, async (req, res) => {
 });
 
 // Change outlet owner
-router.patch("/outlets/:id/change-owner", adminAuth, async (req, res) => {
+router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { id } = req.params;
     const { user_id } = req.body;
@@ -757,7 +905,7 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req, res) => {
 });
 
 // Get all users
-router.get("/users", adminAuth, async (req, res) => {
+router.get("/users", adminAuth, async (req: AuthRequest, res) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
@@ -766,12 +914,12 @@ router.get("/users", adminAuth, async (req, res) => {
 
     const query = search
       ? {
-          $or: [
-            { phone: { $regex: search, $options: "i" } },
-            { email: { $regex: search, $options: "i" } },
-            { username: { $regex: search, $options: "i" } },
-          ],
-        }
+        $or: [
+          { phone: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+          { username: { $regex: search, $options: "i" } },
+        ],
+      }
       : {};
 
     const [users, total] = await Promise.all([
@@ -807,16 +955,16 @@ router.get("/moderation/stories", adminAuth, async (req, res) => {
     const skip = (page - 1) * limit;
 
     const query = {
-        'flags.isModerated': false,
-        status: { $in: ['live', 'active'] } // Only moderate live content
+      'flags.isModerated': false,
+      status: { $in: ['live', 'active'] } // Only moderate live content
     };
 
     const [stories, total] = await Promise.all([
       Story.find(query)
         .populate({
-            path: 'outletId',
-            select: 'name brand_id',
-            populate: { path: 'brand_id', select: 'name logo_url' }
+          path: 'outletId',
+          select: 'name brand_id',
+          populate: { path: 'brand_id', select: 'name logo_url' }
         })
         .populate('createdBy', 'username email')
         .sort({ created_at: 1 }) // Oldest first
@@ -841,41 +989,41 @@ router.get("/moderation/stories", adminAuth, async (req, res) => {
 
 // Approve story (mark as moderated)
 router.post("/moderation/stories/:id/approve", adminAuth, async (req, res) => {
-    try {
-        const story = await Story.findByIdAndUpdate(
-            req.params.id,
-            {
-                'flags.isModerated': true,
-                'flags.isRejected': false
-            },
-            { new: true }
-        );
-        if (!story) return sendError(res, "Story not found", null, 404);
-        return sendSuccess(res, story, "Story approved");
-    } catch (error: any) {
-        return sendError(res, error.message);
-    }
+  try {
+    const story = await Story.findByIdAndUpdate(
+      req.params.id,
+      {
+        'flags.isModerated': true,
+        'flags.isRejected': false
+      },
+      { new: true }
+    );
+    if (!story) return sendError(res, "Story not found", null, 404);
+    return sendSuccess(res, story, "Story approved");
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
 });
 
 // Reject story
 router.post("/moderation/stories/:id/reject", adminAuth, async (req, res) => {
-    try {
-        const { reason } = req.body;
-        const story = await Story.findByIdAndUpdate(
-            req.params.id,
-            {
-                'flags.isModerated': true,
-                'flags.isRejected': true,
-                'flags.rejectionReason': reason,
-                status: 'archived'
-            },
-            { new: true }
-        );
-        if (!story) return sendError(res, "Story not found", null, 404);
-        return sendSuccess(res, story, "Story rejected");
-    } catch (error: any) {
-        return sendError(res, error.message);
-    }
+  try {
+    const { reason } = req.body;
+    const story = await Story.findByIdAndUpdate(
+      req.params.id,
+      {
+        'flags.isModerated': true,
+        'flags.isRejected': true,
+        'flags.rejectionReason': reason,
+        status: 'archived'
+      },
+      { new: true }
+    );
+    if (!story) return sendError(res, "Story not found", null, 404);
+    return sendSuccess(res, story, "Story rejected");
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
 });
 
 // ============================================

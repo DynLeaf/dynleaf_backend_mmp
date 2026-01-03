@@ -5,6 +5,7 @@ import { User } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as brandService from '../services/brandService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
+import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
 
 interface AuthRequest extends Request {
@@ -15,8 +16,8 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
     try {
         const { name, logo, description, operationModel, cuisines, website, email } = req.body;
 
-        
-        
+
+
         // Handle logo upload if base64
         let logoUrl = logo;
         if (logo && logo.startsWith('data:')) {
@@ -43,8 +44,8 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
             }
         });
 
-        return sendSuccess(res, { 
-            id: brand._id, 
+        return sendSuccess(res, {
+            id: brand._id,
             name: brand.name,
             logo_url: brand.logo_url,
             slug: brand.slug
@@ -82,8 +83,8 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         const { brandId } = req.params;
         const { name, logo, description, cuisines, website, instagram, operationModel } = req.body;
 
-        
-        
+
+
         // Handle logo upload if base64
         let logoUrl = logo;
         if (logo && logo.startsWith('data:')) {
@@ -92,17 +93,27 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         } else if (logo) {
         }
 
+        const brand = await Brand.findById(brandId);
+        if (!brand) {
+            return sendError(res, 'Brand not found', null, 404);
+        }
+
+        // Check ownership (admin_user_id is the owner)
+        if (brand.admin_user_id.toString() !== req.user.id.toString()) {
+            return sendError(res, 'Unauthorized to update this brand', null, 403);
+        }
+
         const updateData: any = {};
         if (name) updateData.name = name;
         if (description !== undefined) updateData.description = description;
         if (logoUrl) updateData.logo_url = logoUrl;
         if (cuisines) updateData.cuisines = cuisines;
-        if (website || instagram) {
-            updateData.social_media = {
-                website,
-                instagram
-            };
-        }
+
+        const social_media: any = { ...(brand.social_media || {}) };
+        if (website !== undefined) social_media.website = website;
+        if (instagram !== undefined) social_media.instagram = instagram;
+        updateData.social_media = social_media;
+
         if (operationModel) {
             updateData.operating_modes = {
                 corporate: operationModel === 'corporate' || operationModel === 'hybrid',
@@ -110,16 +121,57 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
             };
         }
 
-        const brand = await brandService.updateBrand(brandId, req.user.id, updateData);
-        
-        if (!brand) {
-            return sendError(res, 'Brand not found or unauthorized', null, 404);
+        // If brand is already approved, create a request instead of updating directly
+        const currentStatus = brand.verification_status?.toLowerCase();
+        console.log(`[UpdateBrand] Brand ${brandId} status: ${brand.verification_status} (normalized: ${currentStatus})`);
+
+        if (currentStatus === 'approved') {
+            console.log(`[UpdateBrand] Creating BrandUpdateRequest for approved brand ${brandId}`);
+            try {
+                const newRequest = await BrandUpdateRequest.create({
+                    brand_id: brandId,
+                    requester_id: req.user.id || req.user._id,
+                    old_data: {
+                        name: brand.name,
+                        description: brand.description,
+                        logo_url: brand.logo_url,
+                        cuisines: brand.cuisines,
+                        operating_modes: brand.operating_modes,
+                        social_media: brand.social_media
+                    },
+                    new_data: {
+                        name: updateData.name || brand.name,
+                        description: updateData.description !== undefined ? updateData.description : brand.description,
+                        logo_url: updateData.logo_url || brand.logo_url,
+                        cuisines: updateData.cuisines || brand.cuisines,
+                        operating_modes: updateData.operating_modes || brand.operating_modes,
+                        social_media: updateData.social_media || brand.social_media
+                    }
+                });
+                console.log(`[UpdateBrand] Request created successfully with ID: ${newRequest._id}`);
+            } catch (err: any) {
+                console.error(`[UpdateBrand] Failed to create request: ${err.message}`);
+                throw err;
+            }
+
+            return sendSuccess(res, {
+                id: brand._id,
+                name: brand.name,
+                logo_url: brand.logo_url,
+                status: 'pending_approval'
+            }, 'Changes submitted for admin approval');
         }
 
-        return sendSuccess(res, { 
-            id: brand._id, 
-            name: brand.name,
-            logo_url: brand.logo_url
+        console.log(`[UpdateBrand] Direct update for brand ${brandId} (not approved yet)`);
+
+        // If not approved yet, update directly
+        const updatedBrand = await brandService.updateBrand(brandId, req.user.id, updateData);
+
+        return sendSuccess(res, {
+            id: updatedBrand!._id,
+            name: updatedBrand!.name,
+            logo_url: updatedBrand!.logo_url,
+            status: updatedBrand!.verification_status
         }, 'Brand updated successfully');
     } catch (error: any) {
         return sendError(res, error.message);
@@ -151,11 +203,11 @@ export const requestAccess = async (req: AuthRequest, res: Response) => {
 // Get nearby brands based on location
 export const getNearbyBrands = async (req: Request, res: Response) => {
     try {
-        const { 
-            latitude, 
-            longitude, 
+        const {
+            latitude,
+            longitude,
             radius = 10000, // Default 10km in meters
-            page = 1, 
+            page = 1,
             limit = 20,
             cuisines,
             priceRange,
@@ -163,7 +215,7 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
             sortBy = 'distance', // distance, rating, popularity
             isVeg
         } = req.query;
-        
+
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
@@ -305,10 +357,10 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
                 verification_status: 'approved',
                 is_active: true
             })
-            .select('name slug logo_url description cuisines is_featured')
-            .skip(skip)
-            .limit(limitNum)
-            .lean();
+                .select('name slug logo_url description cuisines is_featured')
+                .skip(skip)
+                .limit(limitNum)
+                .lean();
 
             const fallbackTotal = await Brand.countDocuments({
                 verification_status: 'approved',
@@ -348,7 +400,7 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
 export const getFeaturedBrands = async (req: Request, res: Response) => {
     try {
         const { latitude, longitude, limit = 10 } = req.query;
-        
+
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }

@@ -1,5 +1,6 @@
 import { Brand, IBrand } from '../models/Brand.js';
 import { User } from '../models/User.js';
+import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
 
 /**
@@ -34,18 +35,18 @@ export const createBrand = async (userId: string, brandData: {
     };
 }): Promise<IBrand> => {
     // Check if brand with same name already exists globally (across all users)
-    const existingBrandByName = await Brand.findOne({ 
+    const existingBrandByName = await Brand.findOne({
         name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
         verification_status: 'approved'
     });
-    
+
     if (existingBrandByName) {
         throw new Error(`A brand named "${brandData.name}" already exists. Please choose a different name.`);
     }
-    
+
     // Generate slug from name
     let slug = brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    
+
     // Check if slug already exists and make it unique
     let existingBrandBySlug = await Brand.findOne({ slug });
     let counter = 1;
@@ -54,7 +55,7 @@ export const createBrand = async (userId: string, brandData: {
         existingBrandBySlug = await Brand.findOne({ slug });
         counter++;
     }
-    
+
     const brand = new Brand({
         ...brandData,
         slug,
@@ -65,16 +66,16 @@ export const createBrand = async (userId: string, brandData: {
     });
 
     await brand.save();
-    
+
     // Assign brand-level restaurant_owner role to the user
     const user = await User.findById(userId);
     if (user) {
-        const hasBrandRole = user.roles.some(r => 
-            r.scope === 'brand' && 
-            r.role === 'restaurant_owner' && 
+        const hasBrandRole = user.roles.some(r =>
+            r.scope === 'brand' &&
+            r.role === 'restaurant_owner' &&
             r.brandId?.toString() === brand._id.toString()
         );
-        
+
         if (!hasBrandRole) {
             user.roles.push({
                 scope: 'brand',
@@ -88,7 +89,7 @@ export const createBrand = async (userId: string, brandData: {
             console.log('✅ Assigned brand-level role to user:', userId, 'for brand:', brand._id);
         }
     }
-    
+
     return brand;
 };
 
@@ -101,19 +102,19 @@ export const updateBrand = async (
     updateData: Partial<IBrand>
 ): Promise<IBrand | null> => {
     const brand = await Brand.findOne({ _id: brandId, admin_user_id: userId });
-    
+
     if (!brand) {
         throw new Error('Brand not found or unauthorized');
     }
 
     // Check if new name already exists globally (excluding current brand)
     if (updateData.name && updateData.name !== brand.name) {
-        const existingBrandByName = await Brand.findOne({ 
+        const existingBrandByName = await Brand.findOne({
             name: { $regex: new RegExp(`^${updateData.name}$`, 'i') },
             _id: { $ne: brandId },
             verification_status: 'approved'
         });
-        
+
         if (existingBrandByName) {
             throw new Error(`A brand named "${updateData.name}" already exists. Please choose a different name.`);
         }
@@ -141,7 +142,7 @@ export const updateBrand = async (
  */
 export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
     let query: any;
-    
+
     // Include user's own brands (pending or approved) and approved brands from others
     if (userId) {
         query = {
@@ -155,36 +156,25 @@ export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
             verification_status: 'approved'
         };
     }
-    
+
     console.log('🔍 Brand Query:', JSON.stringify(query));
     console.log('🔍 User ID:', userId);
-    
-    const brands = await Brand.find(query).limit(50);
-    console.log('✅ Found brands:', brands.length);
-    
-    // Log first brand details if any
-    if (brands.length > 0) {
-        console.log('📦 First brand:', {
-            name: brands[0].name,
-            verification_status: brands[0].verification_status
+
+    const brands = await Brand.find(query).limit(50).lean();
+
+    // Check for pending update requests
+    const enrichedBrands = await Promise.all(brands.map(async (brand: any) => {
+        const pendingUpdate = await BrandUpdateRequest.findOne({
+            brand_id: brand._id,
+            status: 'pending'
         });
-    } else {
-        // Check total brands in DB
-        const totalBrands = await Brand.countDocuments();
-        console.log('⚠️ Total brands in DB:', totalBrands);
-        
-        if (totalBrands > 0) {
-            const sampleBrand = await Brand.findOne();
-            console.log('📦 Sample brand from DB:', {
-                name: sampleBrand?.name,
-                is_public: sampleBrand?.is_public,
-                is_active: sampleBrand?.is_active,
-                verification_status: sampleBrand?.verification_status
-            });
-        }
-    }
-    
-    return brands;
+        return {
+            ...brand,
+            has_pending_update: !!pendingUpdate
+        };
+    }));
+
+    return enrichedBrands as unknown as IBrand[];
 };
 
 /**
@@ -200,17 +190,30 @@ export const searchBrands = async (query: string, userId?: string): Promise<IBra
             is_active: true,
             $or: [
                 { created_by: userId },
-                { is_public: true, approval_status: 'APPROVED' }
+                { verification_status: 'approved' }
             ]
         };
     } else {
         searchQuery = {
             name: { $regex: query, $options: 'i' },
             is_active: true,
-            is_public: true,
-            approval_status: 'APPROVED'
+            verification_status: 'approved'
         };
     }
 
-    return await Brand.find(searchQuery).limit(20);
+    const brands = await Brand.find(searchQuery).limit(20).lean();
+
+    // Check for pending update requests
+    const enrichedBrands = await Promise.all(brands.map(async (brand: any) => {
+        const pendingUpdate = await BrandUpdateRequest.findOne({
+            brand_id: brand._id,
+            status: 'pending'
+        });
+        return {
+            ...brand,
+            has_pending_update: !!pendingUpdate
+        };
+    }));
+
+    return enrichedBrands as unknown as IBrand[];
 };
