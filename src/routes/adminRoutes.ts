@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import { adminAuth } from "../middleware/adminMiddleware.js";
 import { Brand } from "../models/Brand.js";
 import { Outlet } from "../models/Outlet.js";
+import { Subscription } from "../models/Subscription.js";
+import { normalizePlanToTier, hasFeature, SUBSCRIPTION_FEATURES } from "../config/subscriptionPlans.js";
 import { User } from "../models/User.js";
 import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
@@ -856,11 +858,58 @@ router.get("/users/:id", adminAuth, async (req, res) => {
     for (const o of managedOutletsByRole as any[]) managedMap.set(String(o._id), o);
     const managedOutlets = [...managedMap.values()];
 
+    const allOutletIds = Array.from(
+      new Set<string>([...ownedOutlets, ...managedOutlets].map((o: any) => String(o._id)))
+    );
+
+    const subscriptions = allOutletIds.length
+      ? await Subscription.find({ outlet_id: { $in: allOutletIds } })
+          .select('outlet_id plan status end_date trial_ends_at payment_status')
+          .lean()
+      : [];
+
+    const subByOutletId = new Map<string, any>();
+    for (const s of subscriptions as any[]) {
+      subByOutletId.set(String(s.outlet_id), s);
+    }
+
+    const toOutletWithSubscription = (outlet: any) => {
+      const sub = subByOutletId.get(String(outlet._id));
+      const tier = normalizePlanToTier(sub?.plan);
+      const status = sub?.status || 'inactive';
+      const isActive = status === 'active' || status === 'trial';
+      const entitlements = {
+        analytics:
+          tier === 'premium' &&
+          isActive &&
+          hasFeature(sub?.plan || 'free', SUBSCRIPTION_FEATURES.ADVANCED_ANALYTICS),
+        offers:
+          tier === 'premium' &&
+          isActive &&
+          hasFeature(sub?.plan || 'free', SUBSCRIPTION_FEATURES.OFFER_MANAGEMENT)
+      };
+
+      return {
+        ...outlet,
+        subscription_summary: {
+          tier,
+          status,
+          end_date: sub?.end_date ?? null,
+          trial_ends_at: sub?.trial_ends_at ?? null,
+          payment_status: sub?.payment_status ?? 'pending',
+          entitlements
+        }
+      };
+    };
+
+    const ownedOutletsWithSubscription = ownedOutlets.map(toOutletWithSubscription);
+    const managedOutletsWithSubscription = managedOutlets.map(toOutletWithSubscription);
+
     return sendSuccess(res, {
       user,
       ownedBrands,
-      ownedOutlets,
-      managedOutlets,
+      ownedOutlets: ownedOutletsWithSubscription,
+      managedOutlets: managedOutletsWithSubscription,
     });
   } catch (error: any) {
     console.error("Get user detail error:", error);

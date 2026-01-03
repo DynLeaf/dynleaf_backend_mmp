@@ -4,6 +4,9 @@ import { Subscription, SubscriptionHistory } from '../models/Subscription.js';
 import { Outlet } from '../models/Outlet.js';
 import * as subscriptionUtils from '../utils/subscriptionUtils.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import { normalizePlanToTier } from '../config/subscriptionPlans.js';
+
+const normalizePlanKey = (plan?: string) => (normalizePlanToTier(plan) === 'premium' ? 'premium' : 'free');
 
 export const assignSubscription = async (req: AuthRequest, res: Response) => {
     try {
@@ -15,7 +18,7 @@ export const assignSubscription = async (req: AuthRequest, res: Response) => {
         }
 
         const assignmentData: any = {
-            plan,
+            plan: normalizePlanKey(plan),
             status,
             start_date: start_date ? new Date(start_date) : undefined,
             end_date: end_date ? new Date(end_date) : undefined,
@@ -44,18 +47,33 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
         const { subscriptionId } = req.params;
         const { plan, status, end_date, notes, auto_renew, payment_status } = req.body;
 
-        const subscription = await Subscription.findById(subscriptionId);
+        let subscription = await Subscription.findById(subscriptionId);
         
         if (!subscription) {
             return sendError(res, 'Subscription not found', null, 404);
         }
 
-        if (plan && plan !== subscription.plan) {
-            await subscriptionUtils.upgradeSubscriptionPlan(subscriptionId, plan, req.user.id);
+        let didExternalUpdate = false;
+
+        if (plan) {
+            const currentPlan = normalizePlanKey(subscription.plan);
+            const nextPlan = normalizePlanKey(plan);
+            if (nextPlan !== currentPlan) {
+                await subscriptionUtils.upgradeSubscriptionPlan(subscriptionId, nextPlan as any, req.user.id);
+                didExternalUpdate = true;
+            }
         }
 
         if (status && status !== subscription.status) {
             await subscriptionUtils.updateSubscriptionStatus(subscriptionId, status, req.user.id, notes);
+            didExternalUpdate = true;
+        }
+
+        if (didExternalUpdate) {
+            subscription = await Subscription.findById(subscriptionId);
+            if (!subscription) {
+                return sendError(res, 'Subscription not found', null, 404);
+            }
         }
 
         if (end_date !== undefined) {
@@ -81,9 +99,16 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
             .populate('brand_id', 'name')
             .populate('assigned_by', 'username phone');
 
+        const subscriptionPayload = updatedSubscription
+            ? ({
+                  ...(updatedSubscription.toObject() as any),
+                  plan: normalizePlanKey((updatedSubscription as any).plan),
+              } as any)
+            : updatedSubscription;
+
         return sendSuccess(res, {
             message: 'Subscription updated successfully',
-            subscription: updatedSubscription
+            subscription: subscriptionPayload
         });
     } catch (error: any) {
         console.error('Update subscription error:', error);
@@ -94,20 +119,30 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
 export const extendSubscription = async (req: AuthRequest, res: Response) => {
     try {
         const { subscriptionId } = req.params;
-        const { additional_days } = req.body;
+        const { additional_months, additional_days } = req.body;
 
-        if (!additional_days || additional_days <= 0) {
-            return sendError(res, 'Valid additional_days is required', null, 400);
+        const hasMonths = typeof additional_months === 'number' && Number.isFinite(additional_months) && additional_months > 0;
+        const hasDays = typeof additional_days === 'number' && Number.isFinite(additional_days) && additional_days > 0;
+
+        if (!hasMonths && !hasDays) {
+            return sendError(res, 'Valid additional_months (preferred) or additional_days is required', null, 400);
         }
 
         const subscription = await subscriptionUtils.extendSubscription(
             subscriptionId,
-            additional_days,
+            {
+                additional_months: hasMonths ? Math.floor(additional_months) : undefined,
+                additional_days: !hasMonths && hasDays ? Math.floor(additional_days) : undefined,
+            },
             req.user.id
         );
 
+        const message = hasMonths
+            ? `Subscription extended by ${Math.floor(additional_months)} month(s)`
+            : `Subscription extended by ${Math.floor(additional_days)} day(s)`;
+
         return sendSuccess(res, {
-            message: `Subscription extended by ${additional_days} days`,
+            message,
             subscription
         });
     } catch (error: any) {
@@ -147,8 +182,8 @@ export const createTrialSubscription = async (req: AuthRequest, res: Response) =
             return sendError(res, 'Plan and trial_days are required', null, 400);
         }
 
-        if (!['basic', 'premium', 'enterprise'].includes(plan)) {
-            return sendError(res, 'Trial only available for basic, premium, or enterprise plans', null, 400);
+        if (plan !== 'premium') {
+            return sendError(res, 'Trial only available for premium plan', null, 400);
         }
 
         const subscription = await subscriptionUtils.createTrialSubscription(
@@ -174,7 +209,14 @@ export const getAllSubscriptions = async (req: AuthRequest, res: Response) => {
 
         const filter: any = {};
         if (status) filter.status = status;
-        if (plan) filter.plan = plan;
+        if (plan) {
+            const p = String(plan);
+            const planKey = normalizePlanKey(p);
+            filter.plan =
+                planKey === 'premium'
+                    ? { $in: ['premium', 'basic', 'enterprise'] }
+                    : 'free';
+        }
 
         const skip = (Number(page) - 1) * Number(limit);
 
@@ -186,10 +228,15 @@ export const getAllSubscriptions = async (req: AuthRequest, res: Response) => {
             .skip(skip)
             .limit(Number(limit));
 
+        const subscriptionsPayload = subscriptions.map((s: any) => ({
+            ...(s.toObject() as any),
+            plan: normalizePlanKey(s.plan),
+        }));
+
         const total = await Subscription.countDocuments(filter);
 
         return sendSuccess(res, {
-            subscriptions,
+            subscriptions: subscriptionsPayload,
             pagination: {
                 total,
                 page: Number(page),
@@ -219,8 +266,13 @@ export const getSubscriptionById = async (req: AuthRequest, res: Response) => {
 
         const info = subscriptionUtils.getSubscriptionInfo(subscription);
 
+        const subscriptionPayload = {
+            ...(subscription.toObject() as any),
+            plan: normalizePlanKey((subscription as any).plan),
+        };
+
         return sendSuccess(res, {
-            subscription,
+            subscription: subscriptionPayload,
             info
         });
     } catch (error: any) {
@@ -241,8 +293,13 @@ export const getOutletSubscription = async (req: AuthRequest, res: Response) => 
 
         const info = subscriptionUtils.getSubscriptionInfo(subscription);
 
+        const subscriptionPayload = {
+            ...(subscription.toObject() as any),
+            plan: normalizePlanKey((subscription as any).plan),
+        };
+
         return sendSuccess(res, {
-            subscription,
+            subscription: subscriptionPayload,
             info
         });
     } catch (error: any) {
@@ -316,14 +373,13 @@ export const bulkUpdateSubscriptions = async (req: AuthRequest, res: Response) =
             try {
                 switch (action) {
                     case 'extend':
-                        if (!data?.additional_days) {
-                            throw new Error('additional_days is required for extend action');
+                        if (!data?.additional_months && !data?.additional_days) {
+                            throw new Error('additional_months (preferred) or additional_days is required for extend action');
                         }
-                        await subscriptionUtils.extendSubscription(
-                            subscriptionId,
-                            data.additional_days,
-                            req.user.id
-                        );
+                        await subscriptionUtils.extendSubscription(subscriptionId, {
+                            additional_months: data?.additional_months ? Math.floor(Number(data.additional_months)) : undefined,
+                            additional_days: !data?.additional_months && data?.additional_days ? Math.floor(Number(data.additional_days)) : undefined,
+                        }, req.user.id);
                         break;
 
                     case 'change_status':
@@ -344,7 +400,7 @@ export const bulkUpdateSubscriptions = async (req: AuthRequest, res: Response) =
                         }
                         await subscriptionUtils.upgradeSubscriptionPlan(
                             subscriptionId,
-                            data.plan,
+                            normalizePlanKey(String(data.plan)) as any,
                             req.user.id
                         );
                         break;
@@ -391,13 +447,111 @@ export const getExpiringSubscriptions = async (req: AuthRequest, res: Response) 
             .populate('brand_id', 'name')
             .sort({ end_date: 1, trial_ends_at: 1 });
 
+        const expiringPayload = expiringSubscriptions.map((s: any) => ({
+            ...(s.toObject() as any),
+            plan: normalizePlanKey(s.plan),
+        }));
+
         return sendSuccess(res, {
-            expiring_subscriptions: expiringSubscriptions,
+            expiring_subscriptions: expiringPayload,
             count: expiringSubscriptions.length,
             days: Number(days)
         });
     } catch (error: any) {
         console.error('Get expiring subscriptions error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+export const getPendingSubscriptions = async (req: AuthRequest, res: Response) => {
+    try {
+        const days = Number(req.query.days ?? 7);
+        const lookaheadDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 7;
+
+        const now = new Date();
+        const futureDate = new Date(now);
+        futureDate.setDate(futureDate.getDate() + lookaheadDays);
+
+        const baseFilter: any = {
+            $or: [
+                { payment_status: 'pending' },
+                { status: { $in: ['inactive', 'expired', 'trial'] } },
+                { status: 'active', end_date: { $lte: futureDate, $gte: now } },
+                { status: 'trial', trial_ends_at: { $lte: futureDate, $gte: now } },
+            ]
+        };
+
+        const subscriptions = await Subscription.find(baseFilter)
+            .populate('outlet_id', 'name slug status subscription_id')
+            .populate('brand_id', 'name')
+            .populate('assigned_by', 'username phone')
+            .sort({ updated_at: -1 })
+            .limit(500);
+
+        const items = subscriptions
+            .map((s: any) => {
+                const reasons: string[] = [];
+
+                const planKey = normalizePlanKey(s.plan);
+
+                const endDate = s.end_date ? new Date(s.end_date) : null;
+                const trialEndsAt = s.trial_ends_at ? new Date(s.trial_ends_at) : null;
+
+                if (s.payment_status === 'pending') reasons.push('payment_pending');
+                if (s.status === 'expired') reasons.push('expired');
+                if (s.status === 'inactive' && planKey !== 'free') reasons.push('inactive_paid_plan');
+
+                if (s.status === 'trial' && trialEndsAt) {
+                    if (trialEndsAt <= now) reasons.push('trial_ended');
+                    else if (trialEndsAt <= futureDate) reasons.push('trial_ending_soon');
+                }
+
+                if (endDate) {
+                    if (endDate <= now && (s.status === 'active' || s.status === 'trial')) reasons.push('end_date_passed');
+                    else if (endDate <= futureDate && endDate >= now) reasons.push('expiring_soon');
+                }
+
+                const uniqueReasons = Array.from(new Set(reasons));
+                return {
+                    subscription: {
+                        ...(s.toObject() as any),
+                        plan: planKey,
+                    },
+                    pending_reasons: uniqueReasons,
+                    pending_score: uniqueReasons.length,
+                };
+            })
+            .filter((x) => x.pending_score > 0)
+            .sort((a, b) => b.pending_score - a.pending_score);
+
+        const counts = items.reduce(
+            (acc: Record<string, number>, item: any) => {
+                for (const r of item.pending_reasons) acc[r] = (acc[r] ?? 0) + 1;
+                return acc;
+            },
+            {}
+        );
+
+        // Outlets missing subscription linkage (helps admin resolve missing/incorrect subscription_id)
+        const outletsMissingSubscription = await Outlet.find({
+            $or: [
+                { subscription_id: { $exists: false } },
+                { subscription_id: null },
+            ]
+        })
+            .select('name slug status brand_id created_by_user_id subscription_id')
+            .sort({ updated_at: -1 })
+            .limit(200);
+
+        return sendSuccess(res, {
+            lookahead_days: lookaheadDays,
+            count: items.length,
+            counts,
+            items,
+            outlets_missing_subscription: outletsMissingSubscription,
+        });
+    } catch (error: any) {
+        console.error('Get pending subscriptions error:', error);
         return sendError(res, error.message);
     }
 };

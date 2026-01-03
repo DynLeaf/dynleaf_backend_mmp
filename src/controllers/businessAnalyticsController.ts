@@ -5,6 +5,7 @@ import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { Subscription, ISubscription } from '../models/Subscription.js';
 import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
 import { sendError, sendSuccess } from '../utils/response.js';
+import { normalizePlanToTier } from '../config/subscriptionPlans.js';
 
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 const startOfNextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
@@ -78,7 +79,7 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
     const outlet = await Outlet.findById(outletId).select('name subscription_id');
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
-    // Subscription gate: analytics requires at least BASIC plan.
+    // Subscription gate: analytics requires Premium plan.
     const outletObjectId = new mongoose.Types.ObjectId(outletId);
     // Always resolve the latest subscription by outlet_id.
     // This avoids false "locked" states when Outlet.subscription_id is stale (or if legacy data has duplicates).
@@ -101,14 +102,14 @@ export const getOutletDashboardAnalytics = async (req: Request, res: Response) =
       await outlet.save();
     }
 
-    const allowedPlans = new Set(['basic', 'premium', 'enterprise']);
     const allowedStatuses = new Set(['active', 'trial']);
-    const isAllowed = allowedPlans.has(subscription.plan) && allowedStatuses.has(subscription.status);
+    const tier = normalizePlanToTier(subscription.plan);
+    const isAllowed = tier === 'premium' && allowedStatuses.has(subscription.status);
     if (!isAllowed) {
       return sendError(
         res,
         'Subscription required',
-        { required_plan: 'basic', current_plan: subscription.plan, current_status: subscription.status },
+        { required_plan: 'premium', current_plan: tier, current_status: subscription.status },
         403
       );
     }

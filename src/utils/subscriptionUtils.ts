@@ -1,7 +1,9 @@
 import { Outlet, IOutlet } from '../models/Outlet.js';
 import { Subscription, SubscriptionHistory, ISubscription } from '../models/Subscription.js';
-import { SUBSCRIPTION_PLANS, SUBSCRIPTION_FEATURES, getSubscriptionPlan } from '../config/subscriptionPlans.js';
+import { SUBSCRIPTION_PLANS, SUBSCRIPTION_FEATURES, getSubscriptionPlan, normalizePlanToTier } from '../config/subscriptionPlans.js';
 import mongoose from 'mongoose';
+
+const normalizePlanKey = (plan?: string) => (normalizePlanToTier(plan) === 'premium' ? 'premium' : 'free');
 
 const toObjectId = (id?: mongoose.Types.ObjectId | string) => {
     if (!id) return undefined;
@@ -54,7 +56,7 @@ export const ensureSubscriptionForOutlet = async (
         return existing;
     }
 
-    const planKey = options.plan ?? 'free';
+    const planKey = normalizePlanKey(options.plan ?? 'free');
     const planDetails = getSubscriptionPlan(planKey);
     if (!planDetails) {
         throw new Error(`Invalid subscription plan: ${planKey}`);
@@ -101,10 +103,11 @@ export const assignSubscriptionToOutlet = async (
     outletId: string,
     assignment: SubscriptionAssignment
 ): Promise<ISubscription> => {
-    const plan = getSubscriptionPlan(assignment.plan);
+    const normalizedPlan = normalizePlanKey(assignment.plan);
+    const plan = getSubscriptionPlan(normalizedPlan);
     
     if (!plan) {
-        throw new Error(`Invalid subscription plan: ${assignment.plan}`);
+        throw new Error(`Invalid subscription plan: ${normalizedPlan}`);
     }
 
     const outlet = await Outlet.findById(outletId);
@@ -117,7 +120,7 @@ export const assignSubscriptionToOutlet = async (
 
     if (!existing) {
         return await ensureSubscriptionForOutlet(outletId, {
-            plan: assignment.plan,
+            plan: normalizedPlan as any,
             status: assignment.status,
             start_date: assignment.start_date,
             end_date: assignment.end_date,
@@ -132,8 +135,8 @@ export const assignSubscriptionToOutlet = async (
         await outlet.save();
     }
 
-    if (assignment.plan && assignment.plan !== existing.plan) {
-        await upgradeSubscriptionPlan(existing._id.toString(), assignment.plan, assignment.assigned_by);
+    if (assignment.plan && normalizePlanKey(existing.plan) !== normalizedPlan) {
+        await upgradeSubscriptionPlan(existing._id.toString(), normalizedPlan as any, assignment.assigned_by);
     }
 
     if (assignment.status && assignment.status !== existing.status) {
@@ -196,7 +199,7 @@ export const updateSubscriptionStatus = async (
 
 export const extendSubscription = async (
     subscriptionId: string,
-    additionalDays: number,
+    extension: { additional_months?: number; additional_days?: number },
     changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
         const changedById = toObjectId(changedBy);
@@ -206,10 +209,35 @@ export const extendSubscription = async (
         throw new Error('Subscription not found');
     }
 
-    const currentEndDate = subscription.end_date || new Date();
-    const newEndDate = new Date(currentEndDate);
-    newEndDate.setDate(newEndDate.getDate() + additionalDays);
+    const addMonthsClamped = (date: Date, monthsToAdd: number) => {
+        const d = new Date(date);
+        const dayOfMonth = d.getDate();
+        d.setDate(1);
+        d.setMonth(d.getMonth() + monthsToAdd);
+        const lastDayOfTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+        d.setDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
+        return d;
+    };
 
+    const months = extension.additional_months;
+    const days = extension.additional_days;
+
+    const hasMonths = typeof months === 'number' && Number.isFinite(months) && months > 0;
+    const hasDays = typeof days === 'number' && Number.isFinite(days) && days > 0;
+    if (!hasMonths && !hasDays) {
+        throw new Error('Valid additional_months or additional_days is required');
+    }
+
+    const now = new Date();
+    const baseDate = subscription.end_date && subscription.end_date > now ? subscription.end_date : now;
+
+    const newEndDate = hasMonths
+        ? addMonthsClamped(baseDate, Math.floor(months!))
+        : (() => {
+              const d = new Date(baseDate);
+              d.setDate(d.getDate() + Math.floor(days!));
+              return d;
+          })();
     subscription.end_date = newEndDate;
     
     if (subscription.status === 'expired') {
@@ -224,8 +252,10 @@ export const extendSubscription = async (
         action: 'extended',
         changed_by: changedById,
         changed_at: new Date(),
-        reason: `Extended by ${additionalDays} days`,
-        metadata: { additional_days: additionalDays, new_end_date: newEndDate }
+        reason: hasMonths ? `Extended by ${Math.floor(months!)} month(s)` : `Extended by ${Math.floor(days!)} day(s)`,
+        metadata: hasMonths
+            ? { additional_months: Math.floor(months!), new_end_date: newEndDate }
+            : { additional_days: Math.floor(days!), new_end_date: newEndDate }
     });
 
     return subscription;
@@ -237,10 +267,11 @@ export const upgradeSubscriptionPlan = async (
     changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
         const changedById = toObjectId(changedBy);
-    const plan = getSubscriptionPlan(newPlan);
+    const normalizedNewPlan = normalizePlanKey(newPlan);
+    const plan = getSubscriptionPlan(normalizedNewPlan);
     
     if (!plan) {
-        throw new Error(`Invalid subscription plan: ${newPlan}`);
+        throw new Error(`Invalid subscription plan: ${normalizedNewPlan}`);
     }
 
     const subscription = await Subscription.findById(subscriptionId);
@@ -249,14 +280,14 @@ export const upgradeSubscriptionPlan = async (
         throw new Error('Subscription not found');
     }
 
-    const previousPlan = subscription.plan;
+    const previousPlan = normalizePlanKey(subscription.plan);
     const previousStatus = subscription.status;
-    subscription.plan = newPlan;
+    subscription.plan = normalizedNewPlan as any;
     subscription.features = plan.features;
 
     // Common production issue: legacy/auto-created subscriptions can be left as `inactive`.
     // If an outlet is upgraded to a paid plan, ensure it becomes usable immediately.
-    const isPaidPlan = newPlan !== 'free';
+    const isPaidPlan = normalizedNewPlan !== 'free';
     const shouldAutoActivate = isPaidPlan && subscription.status === 'inactive';
     if (shouldAutoActivate) {
         subscription.status = 'active';
@@ -264,17 +295,14 @@ export const upgradeSubscriptionPlan = async (
 
     await subscription.save();
 
-    const action = previousPlan === 'free' || 
-                   (previousPlan === 'basic' && (newPlan === 'premium' || newPlan === 'enterprise')) ||
-                   (previousPlan === 'premium' && newPlan === 'enterprise')
-                   ? 'upgraded' : 'downgraded';
+    const action = previousPlan === 'free' && normalizedNewPlan === 'premium' ? 'upgraded' : 'downgraded';
 
     await SubscriptionHistory.create({
         subscription_id: subscription._id,
         outlet_id: subscription.outlet_id,
         action,
         previous_plan: previousPlan,
-        new_plan: newPlan,
+        new_plan: normalizedNewPlan,
         changed_by: changedById,
         changed_at: new Date()
     });
@@ -325,9 +353,20 @@ export const checkSubscriptionExpiry = async (): Promise<void> => {
 export const getSubscriptionStats = async () => {
     const stats = await Subscription.aggregate([
         {
+            $addFields: {
+                plan_tier: {
+                    $cond: [
+                        { $in: ['$plan', ['premium', 'basic', 'enterprise']] },
+                        'premium',
+                        'free'
+                    ]
+                }
+            }
+        },
+        {
             $group: {
                 _id: {
-                    plan: '$plan',
+                    plan: '$plan_tier',
                     status: '$status'
                 },
                 count: { $sum: 1 }
@@ -381,7 +420,8 @@ export const getSubscriptionInfo = (subscription: ISubscription | null) => {
         };
     }
 
-    const plan = getSubscriptionPlan(subscription.plan);
+    const planKey = normalizePlanKey(subscription.plan);
+    const plan = getSubscriptionPlan(planKey);
     let daysRemaining = null;
 
     if (subscription.end_date) {
@@ -394,7 +434,7 @@ export const getSubscriptionInfo = (subscription: ISubscription | null) => {
     return {
         hasSubscription: true,
         subscriptionId: subscription._id,
-        plan: subscription.plan,
+        plan: planKey,
         planDetails: plan,
         status: subscription.status,
         features: subscription.features,
@@ -414,14 +454,14 @@ export const getSubscriptionInfo = (subscription: ISubscription | null) => {
 
 export const createTrialSubscription = async (
     outletId: string,
-    plan: 'basic' | 'premium' | 'enterprise',
+    plan: 'premium',
     trialDays: number,
     assignedBy: mongoose.Types.ObjectId
 ): Promise<ISubscription> => {
-    const planDetails = getSubscriptionPlan(plan);
+    const planDetails = getSubscriptionPlan('premium');
     
     if (!planDetails) {
-        throw new Error(`Invalid subscription plan: ${plan}`);
+        throw new Error(`Invalid subscription plan: premium`);
     }
 
     const outlet = await Outlet.findById(outletId);
@@ -436,7 +476,7 @@ export const createTrialSubscription = async (
     const existing = await Subscription.findOne({ outlet_id: outlet._id });
     if (!existing) {
         const created = await ensureSubscriptionForOutlet(outletId, {
-            plan,
+            plan: 'premium',
             status: 'trial',
             start_date: now,
             trial_ends_at: trialEndsAt,
@@ -457,11 +497,11 @@ export const createTrialSubscription = async (
         await outlet.save();
     }
 
-    const previousPlan = existing.plan;
+    const previousPlan = normalizePlanKey(existing.plan);
     const previousStatus = existing.status;
 
-    if (plan !== existing.plan) {
-        await upgradeSubscriptionPlan(existing._id.toString(), plan as any, assignedBy);
+    if (normalizePlanKey(existing.plan) !== 'premium') {
+        await upgradeSubscriptionPlan(existing._id.toString(), 'premium' as any, assignedBy);
     }
 
     const sub = await Subscription.findById(existing._id);
@@ -477,6 +517,8 @@ export const createTrialSubscription = async (
     sub.notes = `${trialDays}-day trial period`;
     sub.payment_status = 'pending';
     sub.auto_renew = false;
+    sub.plan = 'premium' as any;
+    sub.features = planDetails.features;
 
     await sub.save();
 

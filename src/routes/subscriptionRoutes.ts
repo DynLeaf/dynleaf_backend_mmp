@@ -35,6 +35,12 @@ router.get(
 );
 
 router.get(
+    '/subscriptions/pending',
+    adminAuth,
+    subscriptionController.getPendingSubscriptions
+);
+
+router.get(
     '/subscriptions/:subscriptionId',
     adminAuth,
     subscriptionController.getSubscriptionById
