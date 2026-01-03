@@ -17,6 +17,16 @@ export interface SubscriptionPlan {
     };
 }
 
+export type SubscriptionTier = 'free' | 'premium';
+
+// Backward-compatible normalization: legacy plans map to the Premium tier.
+export const normalizePlanToTier = (planName?: string | null): SubscriptionTier => {
+    if (!planName) return 'free';
+    if (planName === 'free') return 'free';
+    if (planName === 'premium' || planName === 'basic' || planName === 'enterprise') return 'premium';
+    return 'free';
+};
+
 export const SUBSCRIPTION_FEATURES = {
     BASIC_PROFILE: 'basic_profile',
     MENU_DISPLAY: 'menu_display',
@@ -39,7 +49,7 @@ export const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlan> = {
     free: {
         name: 'free',
         displayName: 'Free',
-        description: 'Basic features to get started',
+        description: 'Core features to get started',
         features: [
             SUBSCRIPTION_FEATURES.BASIC_PROFILE,
             SUBSCRIPTION_FEATURES.MENU_DISPLAY
@@ -52,38 +62,15 @@ export const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlan> = {
             staff_accounts: 1
         }
     },
-    basic: {
-        name: 'basic',
-        displayName: 'Basic',
-        description: 'Essential features for small restaurants',
+    premium: {
+        name: 'premium',
+        displayName: 'Premium',
+        description: 'Unlock analytics and offers',
         features: [
             SUBSCRIPTION_FEATURES.BASIC_PROFILE,
             SUBSCRIPTION_FEATURES.MENU_DISPLAY,
             SUBSCRIPTION_FEATURES.OFFER_MANAGEMENT,
             SUBSCRIPTION_FEATURES.BASIC_ANALYTICS,
-            SUBSCRIPTION_FEATURES.QR_CUSTOMIZATION
-        ],
-        limits: {
-            offers: 5,
-            analytics_days: 30,
-            menu_items: 100,
-            photo_gallery: 15,
-            staff_accounts: 3
-        },
-        price: {
-            monthly: 999,
-            yearly: 9999,
-            currency: 'INR'
-        }
-    },
-    premium: {
-        name: 'premium',
-        displayName: 'Premium',
-        description: 'Advanced features for growing restaurants',
-        features: [
-            SUBSCRIPTION_FEATURES.BASIC_PROFILE,
-            SUBSCRIPTION_FEATURES.MENU_DISPLAY,
-            SUBSCRIPTION_FEATURES.OFFER_MANAGEMENT,
             SUBSCRIPTION_FEATURES.ADVANCED_ANALYTICS,
             SUBSCRIPTION_FEATURES.QR_CUSTOMIZATION,
             SUBSCRIPTION_FEATURES.STAFF_MANAGEMENT,
@@ -103,44 +90,12 @@ export const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlan> = {
             yearly: 29999,
             currency: 'INR'
         }
-    },
-    enterprise: {
-        name: 'enterprise',
-        displayName: 'Enterprise',
-        description: 'All features with unlimited access',
-        features: [
-            SUBSCRIPTION_FEATURES.BASIC_PROFILE,
-            SUBSCRIPTION_FEATURES.MENU_DISPLAY,
-            SUBSCRIPTION_FEATURES.OFFER_MANAGEMENT,
-            SUBSCRIPTION_FEATURES.ADVANCED_ANALYTICS,
-            SUBSCRIPTION_FEATURES.QR_CUSTOMIZATION,
-            SUBSCRIPTION_FEATURES.STAFF_MANAGEMENT,
-            SUBSCRIPTION_FEATURES.MULTI_OUTLET,
-            SUBSCRIPTION_FEATURES.API_ACCESS,
-            SUBSCRIPTION_FEATURES.PRIORITY_SUPPORT,
-            SUBSCRIPTION_FEATURES.CUSTOM_BRANDING,
-            SUBSCRIPTION_FEATURES.ADVANCED_REPORTS,
-            SUBSCRIPTION_FEATURES.INVENTORY_MANAGEMENT,
-            SUBSCRIPTION_FEATURES.TABLE_RESERVATION,
-            SUBSCRIPTION_FEATURES.ONLINE_ORDERING
-        ],
-        limits: {
-            offers: -1,
-            analytics_days: 365,
-            menu_items: -1,
-            photo_gallery: -1,
-            staff_accounts: -1
-        },
-        price: {
-            monthly: 9999,
-            yearly: 99999,
-            currency: 'INR'
-        }
     }
 };
 
 export const getSubscriptionPlan = (planName: string): SubscriptionPlan | null => {
-    return SUBSCRIPTION_PLANS[planName] || null;
+    const tier = normalizePlanToTier(planName);
+    return SUBSCRIPTION_PLANS[tier] || null;
 };
 
 export const hasFeature = (planName: string, feature: string): boolean => {

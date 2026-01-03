@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Subscription, SubscriptionHistory } from '../models/Subscription.js';
 import { ensureSubscriptionForOutlet } from './subscriptionUtils.js';
+import { normalizePlanToTier, hasFeature, SUBSCRIPTION_FEATURES } from '../config/subscriptionPlans.js';
 
 const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -8,11 +9,16 @@ export type OutletSubscriptionSummary = {
   subscription: {
     _id: mongoose.Types.ObjectId;
     plan: string;
+    tier: 'free' | 'premium';
     status: string;
     start_date: Date;
     end_date: Date | null;
     trial_ends_at: Date | null;
     features: any[];
+  };
+  entitlements: {
+    analytics: boolean;
+    offers: boolean;
   };
   free_tier: {
     eligible: boolean;
@@ -45,34 +51,43 @@ export const getOutletSubscriptionSummary = async (
     throw new Error('Subscription not found');
   }
 
-  const paidPlans = ['basic', 'premium', 'enterprise'];
+  const tier = normalizePlanToTier(subscription.plan);
+  const isPremium = tier === 'premium';
+
+  const paidPlansLegacy = ['premium', 'basic', 'enterprise'];
 
   const hadPaidPlanBefore =
-    paidPlans.includes(subscription.plan) ||
+    paidPlansLegacy.includes(subscription.plan) ||
     (await SubscriptionHistory.exists({
       outlet_id: outletObjectId,
-      new_plan: { $in: paidPlans }
+      new_plan: { $in: paidPlansLegacy }
     }));
 
   const now = new Date();
 
-  const freeTierEligible = subscription.plan === 'free' && !hadPaidPlanBefore;
-  const freeTierEndsAt = freeTierEligible ? addDays(new Date(subscription.start_date), 30) : null;
+  // Two-tier system: analytics/offers are Premium only.
+  // Keep `free_tier` in the response for backward compatibility, but it never grants access.
+  const freeTierEligible = false;
+  const freeTierEndsAt: Date | null = null;
+  const freeTierDaysRemaining: number | null = null;
 
-  const freeTierDaysRemaining = freeTierEndsAt
-    ? Math.max(0, Math.ceil((freeTierEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-    : null;
+  const entitlements = {
+    analytics: isPremium && (subscription.status === 'active' || subscription.status === 'trial') && hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.ADVANCED_ANALYTICS),
+    offers: isPremium && (subscription.status === 'active' || subscription.status === 'trial') && hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.OFFER_MANAGEMENT)
+  };
 
   return {
     subscription: {
       _id: subscription._id,
       plan: subscription.plan,
+      tier,
       status: subscription.status,
       start_date: subscription.start_date,
       end_date: subscription.end_date ?? null,
       trial_ends_at: subscription.trial_ends_at ?? null,
       features: subscription.features ?? []
     },
+    entitlements,
     free_tier: {
       eligible: freeTierEligible,
       ends_at: freeTierEndsAt ? freeTierEndsAt.toISOString() : null,
