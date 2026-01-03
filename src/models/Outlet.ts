@@ -53,6 +53,8 @@ export interface IOutlet extends Document {
         role: string;
     }>;
     qr_code_url?: string;
+    order_phone?: string;
+    order_link?: string;
     flags?: {
         is_featured: boolean;
         is_trending: boolean;
@@ -61,6 +63,8 @@ export interface IOutlet extends Document {
     };
     social_media?: {
         instagram?: string;
+        facebook?: string;
+        twitter?: string;
         whatsapp?: string;
         x?: string;
         website?: string;
@@ -131,14 +135,18 @@ const outletSchema = new Schema<IOutlet>({
         role: String
     }],
     qr_code_url: String,
+    order_phone: String,
+    order_link: String,
     flags: {
         is_featured: { type: Boolean, default: false },
         is_trending: { type: Boolean, default: false },
-        accepts_online_orders: { type: Boolean, default: true },
+        accepts_online_orders: { type: Boolean, default: false },
         is_open_now: { type: Boolean, default: false }
     },
     social_media: {
         instagram: String,
+        facebook: String,
+        twitter: String,
         whatsapp: String,
         x: String,
         website: String,

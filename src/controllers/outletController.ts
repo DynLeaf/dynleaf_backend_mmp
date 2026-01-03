@@ -183,6 +183,20 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const updateData = req.body;
 
+        // Delivery status + ordering details
+        if (updateData.deliveryEnabled !== undefined) {
+            updateData.flags = { ...(updateData.flags || {}), accepts_online_orders: Boolean(updateData.deliveryEnabled) };
+            delete updateData.deliveryEnabled;
+        }
+        if (updateData.orderPhone !== undefined) {
+            updateData.order_phone = updateData.orderPhone;
+            delete updateData.orderPhone;
+        }
+        if (updateData.orderLink !== undefined) {
+            updateData.order_link = updateData.orderLink;
+            delete updateData.orderLink;
+        }
+
         // Handle cover image upload if base64
         if (updateData.coverImage && updateData.coverImage.startsWith('data:')) {
             const uploadResult = await saveBase64Image(updateData.coverImage, 'outlets');
@@ -815,7 +829,7 @@ export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
         outlet.flags = {
             is_featured: !!is_featured,
             is_trending: outlet.flags?.is_trending || false,
-            accepts_online_orders: outlet.flags?.accepts_online_orders !== false,
+            accepts_online_orders: outlet.flags?.accepts_online_orders === true,
             is_open_now: outlet.flags?.is_open_now || false
         };
 

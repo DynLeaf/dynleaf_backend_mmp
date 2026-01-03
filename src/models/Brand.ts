@@ -12,6 +12,8 @@ export interface IBrand extends Document {
     };
     social_media: {
         instagram?: string;
+        facebook?: string;
+        twitter?: string;
         whatsapp?: string;
         x?: string;
         website?: string;
@@ -37,6 +39,8 @@ const brandSchema = new Schema<IBrand>({
     },
     social_media: {
         instagram: String,
+        facebook: String,
+        twitter: String,
         whatsapp: String,
         x: String,
         website: String,
