@@ -1,4 +1,5 @@
 import express from "express";
+import mongoose from "mongoose";
 import { adminAuth } from "../middleware/adminMiddleware.js";
 import { Brand } from "../models/Brand.js";
 import { Outlet } from "../models/Outlet.js";
@@ -793,6 +794,76 @@ router.get("/users", adminAuth, async (req, res) => {
     });
   } catch (error: any) {
     console.error("Get users error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Get single user details (owned brands/outlets + managed outlets)
+router.get("/users/:id", adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, "Invalid user id", null, 400);
+    }
+
+    const user = await User.findById(id).select("-password_hash").lean();
+    if (!user) {
+      return sendError(res, "User not found", null, 404);
+    }
+
+    const [ownedBrands, ownedOutlets, managedOutletsByManagerField] = await Promise.all([
+      Brand.find({ admin_user_id: id })
+        .select("name slug verification_status is_active is_featured created_at")
+        .sort({ created_at: -1 })
+        .lean(),
+      Outlet.find({ created_by_user_id: id })
+        .populate("brand_id", "name")
+        .select("name slug status approval_status created_at brand_id")
+        .sort({ created_at: -1 })
+        .lean(),
+      Outlet.find({ "managers.user_id": id })
+        .populate("brand_id", "name")
+        .select("name slug status approval_status created_at brand_id managers")
+        .sort({ created_at: -1 })
+        .lean(),
+    ]);
+
+    // Also derive managed outlets via user.roles (scope: outlet, role: manager/staff)
+    const roleOutletIds = (user as any)?.roles
+      ?.filter((r: any) => r?.scope === "outlet" && (r?.role === "manager" || r?.role === "staff") && r?.outletId)
+      ?.map((r: any) => String(r.outletId))
+      ?.filter(Boolean);
+
+    const roleOutletIdSet = new Set<string>(roleOutletIds || []);
+    const managersOutletIdSet = new Set<string>(
+      managedOutletsByManagerField.map((o: any) => String(o._id))
+    );
+
+    const missingRoleOutletIds = [...roleOutletIdSet].filter((oid) => !managersOutletIdSet.has(oid));
+
+    const managedOutletsByRole = missingRoleOutletIds.length
+      ? await Outlet.find({ _id: { $in: missingRoleOutletIds } })
+          .populate("brand_id", "name")
+          .select("name slug status approval_status created_at brand_id")
+          .sort({ created_at: -1 })
+          .lean()
+      : [];
+
+    // Dedupe managed outlets
+    const managedMap = new Map<string, any>();
+    for (const o of managedOutletsByManagerField) managedMap.set(String(o._id), o);
+    for (const o of managedOutletsByRole as any[]) managedMap.set(String(o._id), o);
+    const managedOutlets = [...managedMap.values()];
+
+    return sendSuccess(res, {
+      user,
+      ownedBrands,
+      ownedOutlets,
+      managedOutlets,
+    });
+  } catch (error: any) {
+    console.error("Get user detail error:", error);
     return sendError(res, error.message);
   }
 });
