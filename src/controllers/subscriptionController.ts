@@ -17,6 +17,15 @@ export const assignSubscription = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Plan and status are required', null, 400);
         }
 
+        if (status === 'cancelled') {
+            return sendError(
+                res,
+                "Status 'cancelled' is deprecated. Use the cancel action to downgrade to Free.",
+                null,
+                400
+            );
+        }
+
         const assignmentData: any = {
             plan: normalizePlanKey(plan),
             status,
@@ -47,10 +56,23 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
         const { subscriptionId } = req.params;
         const { plan, status, end_date, notes, auto_renew, payment_status } = req.body;
 
-        let subscription = await Subscription.findById(subscriptionId);
+        let subscription = await Subscription.findById(subscriptionId).populate('outlet_id');
         
         if (!subscription) {
             return sendError(res, 'Subscription not found', null, 404);
+        }
+
+        // Validate outlet approval for plan changes
+        if (plan) {
+            const outlet = subscription.outlet_id as any;
+            if (outlet && outlet.approval_status !== 'APPROVED') {
+                return sendError(
+                    res,
+                    'Cannot change subscription plan for non-approved outlets. Please approve the outlet first.',
+                    null,
+                    403
+                );
+            }
         }
 
         let didExternalUpdate = false;
@@ -62,6 +84,15 @@ export const updateSubscription = async (req: AuthRequest, res: Response) => {
                 await subscriptionUtils.upgradeSubscriptionPlan(subscriptionId, nextPlan as any, req.user.id);
                 didExternalUpdate = true;
             }
+        }
+
+        if (status === 'cancelled') {
+            return sendError(
+                res,
+                "Status 'cancelled' is deprecated. Use the cancel action to downgrade to Free.",
+                null,
+                400
+            );
         }
 
         if (status && status !== subscription.status) {
@@ -156,15 +187,14 @@ export const cancelSubscription = async (req: AuthRequest, res: Response) => {
         const { subscriptionId } = req.params;
         const { reason } = req.body;
 
-        const subscription = await subscriptionUtils.updateSubscriptionStatus(
+        const subscription = await subscriptionUtils.cancelSubscriptionToFree(
             subscriptionId,
-            'cancelled',
             req.user.id,
             reason
         );
 
         return sendSuccess(res, {
-            message: 'Subscription cancelled successfully',
+            message: 'Subscription downgraded to Free successfully',
             subscription
         });
     } catch (error: any) {
@@ -386,6 +416,11 @@ export const bulkUpdateSubscriptions = async (req: AuthRequest, res: Response) =
                         if (!data?.status) {
                             throw new Error('status is required for change_status action');
                         }
+
+                        if (data.status === 'cancelled') {
+                            throw new Error("Status 'cancelled' is deprecated. Use the cancel action to downgrade to Free.");
+                        }
+
                         await subscriptionUtils.updateSubscriptionStatus(
                             subscriptionId,
                             data.status,

@@ -209,13 +209,17 @@ export const extendSubscription = async (
         throw new Error('Subscription not found');
     }
 
-    const addMonthsClamped = (date: Date, monthsToAdd: number) => {
-        const d = new Date(date);
-        const dayOfMonth = d.getDate();
-        d.setDate(1);
-        d.setMonth(d.getMonth() + monthsToAdd);
-        const lastDayOfTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-        d.setDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
+    // IMPORTANT: "months" here means 30-day blocks (not calendar months).
+    // Day counting is date-based (purchase day counts as day 1) by storing end_date
+    // as an exclusive UTC-midnight boundary.
+    const DAYS_PER_MONTH = 30;
+
+    const toUTCMidnight = (date: Date) =>
+        new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
+
+    const addDaysAtUTCMidnight = (date: Date, daysToAdd: number) => {
+        const d = toUTCMidnight(date);
+        d.setUTCDate(d.getUTCDate() + daysToAdd);
         return d;
     };
 
@@ -229,15 +233,11 @@ export const extendSubscription = async (
     }
 
     const now = new Date();
-    const baseDate = subscription.end_date && subscription.end_date > now ? subscription.end_date : now;
+    const baseDate = subscription.end_date && subscription.end_date > now ? subscription.end_date : toUTCMidnight(now);
 
     const newEndDate = hasMonths
-        ? addMonthsClamped(baseDate, Math.floor(months!))
-        : (() => {
-              const d = new Date(baseDate);
-              d.setDate(d.getDate() + Math.floor(days!));
-              return d;
-          })();
+        ? addDaysAtUTCMidnight(baseDate, Math.floor(months!) * DAYS_PER_MONTH)
+        : addDaysAtUTCMidnight(baseDate, Math.floor(days!));
     subscription.end_date = newEndDate;
     
     if (subscription.status === 'expired') {
@@ -285,6 +285,32 @@ export const upgradeSubscriptionPlan = async (
     subscription.plan = normalizedNewPlan as any;
     subscription.features = plan.features;
 
+    // When a user "takes" a paid subscription (Free -> Premium), start_date must reflect
+    // the purchase day. Use UTC midnight so day counting is date-based.
+    if (previousPlan === 'free' && normalizedNewPlan !== 'free') {
+        const now = new Date();
+        subscription.start_date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    }
+
+    // Keep end_date semantics consistent:
+    // - Premium should have an end_date (used for remaining days + extensions)
+    // - Free should not carry an old premium end_date
+    if (normalizedNewPlan === 'free') {
+        subscription.end_date = undefined;
+        subscription.trial_ends_at = undefined;
+        subscription.auto_renew = false;
+        if (subscription.status === 'trial') {
+            subscription.status = 'active';
+        }
+    } else {
+        if (!subscription.end_date) {
+            const now = new Date();
+            const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+            start.setUTCDate(start.getUTCDate() + 30);
+            subscription.end_date = start;
+        }
+    }
+
     // Common production issue: legacy/auto-created subscriptions can be left as `inactive`.
     // If an outlet is upgraded to a paid plan, ensure it becomes usable immediately.
     const isPaidPlan = normalizedNewPlan !== 'free';
@@ -319,6 +345,52 @@ export const upgradeSubscriptionPlan = async (
             reason: 'Auto-activated on plan upgrade'
         });
     }
+
+    return subscription;
+};
+
+export const cancelSubscriptionToFree = async (
+    subscriptionId: string,
+    changedBy?: mongoose.Types.ObjectId | string,
+    reason?: string
+): Promise<ISubscription | null> => {
+    const changedById = toObjectId(changedBy);
+    const subscription = await Subscription.findById(subscriptionId);
+
+    if (!subscription) {
+        throw new Error('Subscription not found');
+    }
+
+    const previousPlan = normalizePlanKey(subscription.plan);
+    const previousStatus = subscription.status === 'cancelled' ? 'inactive' : subscription.status;
+
+    const freePlan = getSubscriptionPlan('free');
+    subscription.plan = 'free' as any;
+    subscription.features = freePlan?.features ?? [];
+    subscription.status = 'active';
+    subscription.auto_renew = false;
+
+    subscription.end_date = undefined;
+    subscription.trial_ends_at = undefined;
+
+    subscription.cancelled_at = new Date();
+    if (changedById) subscription.cancelled_by = changedById;
+    if (reason !== undefined) subscription.cancellation_reason = reason;
+
+    await subscription.save();
+
+    await SubscriptionHistory.create({
+        subscription_id: subscription._id,
+        outlet_id: subscription.outlet_id,
+        action: 'downgraded',
+        previous_plan: previousPlan,
+        new_plan: 'free',
+        previous_status: previousStatus,
+        new_status: 'active',
+        changed_by: changedById,
+        changed_at: new Date(),
+        reason
+    });
 
     return subscription;
 };
@@ -420,8 +492,10 @@ export const getSubscriptionInfo = (subscription: ISubscription | null) => {
         };
     }
 
-    const planKey = normalizePlanKey(subscription.plan);
+    const isLegacyCancelled = subscription.status === 'cancelled';
+    const planKey = isLegacyCancelled ? 'free' : normalizePlanKey(subscription.plan);
     const plan = getSubscriptionPlan(planKey);
+    const status = isLegacyCancelled ? 'inactive' : subscription.status;
     let daysRemaining = null;
 
     if (subscription.end_date) {
@@ -436,15 +510,15 @@ export const getSubscriptionInfo = (subscription: ISubscription | null) => {
         subscriptionId: subscription._id,
         plan: planKey,
         planDetails: plan,
-        status: subscription.status,
+        status,
         features: subscription.features,
         limits: plan?.limits,
         startDate: subscription.start_date,
         endDate: subscription.end_date,
         daysRemaining,
-        isExpired: subscription.status === 'expired',
-        isTrial: subscription.status === 'trial',
-        isCancelled: subscription.status === 'cancelled',
+        isExpired: status === 'expired',
+        isTrial: status === 'trial',
+        isCancelled: isLegacyCancelled,
         trialEndsAt: subscription.trial_ends_at,
         autoRenew: subscription.auto_renew,
         paymentStatus: subscription.payment_status,
