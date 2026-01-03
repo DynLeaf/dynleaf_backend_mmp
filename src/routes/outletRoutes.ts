@@ -5,6 +5,7 @@ import {
     getUserOutlets,
     getUserOutletsList,
     updateOutlet,
+    getCompliance,
     saveCompliance,
     updateOperatingHours,
     uploadPhotoGallery,
@@ -45,6 +46,7 @@ router.get('/my-outlets-list', protect, getUserOutletsList); // Lightweight for 
 router.get('/:outletId', protect, getOutletById);
 router.put('/:outletId', protect, updateOutlet);
 router.patch('/:outletId/featured', protect, toggleFeaturedStatus); // Toggle featured status
+router.get('/:outletId/compliance', protect, getCompliance);
 router.post('/:outletId/compliance', protect, saveCompliance);
 router.put('/:outletId/operating-hours', protect, updateOperatingHours);
 router.post('/:outletId/photo-gallery', protect, uploadPhotoGallery);

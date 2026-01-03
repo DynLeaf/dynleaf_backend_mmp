@@ -17,18 +17,18 @@ interface AuthRequest extends Request {
 
 export const createOutlet = async (req: AuthRequest, res: Response) => {
     try {
-        const { 
-            brandId, 
-            name, 
-            address, 
+        const {
+            brandId,
+            name,
+            address,
             location,
             latitude,
             longitude,
             contact,
             coverImage,
-            restaurantType, 
-            vendorTypes, 
-            seatingCapacity, 
+            restaurantType,
+            vendorTypes,
+            seatingCapacity,
             tableCount,
             socialMedia,
             priceRange,
@@ -76,8 +76,8 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        return sendSuccess(res, { 
-            id: outlet._id, 
+        return sendSuccess(res, {
+            id: outlet._id,
             brandId: outlet.brand_id,
             name: outlet.name,
             slug: outlet.slug
@@ -90,7 +90,7 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
 export const getUserOutlets = async (req: AuthRequest, res: Response) => {
     try {
         const outlets = await outletService.getUserOutlets(req.user.id);
-        
+
         // Fetch operating hours for each outlet
         const outletsWithHours = await Promise.all(
             outlets.map(async (outlet: any) => {
@@ -106,7 +106,7 @@ export const getUserOutlets = async (req: AuthRequest, res: Response) => {
                 };
             })
         );
-        
+
         return sendSuccess(res, { outlets: outletsWithHours });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -126,11 +126,11 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
         const outlet = await outletService.getOutletById(outletId);
-        
+
         if (!outlet) {
             return sendError(res, 'Outlet not found', 404);
         }
-        
+
         // Fetch operating hours from OperatingHours collection
         const operatingHours = await OperatingHours.find({ outlet_id: outletId }).sort({ day_of_week: 1 });
 
@@ -169,8 +169,8 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
             outletPayload.free_tier = summary.free_tier;
             outletPayload.had_paid_plan_before = summary.had_paid_plan_before;
         }
-        
-        return sendSuccess(res, { 
+
+        return sendSuccess(res, {
             outlet: outletPayload
         });
     } catch (error: any) {
@@ -194,7 +194,7 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         if (updateData.operatingHours !== undefined) {
             const operatingHours = updateData.operatingHours;
             delete updateData.operatingHours;
-            
+
             // Save to OperatingHours collection
             await updateOperatingHoursFromEndpoint(
                 outletId,
@@ -219,13 +219,13 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         }
 
         const outlet = await outletService.updateOutlet(outletId, req.user.id, updateData);
-        
+
         if (!outlet) {
             return sendError(res, 'Outlet not found or unauthorized', null, 404);
         }
 
-        return sendSuccess(res, { 
-            id: outlet._id, 
+        return sendSuccess(res, {
+            id: outlet._id,
             name: outlet.name
         }, 'Outlet updated successfully');
     } catch (error: any) {
@@ -245,6 +245,22 @@ export const saveCompliance = async (req: Request, res: Response) => {
         );
 
         return sendSuccess(res, null, 'Compliance saved');
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getCompliance = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const compliance = await Compliance.findOne({ outlet_id: outletId });
+
+        return sendSuccess(res, {
+            fssaiNumber: compliance?.fssai_number || '',
+            gstNumber: compliance?.gst_number || '',
+            gstPercentage: compliance?.gst_percentage || 0,
+            isVerified: compliance?.is_verified || false
+        });
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -286,9 +302,9 @@ export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
 
         await outlet.save();
 
-        return sendSuccess(res, { 
+        return sendSuccess(res, {
             url: uploadResult.url,
-            category 
+            category
         }, 'Photo uploaded successfully');
     } catch (error: any) {
         return sendError(res, error.message);
@@ -311,7 +327,7 @@ export const deletePhotoGallery = async (req: AuthRequest, res: Response) => {
 
         // Remove photo from the appropriate category
         if (outlet.photo_gallery && outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']) {
-            outlet.photo_gallery[category as 'interior' | 'exterior' | 'food'] = 
+            outlet.photo_gallery[category as 'interior' | 'exterior' | 'food'] =
                 outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']!.filter(url => url !== photoUrl);
         }
 
@@ -402,7 +418,7 @@ export const getProfileAbout = async (req: Request, res: Response) => {
 export const getBrandOutlets = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        
+
         // Validate brandId
         if (!mongoose.Types.ObjectId.isValid(brandId)) {
             return res.status(400).json({
@@ -410,15 +426,15 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
                 message: 'Invalid brand ID'
             });
         }
-        
+
         // Find all active and approved outlets for this brand
-        const outlets = await Outlet.find({ 
+        const outlets = await Outlet.find({
             brand_id: brandId,
             status: 'ACTIVE',
             approval_status: 'APPROVED'
         })
-        .select('name slug address location contact media restaurant_type vendor_types social_media avg_rating total_reviews')
-        .lean();
+            .select('name slug address location contact media restaurant_type vendor_types social_media avg_rating total_reviews')
+            .lean();
 
         const formattedOutlets = outlets.map(outlet => ({
             id: outlet._id,
@@ -426,7 +442,6 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
             slug: outlet.slug,
             address: {
                 full_address: outlet.address?.full || `${outlet.address?.city || ''}, ${outlet.address?.state || ''}`.trim(),
-                street: outlet.address?.street,
                 city: outlet.address?.city,
                 state: outlet.address?.state,
                 country: outlet.address?.country,
@@ -459,11 +474,11 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
 // Get nearby outlets based on location with filters (like Zomato/Swiggy)
 export const getNearbyOutlets = async (req: Request, res: Response) => {
     try {
-        const { 
-            latitude, 
-            longitude, 
+        const {
+            latitude,
+            longitude,
             radius = 10000, // Default 10km in meters
-            page = 1, 
+            page = 1,
             limit = 20,
             cuisines,
             priceRange,
@@ -472,7 +487,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
             isVeg,
             search
         } = req.query;
-        
+
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
@@ -638,11 +653,11 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
                 status: 'ACTIVE',
                 approval_status: 'APPROVED'
             })
-            .populate('brand_id', 'name slug logo_url cuisines is_featured')
-            .select('name slug address location avg_rating total_reviews price_range delivery_time is_pure_veg media contact')
-            .skip(skip)
-            .limit(limitNum)
-            .lean();
+                .populate('brand_id', 'name slug logo_url cuisines is_featured')
+                .select('name slug address location avg_rating total_reviews price_range delivery_time is_pure_veg media contact')
+                .skip(skip)
+                .limit(limitNum)
+                .lean();
 
             const fallbackTotal = await Outlet.countDocuments({
                 status: 'ACTIVE',
@@ -686,7 +701,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
 export const getFeaturedOutlets = async (req: Request, res: Response) => {
     try {
         const { latitude, longitude, limit = 10 } = req.query;
-        
+
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
@@ -702,8 +717,8 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
             'flags.is_featured': true,
             'location.coordinates': { $exists: true, $ne: [] }
         })
-        .populate('brand_id', 'name slug logo_url cuisines verification_status is_active is_featured')
-        .lean();
+            .populate('brand_id', 'name slug logo_url cuisines verification_status is_active is_featured')
+            .lean();
 
         console.log(`🌟 Found ${featuredOutlets.length} featured outlets`);
 
@@ -718,7 +733,7 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
                 if (outlet.location?.coordinates?.length === 2) {
                     const [lng2, lat2] = outlet.location.coordinates;
                     const distance = calculateDistance(lat, lng, lat2, lng2);
-                    
+
                     return {
                         ...outlet,
                         distance,
@@ -740,20 +755,23 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
 
         console.log(`✅ Returning ${validOutlets.length} featured outlets`);
 
-        const formattedOutlets = validOutlets.map(outlet => ({
-            _id: outlet._id,
-            name: outlet.name,
-            slug: outlet.slug,
-            address: outlet.address,
-            distance: Math.round(outlet.distance),
-            avg_rating: outlet.avg_rating,
-            total_reviews: outlet.total_reviews,
-            price_range: outlet.price_range,
-            delivery_time: outlet.delivery_time,
-            is_pure_veg: outlet.is_pure_veg,
-            media: outlet.media,
-            brand: outlet.brand
-        }));
+        const formattedOutlets = validOutlets.map(outlet => {
+            if (!outlet) return null;
+            return {
+                _id: outlet._id,
+                name: outlet.name,
+                slug: outlet.slug,
+                address: outlet.address,
+                distance: Math.round(outlet.distance),
+                avg_rating: outlet.avg_rating,
+                total_reviews: outlet.total_reviews,
+                price_range: outlet.price_range,
+                delivery_time: outlet.delivery_time,
+                is_pure_veg: outlet.is_pure_veg,
+                media: outlet.media,
+                brand: outlet.brand
+            };
+        }).filter(Boolean);
 
         return sendSuccess(res, { outlets: formattedOutlets });
     } catch (error: any) {
@@ -771,8 +789,8 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     const Δλ = (lon2 - lon1) * Math.PI / 180;
 
     const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
@@ -795,15 +813,17 @@ export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
         }
 
         outlet.flags = {
-            ...outlet.flags,
-            is_featured: is_featured
+            is_featured: !!is_featured,
+            is_trending: outlet.flags?.is_trending || false,
+            accepts_online_orders: outlet.flags?.accepts_online_orders !== false,
+            is_open_now: outlet.flags?.is_open_now || false
         };
 
         await outlet.save();
 
         console.log(`🌟 Outlet ${outlet.name} featured status set to: ${is_featured}`);
 
-        return sendSuccess(res, { 
+        return sendSuccess(res, {
             outlet: {
                 _id: outlet._id,
                 name: outlet.name,
