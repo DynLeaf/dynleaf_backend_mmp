@@ -48,7 +48,8 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
             id: brand._id,
             name: brand.name,
             logo_url: brand.logo_url,
-            slug: brand.slug
+            slug: brand.slug,
+            status: brand.verification_status
         }, 'Brand created successfully', 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -58,7 +59,11 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
 export const getUserBrands = async (req: AuthRequest, res: Response) => {
     try {
         const brands = await brandService.getUserBrands(req.user.id);
-        return sendSuccess(res, { brands });
+        const mappedBrands = brands.map(b => ({
+            ...b.toObject(),
+            status: b.verification_status
+        }));
+        return sendSuccess(res, { brands: mappedBrands });
     } catch (error: any) {
         return sendError(res, error.message);
     }

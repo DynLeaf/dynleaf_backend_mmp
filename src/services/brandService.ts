@@ -7,7 +7,7 @@ import mongoose from 'mongoose';
  * Get all brands for a user
  */
 export const getUserBrands = async (userId: string): Promise<IBrand[]> => {
-    return await Brand.find({ admin_user_id: userId, verification_status: 'approved' });
+    return await Brand.find({ admin_user_id: userId });
 };
 
 /**
@@ -42,6 +42,17 @@ export const createBrand = async (userId: string, brandData: {
 
     if (existingBrandByName) {
         throw new Error(`A brand named "${brandData.name}" already exists. Please choose a different name.`);
+    }
+
+    // Check if user already has a pending brand with the same name
+    const existingPendingBrand = await Brand.findOne({
+        name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
+        admin_user_id: userId,
+        verification_status: 'pending'
+    });
+
+    if (existingPendingBrand) {
+        throw new Error(`You already have a pending brand named "${brandData.name}". Please wait for approval or use the existing one.`);
     }
 
     // Generate slug from name
@@ -148,6 +159,7 @@ export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
         query = {
             $or: [
                 { created_by: userId },
+                { admin_user_id: userId },
                 { verification_status: 'approved' }
             ]
         };
@@ -190,6 +202,7 @@ export const searchBrands = async (query: string, userId?: string): Promise<IBra
             is_active: true,
             $or: [
                 { created_by: userId },
+                { admin_user_id: userId },
                 { verification_status: 'approved' }
             ]
         };
