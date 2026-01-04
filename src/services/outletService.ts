@@ -195,9 +195,16 @@ export const updateOutlet = async (
 
     // Update allowed fields
     Object.keys(updateData).forEach(key => {
-        if (updateData[key as keyof IOutlet] !== undefined) {
-            (outlet as any)[key] = updateData[key as keyof IOutlet];
+        const value = updateData[key as keyof IOutlet];
+        if (value === undefined) return;
+
+        // Merge nested media updates to avoid overwriting other media fields
+        if (key === 'media' && value && typeof value === 'object') {
+            (outlet as any).media = { ...((outlet as any).media || {}), ...(value as any) };
+            return;
         }
+
+        (outlet as any)[key] = value;
     });
 
     await outlet.save();

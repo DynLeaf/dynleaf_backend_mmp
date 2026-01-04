@@ -396,23 +396,34 @@ export const bulkDeleteFoodItems = async (req: Request, res: Response) => {
 export const uploadFoodItemImage = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
-        const { image } = req.body;
+        const { image, imageUrl, url } = req.body as { image?: string; imageUrl?: string; url?: string };
 
-        if (!image) {
+        const input = imageUrl || url || image;
+
+        if (!input || typeof input !== 'string') {
             return sendError(res, 'Image data is required', 400);
         }
 
-        // Use existing file upload utility
-        const { saveBase64Image } = await import('../utils/fileUpload.js');
-        const imagePath = await saveBase64Image(image, 'menu');
+        let finalUrl: string;
+        if (input.startsWith('data:')) {
+            // Use existing file upload utility (legacy base64 flow)
+            const { saveBase64Image } = await import('../utils/fileUpload.js');
+            const uploadResult = await saveBase64Image(input, 'menu');
+            finalUrl = uploadResult.url;
+        } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
+            // New flow: client uploads to Cloudinary and sends us the hosted URL
+            finalUrl = input;
+        } else {
+            return sendError(res, 'Invalid image data', 400);
+        }
 
         const item = await FoodItem.findByIdAndUpdate(
             foodItemId,
-            { image_url: imagePath },
+            { image_url: finalUrl },
             { new: true }
         );
 
-        return sendSuccess(res, { imageUrl: imagePath }, 'Image uploaded successfully');
+        return sendSuccess(res, { imageUrl: finalUrl }, 'Image uploaded successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }

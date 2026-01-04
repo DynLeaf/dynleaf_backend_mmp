@@ -81,7 +81,26 @@ export const updateCategoryForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Category not found for this outlet', 404);
         }
 
-        const updatedCategory = await Category.findByIdAndUpdate(categoryId, req.body, { new: true });
+        const body: any = req.body || {};
+
+        const updates: any = { ...body };
+
+        if (body.imageUrl !== undefined && body.image_url === undefined) {
+            updates.image_url = body.imageUrl;
+            delete updates.imageUrl;
+        }
+
+        if (body.isActive !== undefined && body.is_active === undefined) {
+            updates.is_active = body.isActive;
+            delete updates.isActive;
+        }
+
+        if (body.sortOrder !== undefined && body.display_order === undefined) {
+            updates.display_order = body.sortOrder;
+            delete updates.sortOrder;
+        }
+
+        const updatedCategory = await Category.findByIdAndUpdate(categoryId, updates, { new: true });
         return sendSuccess(res, { 
             id: updatedCategory?._id, 
             name: updatedCategory?.name, 
@@ -377,9 +396,11 @@ export const bulkDeleteFoodItemsForOutlet = async (req: Request, res: Response) 
 export const uploadFoodItemImageForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, foodItemId } = req.params;
-        const { image } = req.body;
+        const { image, imageUrl, url } = req.body as { image?: string; imageUrl?: string; url?: string };
 
-        if (!image) {
+        const input = imageUrl || url || image;
+
+        if (!input || typeof input !== 'string') {
             return sendError(res, 'Image data is required', 400);
         }
 
@@ -389,17 +410,26 @@ export const uploadFoodItemImageForOutlet = async (req: Request, res: Response) 
             return sendError(res, 'Food item not found for this outlet', 404);
         }
 
-        // Use existing file upload utility
-        const { saveBase64Image } = await import('../utils/fileUpload.js');
-        const imagePath = await saveBase64Image(image, 'menu');
+        let finalUrl: string;
+        if (input.startsWith('data:')) {
+            // Use existing file upload utility (legacy base64 flow)
+            const { saveBase64Image } = await import('../utils/fileUpload.js');
+            const uploadResult = await saveBase64Image(input, 'menu');
+            finalUrl = uploadResult.url;
+        } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
+            // New flow: client uploads to Cloudinary and sends us the hosted URL
+            finalUrl = input;
+        } else {
+            return sendError(res, 'Invalid image data', 400);
+        }
 
         const item = await FoodItem.findByIdAndUpdate(
             foodItemId,
-            { image_url: imagePath },
+            { image_url: finalUrl },
             { new: true }
         );
 
-        return sendSuccess(res, { imageUrl: imagePath }, 'Image uploaded successfully');
+        return sendSuccess(res, { imageUrl: finalUrl }, 'Image uploaded successfully');
     } catch (error: any) {
         return sendError(res, error.message);
     }

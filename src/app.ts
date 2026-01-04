@@ -17,6 +17,7 @@ import offerRoutes from './routes/offerRoutes.js';
 import storyRoutes from './routes/storyRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import businessRoutes from './routes/businessRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 import logger from './middleware/logger.js';
 import * as promotionController from './controllers/promotionController.js';
 import errorHandler from './middleware/errorMiddleware.js';
@@ -68,6 +69,7 @@ app.get('/v1', (req, res) => {
 
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', userRoutes);
+app.use('/v1/uploads', uploadRoutes);
 app.use('/v1/business', businessRoutes);
 app.use('/v1/brands', brandOutletRoutes); // Brand routes (includes /featured)
 app.use('/v1/brands', brandRoutes);

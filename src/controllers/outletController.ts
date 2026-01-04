@@ -205,10 +205,28 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             delete updateData.orderLink;
         }
 
-        // Handle cover image upload if base64
-        if (updateData.coverImage && updateData.coverImage.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(updateData.coverImage, 'outlets');
-            updateData.media = { cover_image_url: uploadResult.url };
+        // Handle cover image updates
+        const coverImageFromBody = typeof updateData.coverImage === 'string' ? updateData.coverImage : undefined;
+        const coverImageFromMedia =
+            typeof updateData.media?.cover_image_url === 'string' ? updateData.media.cover_image_url : undefined;
+
+        const coverImageInput = coverImageFromMedia ?? coverImageFromBody;
+        if (typeof coverImageInput === 'string') {
+            let coverImageUrl = coverImageInput;
+
+            if (coverImageInput.startsWith('data:')) {
+                const uploadResult = await saveBase64Image(coverImageInput, 'outlets');
+                coverImageUrl = uploadResult.url;
+            } else if (
+                coverImageInput !== '' &&
+                !coverImageInput.startsWith('http://') &&
+                !coverImageInput.startsWith('https://') &&
+                !coverImageInput.startsWith('/uploads/')
+            ) {
+                return sendError(res, 'Invalid cover image URL', 400);
+            }
+
+            updateData.media = { ...(updateData.media || {}), cover_image_url: coverImageUrl };
             delete updateData.coverImage;
         }
 
@@ -292,19 +310,29 @@ export const getCompliance = async (req: Request, res: Response) => {
 export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { category, image } = req.body;
+        const { category, image, url, photoUrl, imageUrl } = req.body;
 
         if (!category || !['interior', 'exterior', 'food'].includes(category)) {
             return sendError(res, 'Invalid category. Must be interior, exterior, or food', null, 400);
         }
 
-        if (!image || !image.startsWith('data:')) {
+        const inputUrl: string | undefined = (typeof url === 'string' ? url : undefined)
+            || (typeof photoUrl === 'string' ? photoUrl : undefined)
+            || (typeof imageUrl === 'string' ? imageUrl : undefined);
+
+        let finalUrl: string | undefined;
+
+        if (typeof image === 'string' && image.startsWith('data:')) {
+            // Upload image to server in category-specific folder (legacy base64 flow)
+            const folderPath = `gallery/${category}` as 'gallery/interior' | 'gallery/exterior' | 'gallery/food';
+            const uploadResult = await saveBase64Image(image, folderPath, `${category}-${Date.now()}`);
+            finalUrl = uploadResult.url;
+        } else if (inputUrl && (inputUrl.startsWith('http://') || inputUrl.startsWith('https://') || inputUrl.startsWith('/uploads/'))) {
+            // New flow: client uploads to Cloudinary and sends us the hosted URL
+            finalUrl = inputUrl;
+        } else {
             return sendError(res, 'Invalid image data', null, 400);
         }
-
-        // Upload image to server in category-specific folder
-        const folderPath = `gallery/${category}` as 'gallery/interior' | 'gallery/exterior' | 'gallery/food';
-        const uploadResult = await saveBase64Image(image, folderPath, `${category}-${Date.now()}`);
 
         // Get current outlet
         const outlet = await Outlet.findById(outletId);
@@ -321,12 +349,12 @@ export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
         if (!outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']) {
             outlet.photo_gallery[category as 'interior' | 'exterior' | 'food'] = [];
         }
-        outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']!.push(uploadResult.url);
+        outlet.photo_gallery[category as 'interior' | 'exterior' | 'food']!.push(finalUrl);
 
         await outlet.save();
 
         return sendSuccess(res, {
-            url: uploadResult.url,
+            url: finalUrl,
             category
         }, 'Photo uploaded successfully');
     } catch (error: any) {

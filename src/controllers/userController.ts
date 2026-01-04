@@ -57,17 +57,22 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const { full_name, email, bio, avatar_url } = req.body;
+        const { full_name, email, bio } = req.body;
+        const avatar_url: unknown =
+            (req.body?.avatar_url as unknown) ??
+            (req.body?.avatarUrl as unknown) ??
+            (req.body?.imageUrl as unknown) ??
+            (req.body?.url as unknown);
 
         const updateData: any = {};
         
         if (full_name !== undefined) updateData.full_name = full_name;
         if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
-        if (avatar_url !== undefined) {
+        if (typeof avatar_url === 'string') {
             if (avatar_url.startsWith('data:image')) {
                 try {
-                    const uploadResult = await saveBase64Image(avatar_url, 'outlets');
+                    const uploadResult = await saveBase64Image(avatar_url, 'avatars');
                     updateData.avatar_url = uploadResult.url;
                 } catch (uploadError) {
                     console.error('Error uploading avatar:', uploadError);
@@ -81,6 +86,13 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             } else {
                 updateData.avatar_url = avatar_url;
             }
+        } else if (avatar_url !== undefined) {
+            return res.status(400).json({
+                status: false,
+                data: null,
+                message: 'Invalid avatar_url',
+                error: 'avatar_url must be a string'
+            });
         }
 
         if (Object.keys(updateData).length === 0) {
@@ -137,29 +149,43 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
             });
         }
 
-        const { image } = req.body;
+        const { image, imageUrl, url } = req.body as { image?: string; imageUrl?: string; url?: string };
+        const input = imageUrl || url || image;
 
-        if (!image || !image.startsWith('data:image')) {
+        if (!input || typeof input !== 'string') {
             return res.status(400).json({
                 status: false,
                 data: null,
                 message: 'Invalid image data',
-                error: 'Please provide a valid base64 image'
+                error: 'Please provide image (base64) or imageUrl (hosted URL)'
             });
         }
 
-        const uploadResult = await saveBase64Image(image, 'outlets');
+        let avatarUrl: string;
+        if (input.startsWith('data:image')) {
+            const uploadResult = await saveBase64Image(input, 'outlets');
+            avatarUrl = uploadResult.url;
+        } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
+            avatarUrl = input;
+        } else {
+            return res.status(400).json({
+                status: false,
+                data: null,
+                message: 'Invalid image data',
+                error: 'Please provide a valid base64 image or a hosted URL'
+            });
+        }
 
         const updatedUser = await User.findByIdAndUpdate(
             userId,
-            { $set: { avatar_url: uploadResult.url } },
+            { $set: { avatar_url: avatarUrl } },
             { new: true }
         ).select('-password_hash');
 
         res.json({
             status: true,
             data: {
-                avatar_url: uploadResult.url,
+                avatar_url: avatarUrl,
                 user: updatedUser
             },
             message: 'Avatar uploaded successfully',
