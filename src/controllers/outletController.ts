@@ -10,6 +10,7 @@ import * as outletService from '../services/outletService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
 import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
+import { validateOptionalHttpUrl } from '../utils/url.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -35,6 +36,9 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             isPureVeg,
             deliveryTime
         } = req.body;
+
+        // Validate optional review link if present
+        validateOptionalHttpUrl('Google review link', socialMedia?.google_review);
 
         // Handle cover image upload if base64
         let coverImageUrl = coverImage;
@@ -83,7 +87,8 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
             slug: outlet.slug
         }, 'Outlet created successfully', 201);
     } catch (error: any) {
-        return sendError(res, error.message);
+        const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+        return sendError(res, error.message, error, statusCode);
     }
 };
 
@@ -183,6 +188,9 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const updateData = req.body;
 
+        // Validate optional review link if present
+        validateOptionalHttpUrl('Google review link', updateData?.social_media?.google_review);
+
         // Delivery status + ordering details
         if (updateData.deliveryEnabled !== undefined) {
             updateData.flags = { ...(updateData.flags || {}), accepts_online_orders: Boolean(updateData.deliveryEnabled) };
@@ -243,7 +251,8 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             name: outlet.name
         }, 'Outlet updated successfully');
     } catch (error: any) {
-        return sendError(res, error.message);
+        const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+        return sendError(res, error.message, error, statusCode);
     }
 };
 

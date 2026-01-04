@@ -7,6 +7,7 @@ import { saveBase64Image } from '../utils/fileUpload.js';
 import { OnboardingSession } from '../models/OnboardingSession.js';
 import { Compliance } from '../models/Compliance.js';
 import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
+import { validateOptionalHttpUrl } from '../utils/url.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -23,6 +24,9 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             menuStrategy,
             compliance
         } = req.body;
+
+        // Validate optional social links
+        validateOptionalHttpUrl('Google review link', outlet?.socialLinks?.google_review);
 
         // Validate required fields
         if (!brand || !brand.name) {
@@ -213,8 +217,9 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             const field = Object.keys(error.keyPattern)[0];
             return sendError(res, `${field} already exists`, 409);
         }
-        
-        return sendError(res, error.message || 'Failed to submit onboarding', 500);
+
+        const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+        return sendError(res, error.message || 'Failed to submit onboarding', error, statusCode);
     }
 };
 

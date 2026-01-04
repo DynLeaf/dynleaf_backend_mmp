@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import { validateOptionalHttpUrl } from '../utils/url.js';
 
 export const updateSocialLinks = async (req: Request, res: Response) => {
     try {
@@ -8,14 +9,18 @@ export const updateSocialLinks = async (req: Request, res: Response) => {
         const { socials } = req.body;
 
         const socialMap: any = {};
-        socials.forEach((s: any) => {
+        (socials || []).forEach((s: any) => {
             socialMap[s.platform] = s.url;
         });
+
+        // Validate optional review link if present
+        validateOptionalHttpUrl('Google review link', socialMap.google_review);
 
         await Outlet.findByIdAndUpdate(outletId, { social_media: socialMap });
         return sendSuccess(res, null, 'Social links updated');
     } catch (error: any) {
-        return sendError(res, error.message);
+        const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;
+        return sendError(res, error.message, error, statusCode);
     }
 };
 
