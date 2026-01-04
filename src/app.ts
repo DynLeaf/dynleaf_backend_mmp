@@ -18,6 +18,7 @@ import storyRoutes from './routes/storyRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import businessRoutes from './routes/businessRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
+import foodItemAnalyticsRoutes from './routes/foodItemAnalyticsRoutes.js';
 import logger from './middleware/logger.js';
 import * as promotionController from './controllers/promotionController.js';
 import errorHandler from './middleware/errorMiddleware.js';
@@ -84,6 +85,9 @@ app.use('/v1/admin', subscriptionRoutes);
 app.use('/v1/outlets', offerRoutes);
 app.use('/v1/stories', storyRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths
+
+// Food item analytics
+app.use('/v1/analytics/food-items', foodItemAnalyticsRoutes);
 
 // Public promotion routes
 app.get('/v1/promotions/featured', promotionController.getFeaturedPromotions);
