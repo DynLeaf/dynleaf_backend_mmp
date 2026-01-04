@@ -651,6 +651,10 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
                 contact: 1,
                 vendor_types: 1,
                 restaurant_type: 1,
+                order_phone: 1,
+                order_link: 1,
+                flags: 1,
+                social_media: 1,
                 brand: {
                     _id: '$brand._id',
                     name: '$brand.name',
@@ -677,7 +681,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
                 approval_status: 'APPROVED'
             })
                 .populate('brand_id', 'name slug logo_url cuisines is_featured')
-                .select('name slug address location avg_rating total_reviews price_range delivery_time is_pure_veg media contact')
+                .select('name slug address location avg_rating total_reviews price_range delivery_time is_pure_veg media contact order_phone order_link flags social_media')
                 .skip(skip)
                 .limit(limitNum)
                 .lean();
@@ -792,7 +796,11 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
                 delivery_time: outlet.delivery_time,
                 is_pure_veg: outlet.is_pure_veg,
                 media: outlet.media,
-                brand: outlet.brand
+                brand: outlet.brand,
+                order_phone: outlet.order_phone,
+                order_link: outlet.order_link,
+                flags: outlet.flags,
+                social_media: outlet.social_media
             };
         }).filter(Boolean);
 

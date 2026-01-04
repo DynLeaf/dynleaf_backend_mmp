@@ -420,7 +420,17 @@ export const getOutletDetail = async (req: Request, res: Response) => {
         outlet: {
           ...outlet,
           available_items_count: itemsCount,
-          opening_hours: formattedHours
+          opening_hours: formattedHours,
+          // Ensure outlet-centric fields are explicitly included
+          order_phone: outlet.order_phone,
+          order_link: outlet.order_link,
+          flags: outlet.flags || {
+            is_featured: false,
+            is_trending: false,
+            accepts_online_orders: false,
+            is_open_now: false
+          },
+          social_media: outlet.social_media || {}
         },
         categories
       }
