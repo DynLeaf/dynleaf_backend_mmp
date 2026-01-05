@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "start": "node dist/server.js",
-    "dev": "tsx watch src/server.ts",
+    "dev": "nodemon --watch src --ext ts,js,json --exec tsx src/server.ts",
     "seed": "tsx src/utils/seed.ts",
     "seed:admin": "tsx src/scripts/seedAdmin.ts",
     "test:api": "tsx src/utils/test-api.ts",

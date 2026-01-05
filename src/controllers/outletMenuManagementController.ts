@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { AddOn } from '../models/AddOn.js';
@@ -16,7 +17,17 @@ import { sendSuccess, sendError } from '../utils/response.js';
 export const createCategoryForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { name, description, imageUrl, isActive } = req.body;
+        const { name, description, imageUrl, isActive, sortOrder } = req.body;
+
+        const trimmedName = typeof name === 'string' ? name.trim() : '';
+        if (!trimmedName) {
+            return sendError(res, 'Category name is required', null, 400);
+        }
+
+        const sortOrderNum =
+            sortOrder === undefined || sortOrder === null
+                ? undefined
+                : Number(sortOrder);
 
         // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
@@ -25,7 +36,7 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
         }
 
         // Generate slug from name
-        const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         let slug = baseSlug;
         let counter = 1;
         
@@ -37,10 +48,11 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
 
         const category = await Category.create({
             outlet_id: outletId,
-            name,
+            name: trimmedName,
             slug,
             description,
             image_url: imageUrl,
+            display_order: Number.isFinite(sortOrderNum as number) ? sortOrderNum : undefined,
             is_active: isActive ?? true
         });
 
@@ -48,6 +60,9 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
             id: category._id, 
             name: category.name, 
             slug: category.slug, 
+            description: category.description,
+            imageUrl: category.image_url,
+            sortOrder: category.display_order,
             isActive: category.is_active 
         }, null, 201);
     } catch (error: any) {
@@ -59,12 +74,27 @@ export const listCategoriesForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
         
-        const categories = await Category.find({ outlet_id: outletId });
+        const categories = await Category.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 });
+
+        const counts = await FoodItem.aggregate([
+            { $match: { outlet_id: new mongoose.Types.ObjectId(outletId) } },
+            { $group: { _id: '$category_id', count: { $sum: 1 } } }
+        ]);
+
+        const countByCategoryId = new Map<string, number>();
+        for (const row of counts) {
+            if (row?._id) countByCategoryId.set(String(row._id), Number(row.count) || 0);
+        }
+
         return sendSuccess(res, categories.map(c => ({ 
             id: c._id, 
             name: c.name, 
             slug: c.slug, 
-            isActive: c.is_active 
+            description: c.description,
+            imageUrl: c.image_url,
+            sortOrder: c.display_order,
+            isActive: c.is_active,
+            itemCount: countByCategoryId.get(String(c._id)) || 0
         })));
     } catch (error: any) {
         return sendError(res, error.message);
@@ -85,6 +115,30 @@ export const updateCategoryForOutlet = async (req: Request, res: Response) => {
 
         const updates: any = { ...body };
 
+        if (updates.name !== undefined) {
+            const trimmedName = typeof updates.name === 'string' ? updates.name.trim() : '';
+            if (!trimmedName) {
+                return sendError(res, 'Category name is required', null, 400);
+            }
+            updates.name = trimmedName;
+
+            // Regenerate slug if name changes
+            const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            let slug = baseSlug;
+            let counter = 1;
+            while (
+                await Category.findOne({
+                    outlet_id: outletId,
+                    slug,
+                    _id: { $ne: categoryId }
+                })
+            ) {
+                slug = `${baseSlug}-${counter}`;
+                counter++;
+            }
+            updates.slug = slug;
+        }
+
         if (body.imageUrl !== undefined && body.image_url === undefined) {
             updates.image_url = body.imageUrl;
             delete updates.imageUrl;
@@ -96,15 +150,25 @@ export const updateCategoryForOutlet = async (req: Request, res: Response) => {
         }
 
         if (body.sortOrder !== undefined && body.display_order === undefined) {
-            updates.display_order = body.sortOrder;
+            const sortOrderNum = Number(body.sortOrder);
+            if (!Number.isFinite(sortOrderNum)) {
+                return sendError(res, 'Invalid sortOrder', null, 400);
+            }
+            updates.display_order = sortOrderNum;
             delete updates.sortOrder;
         }
 
         const updatedCategory = await Category.findByIdAndUpdate(categoryId, updates, { new: true });
+
+        const itemCount = await FoodItem.countDocuments({ outlet_id: outletId, category_id: categoryId });
         return sendSuccess(res, { 
             id: updatedCategory?._id, 
             name: updatedCategory?.name, 
-            isActive: updatedCategory?.is_active 
+            description: updatedCategory?.description,
+            imageUrl: updatedCategory?.image_url,
+            sortOrder: updatedCategory?.display_order,
+            isActive: updatedCategory?.is_active,
+            itemCount
         });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -119,6 +183,16 @@ export const deleteCategoryForOutlet = async (req: Request, res: Response) => {
         const category = await Category.findOne({ _id: categoryId, outlet_id: outletId });
         if (!category) {
             return sendError(res, 'Category not found for this outlet', 404);
+        }
+
+        const itemsCount = await FoodItem.countDocuments({ outlet_id: outletId, category_id: categoryId });
+        if (itemsCount > 0) {
+            return sendError(
+                res,
+                'Cannot delete category while it has menu items. Move items to another category first.',
+                { itemsCount },
+                400
+            );
         }
 
         await Category.findByIdAndDelete(categoryId);
