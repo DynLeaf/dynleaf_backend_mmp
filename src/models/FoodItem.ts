@@ -21,6 +21,9 @@ export interface IFoodItem extends Document {
     price: number;
     original_price?: number;
     tax_percentage: number;
+
+    // Variants (e.g., sizes)
+    variants?: { size: string; price: number }[];
     
     // Media
     image_url?: string;
@@ -111,6 +114,13 @@ const foodItemSchema = new Schema<IFoodItem>({
     price: { type: Number, required: true, min: 0 },
     original_price: { type: Number },
     tax_percentage: { type: Number, default: 5 },
+
+    variants: [
+        {
+            size: { type: String, trim: true, required: true },
+            price: { type: Number, required: true, min: 0 }
+        }
+    ],
     
     // Media
     image_url: { type: String },

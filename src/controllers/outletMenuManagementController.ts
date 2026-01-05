@@ -4,6 +4,7 @@ import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { AddOn } from '../models/AddOn.js';
 import { Combo } from '../models/Combo.js';
+import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
@@ -207,7 +208,40 @@ export const deleteCategoryForOutlet = async (req: Request, res: Response) => {
 export const createFoodItemForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { name, description, categoryId, itemType, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
+        const {
+            name,
+            description,
+            categoryId,
+            itemType,
+            isVeg,
+            basePrice,
+            base_price,
+            price,
+            taxPercentage,
+            imageUrl,
+            isActive,
+            isAvailable,
+            addonIds,
+            tags,
+            variants,
+            preparationTime,
+            calories,
+            spiceLevel,
+            allergens,
+            isFeatured,
+            discountPercentage
+        } = req.body;
+
+        const trimmedName = typeof name === 'string' ? name.trim() : '';
+        if (!trimmedName) {
+            return sendError(res, 'Item name is required', null, 400);
+        }
+
+        const rawPrice = price ?? basePrice ?? base_price;
+        const priceNum = Number(rawPrice);
+        if (!Number.isFinite(priceNum) || priceNum < 0) {
+            return sendError(res, 'Invalid price', null, 400);
+        }
 
         // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
@@ -216,23 +250,55 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
         }
 
         // Determine food_type from isVeg
-        const foodType = isVeg ? 'veg' : 'non-veg';
+        const resolvedIsVeg = isVeg ?? true;
+        const foodType = resolvedIsVeg ? 'veg' : 'non-veg';
+
+        const resolvedIsActive = isActive ?? true;
+        const resolvedIsAvailable = isAvailable ?? resolvedIsActive;
+
+        const normalizedVariants: { size: string; price: number }[] = [];
+        if (variants !== undefined && variants !== null) {
+            if (!Array.isArray(variants)) {
+                return sendError(res, 'Invalid variants', null, 400);
+            }
+
+            for (const v of variants) {
+                const rawSize = (v as any)?.size ?? (v as any)?.name;
+                const size = typeof rawSize === 'string' ? rawSize.trim() : '';
+                if (!size) return sendError(res, 'Variant size is required', null, 400);
+
+                const priceNum = Number((v as any)?.price);
+                if (!Number.isFinite(priceNum) || priceNum < 0) {
+                    return sendError(res, 'Invalid variant price', null, 400);
+                }
+
+                normalizedVariants.push({ size, price: priceNum });
+            }
+        }
        
         // Prepare food item data
         const foodItemData: any = {
             outlet_id: outletId,
             category_id: categoryId,
-            name,
+            name: trimmedName,
             description,
             item_type: itemType || 'food',
             food_type: foodType,
-            is_veg: isVeg ?? true,
-            price: basePrice,
+            is_veg: resolvedIsVeg,
+            price: priceNum,
             tax_percentage: taxPercentage ?? 5,
             image_url: imageUrl,
-            is_active: isActive ?? true,
-            is_available: isActive ?? true,
-            addon_ids: addonIds || []
+            is_active: resolvedIsActive,
+            is_available: resolvedIsAvailable,
+            addon_ids: addonIds || [],
+            tags: tags || [],
+            variants: normalizedVariants,
+            preparation_time: preparationTime,
+            calories,
+            spice_level: spiceLevel,
+            allergens,
+            is_featured: isFeatured,
+            discount_percentage: discountPercentage
         };
 
         // Copy location from outlet if available (for geospatial queries)
@@ -243,17 +309,31 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             };
         }
 
-        const foodItem = await FoodItem.create(foodItemData);
+        const foodItem = await new FoodItem(foodItemData).save();
 
-        return sendSuccess(res, { 
-            id: foodItem._id, 
-            categoryId: foodItem.category_id, 
-            addonIds: foodItem.addon_ids, 
-            name: foodItem.name, 
-            itemType: foodItem.item_type, 
-            isVeg: foodItem.is_veg, 
-            basePrice: foodItem.price, 
-            isActive: foodItem.is_active 
+        return sendSuccess(res, {
+            id: foodItem._id,
+            categoryId: foodItem.category_id ? foodItem.category_id.toString() : null,
+            addonIds: foodItem.addon_ids ? foodItem.addon_ids.map((a: any) => a.toString()) : [],
+            name: foodItem.name,
+            description: foodItem.description,
+            itemType: foodItem.item_type,
+            isVeg: foodItem.is_veg,
+            basePrice: foodItem.price,
+            taxPercentage: foodItem.tax_percentage,
+            imageUrl: foodItem.image_url,
+            isActive: foodItem.is_active,
+            isAvailable: foodItem.is_available,
+            tags: foodItem.tags,
+            variants: Array.isArray((foodItem as any).variants)
+                ? (foodItem as any).variants.map((v: any) => ({ size: v.size, price: v.price }))
+                : [],
+            preparationTime: foodItem.preparation_time,
+            calories: foodItem.calories,
+            spiceLevel: foodItem.spice_level,
+            allergens: foodItem.allergens,
+            isFeatured: foodItem.is_featured,
+            discountPercentage: foodItem.discount_percentage
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -288,6 +368,10 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
             query.item_type = itemType;
         }
 
+        if (category) {
+            query.category_id = category;
+        }
+
         const pageNum = parseInt(page as string);
         const limitNum = parseInt(limit as string);
         const skip = (pageNum - 1) * limitNum;
@@ -312,7 +396,11 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
             taxPercentage: i.tax_percentage,
             imageUrl: i.image_url,
             isActive: i.is_active,
+            isAvailable: i.is_available,
             tags: i.tags,
+            variants: Array.isArray((i as any).variants)
+                ? (i as any).variants.map((v: any) => ({ size: v.size, price: v.price }))
+                : [],
             order: i.order,
             preparationTime: i.preparation_time,
             calories: i.calories,
@@ -346,13 +434,143 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Food item not found for this outlet', 404);
         }
 
-        const item = await FoodItem.findByIdAndUpdate(foodItemId, req.body, { new: true });
-        return sendSuccess(res, { 
-            id: item?._id, 
-            name: item?.name, 
-            isVeg: item?.is_veg, 
-            basePrice: item?.price, 
-            isActive: item?.is_active 
+        const body: any = req.body || {};
+        const updates: any = { ...body };
+
+        if (updates.name !== undefined) {
+            const trimmedName = typeof updates.name === 'string' ? updates.name.trim() : '';
+            if (!trimmedName) return sendError(res, 'Item name is required', null, 400);
+            updates.name = trimmedName;
+        }
+
+        if (body.categoryId !== undefined && body.category_id === undefined) {
+            updates.category_id = body.categoryId;
+            delete updates.categoryId;
+        }
+
+        if (body.itemType !== undefined && body.item_type === undefined) {
+            updates.item_type = body.itemType;
+            delete updates.itemType;
+        }
+
+        if (body.isVeg !== undefined && body.is_veg === undefined) {
+            updates.is_veg = body.isVeg;
+            delete updates.isVeg;
+        }
+
+        if (updates.is_veg !== undefined) {
+            updates.food_type = updates.is_veg ? 'veg' : 'non-veg';
+        }
+
+        // Price can come as basePrice/base_price/price
+        const rawPrice = body.basePrice ?? body.base_price ?? body.price;
+        if (rawPrice !== undefined) {
+            const priceNum = Number(rawPrice);
+            if (!Number.isFinite(priceNum) || priceNum < 0) {
+                return sendError(res, 'Invalid price', null, 400);
+            }
+            updates.price = priceNum;
+            delete updates.basePrice;
+            delete updates.base_price;
+        }
+
+        if (body.imageUrl !== undefined && body.image_url === undefined) {
+            updates.image_url = body.imageUrl;
+            delete updates.imageUrl;
+        }
+
+        if (body.isActive !== undefined && body.is_active === undefined) {
+            updates.is_active = body.isActive;
+            delete updates.isActive;
+        }
+
+        if (body.isAvailable !== undefined && body.is_available === undefined) {
+            updates.is_available = body.isAvailable;
+            delete updates.isAvailable;
+        }
+
+        // Keep is_available aligned when toggling is_active
+        if (updates.is_active !== undefined && updates.is_available === undefined) {
+            updates.is_available = updates.is_active;
+        }
+
+        if (body.preparationTime !== undefined && body.preparation_time === undefined) {
+            updates.preparation_time = body.preparationTime;
+            delete updates.preparationTime;
+        }
+
+        if (body.taxPercentage !== undefined && body.tax_percentage === undefined) {
+            updates.tax_percentage = body.taxPercentage;
+            delete updates.taxPercentage;
+        }
+
+        if (body.addonIds !== undefined && body.addon_ids === undefined) {
+            updates.addon_ids = body.addonIds;
+            delete updates.addonIds;
+        }
+
+        if (body.spiceLevel !== undefined && body.spice_level === undefined) {
+            updates.spice_level = body.spiceLevel;
+            delete updates.spiceLevel;
+        }
+
+        if (body.isFeatured !== undefined && body.is_featured === undefined) {
+            updates.is_featured = body.isFeatured;
+            delete updates.isFeatured;
+        }
+
+        if (body.discountPercentage !== undefined && body.discount_percentage === undefined) {
+            updates.discount_percentage = body.discountPercentage;
+            delete updates.discountPercentage;
+        }
+
+        if (body.variants !== undefined) {
+            if (body.variants === null) {
+                updates.variants = [];
+            } else if (!Array.isArray(body.variants)) {
+                return sendError(res, 'Invalid variants', null, 400);
+            } else {
+                const normalizedVariants: { size: string; price: number }[] = [];
+                for (const v of body.variants) {
+                    const rawSize = (v as any)?.size ?? (v as any)?.name;
+                    const size = typeof rawSize === 'string' ? rawSize.trim() : '';
+                    if (!size) return sendError(res, 'Variant size is required', null, 400);
+
+                    const priceNum = Number((v as any)?.price);
+                    if (!Number.isFinite(priceNum) || priceNum < 0) {
+                        return sendError(res, 'Invalid variant price', null, 400);
+                    }
+
+                    normalizedVariants.push({ size, price: priceNum });
+                }
+                updates.variants = normalizedVariants;
+            }
+        }
+
+        const item = await FoodItem.findByIdAndUpdate(foodItemId, updates, { new: true });
+        return sendSuccess(res, {
+            id: item?._id,
+            categoryId: item?.category_id ? String(item.category_id) : null,
+            addonIds: item?.addon_ids ? item.addon_ids.map((a: any) => String(a)) : [],
+            name: item?.name,
+            description: item?.description,
+            itemType: item?.item_type,
+            isVeg: item?.is_veg,
+            basePrice: item?.price,
+            taxPercentage: item?.tax_percentage,
+            imageUrl: item?.image_url,
+            isActive: item?.is_active,
+            isAvailable: item?.is_available,
+            tags: item?.tags,
+            variants: item && Array.isArray((item as any).variants)
+                ? (item as any).variants.map((v: any) => ({ size: v.size, price: v.price }))
+                : [],
+            preparationTime: item?.preparation_time,
+            calories: item?.calories,
+            spiceLevel: item?.spice_level,
+            allergens: item?.allergens,
+            isFeatured: item?.is_featured,
+            discountPercentage: item?.discount_percentage
         });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -367,6 +585,25 @@ export const deleteFoodItemForOutlet = async (req: Request, res: Response) => {
         const foodItem = await FoodItem.findOne({ _id: foodItemId, outlet_id: outletId });
         if (!foodItem) {
             return sendError(res, 'Food item not found for this outlet', 404);
+        }
+
+        const combosCount = await Combo.countDocuments({
+            outlet_id: outletId,
+            'items.food_item_id': foodItemId
+        });
+
+        const offersCount = await Offer.countDocuments({
+            outlet_ids: outletId,
+            applicable_food_item_ids: foodItemId
+        });
+
+        if (combosCount > 0 || offersCount > 0) {
+            return sendError(
+                res,
+                'Cannot delete food item because it is used in combos/offers',
+                { combosCount, offersCount },
+                400
+            );
         }
 
         await FoodItem.findByIdAndDelete(foodItemId);
@@ -401,6 +638,8 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             image_url: originalItem.image_url,
             location: originalItem.location,
             tags: originalItem.tags,
+            addon_ids: originalItem.addon_ids,
+            variants: (originalItem as any).variants,
             preparation_time: originalItem.preparation_time,
             calories: originalItem.calories,
             spice_level: originalItem.spice_level,
@@ -409,12 +648,29 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             discount_percentage: originalItem.discount_percentage
         });
 
-        return sendSuccess(res, { 
-            id: duplicatedItem._id, 
+        return sendSuccess(res, {
+            id: duplicatedItem._id,
+            categoryId: duplicatedItem.category_id ? String(duplicatedItem.category_id) : null,
+            addonIds: duplicatedItem.addon_ids ? duplicatedItem.addon_ids.map((a: any) => String(a)) : [],
             name: duplicatedItem.name,
+            description: duplicatedItem.description,
+            itemType: duplicatedItem.item_type,
             isVeg: duplicatedItem.is_veg,
             basePrice: duplicatedItem.price,
-            isActive: duplicatedItem.is_active
+            taxPercentage: duplicatedItem.tax_percentage,
+            imageUrl: duplicatedItem.image_url,
+            isActive: duplicatedItem.is_active,
+            isAvailable: duplicatedItem.is_available,
+            tags: duplicatedItem.tags,
+            variants: Array.isArray((duplicatedItem as any).variants)
+                ? (duplicatedItem as any).variants.map((v: any) => ({ size: v.size, price: v.price }))
+                : [],
+            preparationTime: duplicatedItem.preparation_time,
+            calories: duplicatedItem.calories,
+            spiceLevel: duplicatedItem.spice_level,
+            allergens: duplicatedItem.allergens,
+            isFeatured: duplicatedItem.is_featured,
+            discountPercentage: duplicatedItem.discount_percentage
         }, 'Food item duplicated successfully', 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -434,10 +690,126 @@ export const bulkUpdateFoodItemsForOutlet = async (req: Request, res: Response) 
             return sendError(res, 'Updates object is required', 400);
         }
 
+        const body: any = updates || {};
+        const normalized: any = { ...body };
+
+        // Normalize common key variants
+        if (body.categoryId !== undefined && body.category_id === undefined) {
+            normalized.category_id = body.categoryId;
+            delete normalized.categoryId;
+        }
+
+        if (body.itemType !== undefined && body.item_type === undefined) {
+            normalized.item_type = body.itemType;
+            delete normalized.itemType;
+        }
+
+        if (body.isVeg !== undefined && body.is_veg === undefined) {
+            normalized.is_veg = body.isVeg;
+            delete normalized.isVeg;
+        }
+
+        if (normalized.is_veg !== undefined) {
+            normalized.food_type = normalized.is_veg ? 'veg' : 'non-veg';
+        }
+
+        const rawPrice = body.price ?? body.basePrice ?? body.base_price;
+        if (rawPrice !== undefined) {
+            const priceNum = Number(rawPrice);
+            if (!Number.isFinite(priceNum) || priceNum < 0) {
+                return sendError(res, 'Invalid price', null, 400);
+            }
+            normalized.price = priceNum;
+            delete normalized.basePrice;
+            delete normalized.base_price;
+        }
+
+        if (body.imageUrl !== undefined && body.image_url === undefined) {
+            normalized.image_url = body.imageUrl;
+            delete normalized.imageUrl;
+        }
+
+        if (body.taxPercentage !== undefined && body.tax_percentage === undefined) {
+            normalized.tax_percentage = body.taxPercentage;
+            delete normalized.taxPercentage;
+        }
+
+        if (body.preparationTime !== undefined && body.preparation_time === undefined) {
+            normalized.preparation_time = body.preparationTime;
+            delete normalized.preparationTime;
+        }
+
+        if (body.addonIds !== undefined && body.addon_ids === undefined) {
+            normalized.addon_ids = body.addonIds;
+            delete normalized.addonIds;
+        }
+
+        if (body.spiceLevel !== undefined && body.spice_level === undefined) {
+            normalized.spice_level = body.spiceLevel;
+            delete normalized.spiceLevel;
+        }
+
+        if (body.isFeatured !== undefined && body.is_featured === undefined) {
+            normalized.is_featured = body.isFeatured;
+            delete normalized.isFeatured;
+        }
+
+        if (body.discountPercentage !== undefined && body.discount_percentage === undefined) {
+            normalized.discount_percentage = body.discountPercentage;
+            delete normalized.discountPercentage;
+        }
+
+        if (body.isActive !== undefined && body.is_active === undefined) {
+            normalized.is_active = body.isActive;
+            delete normalized.isActive;
+        }
+
+        if (body.isAvailable !== undefined && body.is_available === undefined) {
+            normalized.is_available = body.isAvailable;
+            delete normalized.isAvailable;
+        }
+
+        // Keep is_available aligned when toggling is_active
+        if (normalized.is_active !== undefined && normalized.is_available === undefined) {
+            normalized.is_available = normalized.is_active;
+        }
+
+        // Only allow a safe set of fields to be bulk-updated
+        const allowedKeys = new Set([
+            'name',
+            'description',
+            'category_id',
+            'item_type',
+            'is_veg',
+            'food_type',
+            'price',
+            'tax_percentage',
+            'image_url',
+            'is_active',
+            'is_available',
+            'addon_ids',
+            'tags',
+            'preparation_time',
+            'calories',
+            'spice_level',
+            'allergens',
+            'is_featured',
+            'discount_percentage'
+        ]);
+
+        const sanitized: any = {};
+        for (const [key, value] of Object.entries(normalized)) {
+            if (allowedKeys.has(key)) sanitized[key] = value;
+        }
+
+        if (Object.keys(sanitized).length === 0) {
+            return sendError(res, 'No valid fields to update', 400);
+        }
+
         // Only update items that belong to this outlet
         const result = await FoodItem.updateMany(
             { _id: { $in: itemIds }, outlet_id: outletId },
-            { $set: updates }
+            { $set: sanitized }
         );
 
         return sendSuccess(res, null, `${result.modifiedCount} items updated successfully`);
@@ -453,6 +825,32 @@ export const bulkDeleteFoodItemsForOutlet = async (req: Request, res: Response) 
 
         if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
             return sendError(res, 'Item IDs are required', 400);
+        }
+
+        const comboProtected = await Combo.distinct('items.food_item_id', {
+            outlet_id: outletId,
+            'items.food_item_id': { $in: itemIds }
+        });
+
+        const offerProtected = await Offer.distinct('applicable_food_item_ids', {
+            outlet_ids: outletId,
+            applicable_food_item_ids: { $in: itemIds }
+        });
+
+        const protectedIds = Array.from(
+            new Set([
+                ...comboProtected.map((id: any) => String(id)),
+                ...offerProtected.map((id: any) => String(id))
+            ])
+        );
+
+        if (protectedIds.length > 0) {
+            return sendError(
+                res,
+                'Cannot bulk delete: some items are used in combos/offers',
+                { protectedIds },
+                400
+            );
         }
 
         // Only delete items that belong to this outlet
