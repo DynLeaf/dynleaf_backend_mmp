@@ -114,9 +114,9 @@ export const getOutletOffers = async (req: AuthRequest, res: Response) => {
 
 export const getOfferById = async (req: AuthRequest, res: Response) => {
     try {
-        const { offerId } = req.params;
+        const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findById(offerId)
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId })
             .populate('brand_id', 'name')
             .populate('created_by_user_id', 'username phone')
             .lean();
@@ -134,7 +134,7 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
 
 export const updateOffer = async (req: AuthRequest, res: Response) => {
     try {
-        const { offerId } = req.params;
+        const { outletId, offerId } = req.params;
         const {
             title,
             subtitle,
@@ -161,7 +161,7 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
             is_active
         } = req.body;
 
-        const offer = await Offer.findById(offerId);
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -205,9 +205,9 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
 
 export const deleteOffer = async (req: AuthRequest, res: Response) => {
     try {
-        const { offerId } = req.params;
+        const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findByIdAndDelete(offerId);
+        const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: outletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -224,9 +224,9 @@ export const deleteOffer = async (req: AuthRequest, res: Response) => {
 
 export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
     try {
-        const { offerId } = req.params;
+        const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findById(offerId);
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);

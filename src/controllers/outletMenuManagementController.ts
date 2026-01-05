@@ -951,7 +951,7 @@ export const listAddOnsForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const addOns = await AddOn.find({ outlet_id: outletId });
+        const addOns = await AddOn.find({ outlet_id: outletId }).sort({ name: 1 });
 
         return sendSuccess(res, addOns.map(a => ({
             id: a._id,
@@ -975,13 +975,25 @@ export const updateAddOnForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        // Verify add-on belongs to the same brand
-        const addOn = await AddOn.findOne({ _id: addOnId, brand_id: outlet.brand_id });
+        // Verify add-on belongs to this outlet (AddOn is outlet-scoped)
+        const addOn = await AddOn.findOne({ _id: addOnId, outlet_id: outletId });
         if (!addOn) {
-            return sendError(res, 'Add-on not found for this outlet\'s brand', 404);
+            return sendError(res, 'Add-on not found for this outlet', 404);
         }
 
-        const updatedAddOn = await AddOn.findByIdAndUpdate(addOnId, req.body, { new: true });
+        const { name, price, category, is_active, isActive } = req.body;
+        const updates: any = {};
+        if (name !== undefined) updates.name = name;
+        if (price !== undefined) updates.price = price;
+        if (category !== undefined) updates.category = category;
+        if (is_active !== undefined) updates.is_active = is_active;
+        if (isActive !== undefined) updates.is_active = isActive;
+
+        const updatedAddOn = await AddOn.findOneAndUpdate(
+            { _id: addOnId, outlet_id: outletId },
+            updates,
+            { new: true }
+        );
         return sendSuccess(res, {
             id: updatedAddOn?._id,
             name: updatedAddOn?.name,
@@ -1004,13 +1016,27 @@ export const deleteAddOnForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        // Verify add-on belongs to the same brand
-        const addOn = await AddOn.findOne({ _id: addOnId, brand_id: outlet.brand_id });
+        // Verify add-on belongs to this outlet (AddOn is outlet-scoped)
+        const addOn = await AddOn.findOne({ _id: addOnId, outlet_id: outletId });
         if (!addOn) {
-            return sendError(res, 'Add-on not found for this outlet\'s brand', 404);
+            return sendError(res, 'Add-on not found for this outlet', 404);
         }
 
-        await AddOn.findByIdAndDelete(addOnId);
+        // Prevent deleting an add-on that is still referenced by items
+        const itemsCount = await FoodItem.countDocuments({
+            outlet_id: outletId,
+            addon_ids: addOnId
+        });
+        if (itemsCount > 0) {
+            return sendError(
+                res,
+                'Cannot delete this add-on because it is used by menu items. Remove it from those items first.',
+                { itemsCount },
+                400
+            );
+        }
+
+        await AddOn.findOneAndDelete({ _id: addOnId, outlet_id: outletId });
         return sendSuccess(res, null, 'Add-on deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1030,15 +1056,30 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+            return sendError(res, 'Combo name is required', null, 400);
+        }
+
         const normalizedItems = (items || []).map((i: any) => ({
             foodItemId: i.foodItemId ?? i.itemId,
             quantity: i.quantity
         }));
 
+        if (normalizedItems.length === 0) {
+            return sendError(res, 'Combo must include at least one item', null, 400);
+        }
+
         // Calculate pricing
         const foodItemIds = normalizedItems.map((i: any) => i.foodItemId);
-        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds } });
+        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
         const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
+
+        const missingIds = normalizedItems
+            .map((i: any) => i.foodItemId)
+            .filter((id: any) => id && !priceById.has(String(id)));
+        if (missingIds.length > 0) {
+            return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
+        }
 
         const originalPrice = normalizedItems.reduce((sum: number, i: any) => {
             const basePrice = priceById.get(i.foodItemId) ?? 0;
@@ -1092,7 +1133,7 @@ export const listCombosForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const combos = await Combo.find({ outlet_id: outletId });
+        const combos = await Combo.find({ outlet_id: outletId }).sort({ created_at: -1 });
 
         return sendSuccess(res, combos.map(c => ({
             id: c._id,
@@ -1121,13 +1162,13 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        // Verify combo belongs to the same brand
-        const combo = await Combo.findOne({ _id: comboId, brand_id: outlet.brand_id });
+        // Verify combo belongs to this outlet (Combo is outlet-scoped)
+        const combo = await Combo.findOne({ _id: comboId, outlet_id: outletId });
         if (!combo) {
-            return sendError(res, 'Combo not found for this outlet\'s brand', 404);
+            return sendError(res, 'Combo not found for this outlet', 404);
         }
 
-        const { name, description, imageUrl, items, discountPercentage, manualPriceOverride, price, isActive } = req.body;
+        const { name, description, imageUrl, items, discountPercentage, manualPriceOverride, price, isActive, is_active } = req.body;
 
         const updates: any = {};
         if (name !== undefined) updates.name = name;
@@ -1136,6 +1177,7 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
         if (discountPercentage !== undefined) updates.discount_percentage = discountPercentage;
         if (manualPriceOverride !== undefined) updates.manual_price_override = manualPriceOverride;
         if (isActive !== undefined) updates.is_active = isActive;
+        if (is_active !== undefined) updates.is_active = is_active;
 
         const isItemsProvided = items !== undefined;
         const normalizedItems: Array<{ foodItemId: string; quantity: number }> = isItemsProvided
@@ -1144,6 +1186,10 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
                 quantity: i.quantity
             }))
             : [];
+
+        if (isItemsProvided && normalizedItems.length === 0) {
+            return sendError(res, 'Combo must include at least one item', null, 400);
+        }
 
         if (isItemsProvided) {
             updates.items = normalizedItems.map((i: any) => ({
@@ -1163,8 +1209,15 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
 
         // Recalculate pricing
         const foodItemIds = effectiveItems.map((i: any) => i.foodItemId);
-        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds } });
+        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
         const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
+
+        const missingIds = effectiveItems
+            .map(i => i.foodItemId)
+            .filter((id: any) => id && !priceById.has(String(id)));
+        if (missingIds.length > 0) {
+            return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
+        }
 
         const originalPrice = effectiveItems.reduce((sum: number, i: any) => {
             const basePrice = priceById.get(i.foodItemId) ?? 0;
@@ -1204,13 +1257,13 @@ export const deleteComboForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        // Verify combo belongs to the same brand
-        const combo = await Combo.findOne({ _id: comboId, brand_id: outlet.brand_id });
+        // Verify combo belongs to this outlet (Combo is outlet-scoped)
+        const combo = await Combo.findOne({ _id: comboId, outlet_id: outletId });
         if (!combo) {
-            return sendError(res, 'Combo not found for this outlet\'s brand', 404);
+            return sendError(res, 'Combo not found for this outlet', 404);
         }
 
-        await Combo.findByIdAndDelete(comboId);
+        await Combo.findOneAndDelete({ _id: comboId, outlet_id: outletId });
         return sendSuccess(res, null, 'Combo deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
