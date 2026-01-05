@@ -1,12 +1,10 @@
-import dotenv from 'dotenv';
+import dotenv from 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Always load backend/.env regardless of the process working directory.
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 import mongoose from 'mongoose';
 import app from './app.js';
