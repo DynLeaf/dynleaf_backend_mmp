@@ -132,7 +132,7 @@ export const updateBrand = async (
     }
 
     // Update allowed fields
-    const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media'];
+    const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media', 'verification_status', 'verified_by', 'verified_at'];
     allowedFields.forEach(field => {
         if (updateData[field as keyof IBrand] !== undefined) {
             (brand as any)[field] = updateData[field as keyof IBrand];

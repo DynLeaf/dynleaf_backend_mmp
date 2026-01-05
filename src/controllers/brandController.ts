@@ -59,9 +59,18 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
 export const getUserBrands = async (req: AuthRequest, res: Response) => {
     try {
         const brands = await brandService.getUserBrands(req.user.id);
+        const brandIds = brands.map(b => b._id);
+        const pendingRequests = await BrandUpdateRequest.find({
+            brand_id: { $in: brandIds },
+            status: 'pending'
+        }).select('brand_id').lean();
+
+        const pendingByBrandId = new Set(pendingRequests.map(r => String(r.brand_id)));
+
         const mappedBrands = brands.map(b => ({
             ...b.toObject(),
-            status: b.verification_status
+            status: b.verification_status,
+            has_pending_update: pendingByBrandId.has(String(b._id))
         }));
         return sendSuccess(res, { brands: mappedBrands });
     } catch (error: any) {
@@ -126,13 +135,42 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
             };
         }
 
-        // If brand is already approved, create a request instead of updating directly
+        // If brand is already approved, create/update a request instead of updating directly.
+        // Pending/unapproved brands can be edited directly.
         const currentStatus = brand.verification_status?.toLowerCase();
         console.log(`[UpdateBrand] Brand ${brandId} status: ${brand.verification_status} (normalized: ${currentStatus})`);
 
         if (currentStatus === 'approved') {
-            console.log(`[UpdateBrand] Creating BrandUpdateRequest for approved brand ${brandId}`);
+            console.log(`[UpdateBrand] Creating/Updating BrandUpdateRequest for approved brand ${brandId}`);
             try {
+                const newData = {
+                    name: updateData.name || brand.name,
+                    description: updateData.description !== undefined ? updateData.description : brand.description,
+                    logo_url: updateData.logo_url || brand.logo_url,
+                    cuisines: updateData.cuisines || brand.cuisines,
+                    operating_modes: updateData.operating_modes || brand.operating_modes,
+                    social_media: updateData.social_media || brand.social_media
+                };
+
+                const existingPending = await BrandUpdateRequest.findOne({
+                    brand_id: brandId,
+                    status: 'pending'
+                });
+
+                if (existingPending) {
+                    existingPending.new_data = newData as any;
+                    await existingPending.save();
+                    console.log(`[UpdateBrand] Updated existing pending request: ${existingPending._id}`);
+
+                    return sendSuccess(res, {
+                        id: brand._id,
+                        name: brand.name,
+                        logo_url: brand.logo_url,
+                        status: 'pending_approval',
+                        request_id: existingPending._id
+                    }, 'Changes updated and submitted for admin approval');
+                }
+
                 const newRequest = await BrandUpdateRequest.create({
                     brand_id: brandId,
                     requester_id: req.user.id || req.user._id,
@@ -144,30 +182,31 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
                         operating_modes: brand.operating_modes,
                         social_media: brand.social_media
                     },
-                    new_data: {
-                        name: updateData.name || brand.name,
-                        description: updateData.description !== undefined ? updateData.description : brand.description,
-                        logo_url: updateData.logo_url || brand.logo_url,
-                        cuisines: updateData.cuisines || brand.cuisines,
-                        operating_modes: updateData.operating_modes || brand.operating_modes,
-                        social_media: updateData.social_media || brand.social_media
-                    }
+                    new_data: newData
                 });
                 console.log(`[UpdateBrand] Request created successfully with ID: ${newRequest._id}`);
+
+                return sendSuccess(res, {
+                    id: brand._id,
+                    name: brand.name,
+                    logo_url: brand.logo_url,
+                    status: 'pending_approval',
+                    request_id: newRequest._id
+                }, 'Changes submitted for admin approval');
             } catch (err: any) {
                 console.error(`[UpdateBrand] Failed to create request: ${err.message}`);
                 throw err;
             }
-
-            return sendSuccess(res, {
-                id: brand._id,
-                name: brand.name,
-                logo_url: brand.logo_url,
-                status: 'pending_approval'
-            }, 'Changes submitted for admin approval');
         }
 
         console.log(`[UpdateBrand] Direct update for brand ${brandId} (not approved yet)`);
+
+        // If a brand was rejected, treat an edit as a resubmission: reset to pending for re-verification.
+        if (currentStatus === 'rejected') {
+            updateData.verification_status = 'pending';
+            updateData.verified_by = undefined;
+            updateData.verified_at = undefined;
+        }
 
         // If not approved yet, update directly
         const updatedBrand = await brandService.updateBrand(brandId, req.user.id, updateData);

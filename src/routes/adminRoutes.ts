@@ -561,8 +561,26 @@ router.post("/brand-updates/:id/approve", adminAuth, async (req: AuthRequest, re
     const newData = request.new_data;
     if (newData.name) {
       brand.name = newData.name;
-      // Update slug if name changed
-      brand.slug = newData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      // Update slug if name changed (keep it unique)
+      let slug = newData.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/(^-|-$)/g, "");
+
+      let counter = 1;
+      // Ensure uniqueness against other brands
+      // (Brand schema enforces unique index on slug)
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const exists = await Brand.findOne({ slug, _id: { $ne: brand._id } }).select("_id").lean();
+        if (!exists) break;
+        slug = `${newData.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "")}-${counter}`;
+        counter++;
+      }
+      brand.slug = slug;
     }
     if (newData.description !== undefined) brand.description = newData.description;
     if (newData.logo_url) brand.logo_url = newData.logo_url;
@@ -574,7 +592,9 @@ router.post("/brand-updates/:id/approve", adminAuth, async (req: AuthRequest, re
 
     // Update request status
     request.status = 'approved';
-    request.reviewed_by = req.user?.userId;
+    if (req.user?.id && mongoose.isValidObjectId(String(req.user.id))) {
+      request.reviewed_by = new mongoose.Types.ObjectId(String(req.user.id));
+    }
     request.reviewed_at = new Date();
     await request.save();
 
@@ -600,7 +620,9 @@ router.post("/brand-updates/:id/reject", adminAuth, async (req: AuthRequest, res
 
     request.status = 'rejected';
     request.rejection_reason = reason;
-    request.reviewed_by = req.user?.userId;
+    if (req.user?.id && mongoose.isValidObjectId(String(req.user.id))) {
+      request.reviewed_by = new mongoose.Types.ObjectId(String(req.user.id));
+    }
     request.reviewed_at = new Date();
     await request.save();
 
