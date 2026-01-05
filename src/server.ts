@@ -1,11 +1,4 @@
-import dotenv from 'dotenv/config';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-
+import './config/env.js';
 import mongoose from 'mongoose';
 import app from './app.js';
 import connectDB from './config/db.js';
@@ -14,7 +7,7 @@ import { startAnalyticsAggregation } from './jobs/aggregatePromotionAnalytics.js
 import { startOutletAnalyticsAggregation } from './jobs/aggregateOutletAnalytics.js';
 import { startFoodItemAnalyticsAggregation } from './jobs/aggregateFoodItemAnalytics.js';
 
-const PORT = Number(process.env.PORT) || 5000;
+const PORT = Number(process.env.PORT) || 5005;
 
 const startServer = async () => {
     try {
