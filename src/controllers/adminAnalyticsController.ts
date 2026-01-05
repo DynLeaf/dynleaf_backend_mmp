@@ -382,24 +382,22 @@ export const getAdminFoodAnalytics = async (req: Request, res: Response) => {
       date_to: req.query.date_to,
     });
 
-    const [topViewed, totalViewsAgg, topVoted, shares] = await Promise.all([
-      FoodItemAnalyticsSummary.aggregate([
-        { $match: { date: { $gte: window.start, $lte: window.end } } },
+    const [viewsAgg, topVoted, shares] = await Promise.all([
+      FoodItemAnalyticsEvent.aggregate([
         {
-          $group: {
-            _id: '$food_item_id',
-            views: { $sum: '$metrics.views' },
+          $match: {
+            event_type: 'item_view',
+            timestamp: { $gte: window.start, $lte: window.end },
           },
         },
-        { $sort: { views: -1 } },
-        { $limit: 10 },
-      ]),
-      FoodItemAnalyticsSummary.aggregate([
-        { $match: { date: { $gte: window.start, $lte: window.end } } },
         {
-          $group: {
-            _id: null,
-            totalViews: { $sum: '$metrics.views' },
+          $facet: {
+            topViewed: [
+              { $group: { _id: '$food_item_id', views: { $sum: 1 } } },
+              { $sort: { views: -1 } },
+              { $limit: 10 },
+            ],
+            totals: [{ $group: { _id: null, totalViews: { $sum: 1 } } }],
           },
         },
       ]),
@@ -415,6 +413,9 @@ export const getAdminFoodAnalytics = async (req: Request, res: Response) => {
       }),
     ]);
 
+    const topViewed = viewsAgg?.[0]?.topViewed || [];
+    const totalViews = viewsAgg?.[0]?.totals?.[0]?.totalViews || 0;
+
     const topViewedIds = topViewed.map((d: any) => d._id);
     const topVotedIds = topVoted.map((d: any) => d._id);
 
@@ -425,8 +426,6 @@ export const getAdminFoodAnalytics = async (req: Request, res: Response) => {
 
     const viewedNameById = new Map(viewedDocs.map((f: any) => [String(f._id), f.name]));
     const votedNameById = new Map(votedDocs.map((f: any) => [String(f._id), f.name]));
-
-    const totalViews = totalViewsAgg[0]?.totalViews || 0;
 
     return sendSuccess(
       res,
@@ -465,49 +464,64 @@ export const getAdminOutletAnalytics = async (req: Request, res: Response) => {
       date_to: req.query.date_to,
     });
 
-    const [topOutletsAgg, totalsAgg] = await Promise.all([
-      OutletAnalyticsSummary.aggregate([
-        { $match: { date: { $gte: window.start, $lte: window.end } } },
-        {
-          $group: {
-            _id: '$outlet_id',
-            profile_views: { $sum: '$metrics.profile_views' },
-            menu_views: { $sum: '$metrics.menu_views' },
-            outlet_visits: { $sum: '$metrics.outlet_visits' },
+    const outletsAgg = await OutletAnalyticsEvent.aggregate([
+      {
+        $match: {
+          timestamp: { $gte: window.start, $lte: window.end },
+        },
+      },
+      {
+        $group: {
+          _id: { outlet_id: '$outlet_id', event_type: '$event_type' },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.outlet_id',
+          profile_views: {
+            $sum: {
+              $cond: [{ $eq: ['$_id.event_type', 'profile_view'] }, '$count', 0],
+            },
+          },
+          menu_views: {
+            $sum: {
+              $cond: [{ $eq: ['$_id.event_type', 'menu_view'] }, '$count', 0],
+            },
+          },
+          outlet_visits: {
+            $sum: {
+              $cond: [{ $eq: ['$_id.event_type', 'outlet_visit'] }, '$count', 0],
+            },
           },
         },
-        {
-          $addFields: {
-            total_views: { $add: ['$profile_views', '$menu_views'] },
-          },
+      },
+      {
+        $addFields: {
+          total_views: { $add: ['$profile_views', '$menu_views'] },
         },
-        { $sort: { total_views: -1 } },
-        { $limit: 10 },
-      ]),
-      OutletAnalyticsSummary.aggregate([
-        { $match: { date: { $gte: window.start, $lte: window.end } } },
-        {
-          $group: {
-            _id: null,
-            totalProfileViews: { $sum: '$metrics.profile_views' },
-            totalMenuViews: { $sum: '$metrics.menu_views' },
-            totalOutletVisits: { $sum: '$metrics.outlet_visits' },
-            uniqueOutlets: { $addToSet: '$outlet_id' },
-          },
+      },
+      {
+        $facet: {
+          topOutlets: [{ $sort: { total_views: -1 } }, { $limit: 10 }],
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalProfileViews: { $sum: '$profile_views' },
+                totalMenuViews: { $sum: '$menu_views' },
+                totalOutletVisits: { $sum: '$outlet_visits' },
+                uniqueOutletCount: { $sum: 1 },
+                totalViews: { $sum: '$total_views' },
+              },
+            },
+          ],
         },
-        {
-          $addFields: {
-            uniqueOutletCount: { $size: '$uniqueOutlets' },
-            totalViews: { $add: ['$totalProfileViews', '$totalMenuViews'] },
-          },
-        },
-        {
-          $project: {
-            uniqueOutlets: 0,
-          },
-        },
-      ]),
+      },
     ]);
+
+    const topOutletsAgg = outletsAgg?.[0]?.topOutlets || [];
+    const totalsAgg = outletsAgg?.[0]?.totals || [];
 
     const outletIds = topOutletsAgg.map((d: any) => d._id);
     const outletDocs = await Outlet.find({ _id: { $in: outletIds } }, { name: 1 }).lean();
