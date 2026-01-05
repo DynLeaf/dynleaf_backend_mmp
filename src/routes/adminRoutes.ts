@@ -13,6 +13,7 @@ import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
+import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
 
 const router = express.Router();
 
@@ -1195,5 +1196,17 @@ router.get("/promotions/:id/analytics", adminAuth, promotionController.getPromot
 
 // Outlet analytics
 router.get("/outlets/:id/analytics", adminAuth, outletAnalyticsController.getOutletAnalytics);
+
+// ============================================
+// Admin Analytics Overview (Lightweight)
+// ============================================
+router.get('/analytics/overview', adminAuth, adminAnalyticsController.getAdminAnalyticsOverview);
+router.get('/analytics/food', adminAuth, adminAnalyticsController.getAdminFoodAnalytics);
+router.get('/analytics/outlets', adminAuth, adminAnalyticsController.getAdminOutletAnalytics);
+router.get('/analytics/promotions', adminAuth, adminAnalyticsController.getAdminPromotionsAnalytics);
+router.get('/analytics/users', adminAuth, adminAnalyticsController.getAdminUsersAnalytics);
+router.get('/analytics/growth', adminAuth, adminAnalyticsController.getAdminGrowthAnalytics);
+router.get('/analytics/engagement', adminAuth, adminAnalyticsController.getAdminEngagementAnalytics);
+router.get('/analytics/discovery', adminAuth, adminAnalyticsController.getAdminDiscoveryAnalytics);
 
 export default router;
