@@ -38,6 +38,5 @@ const storyMetricsSchema = new Schema<IStoryMetrics>({
 }, { timestamps: true });
 
 storyMetricsSchema.index({ outletId: 1 });
-storyMetricsSchema.index({ storyId: 1 });
 
 export const StoryMetrics = mongoose.model<IStoryMetrics>('StoryMetrics', storyMetricsSchema);

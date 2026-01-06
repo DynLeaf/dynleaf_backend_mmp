@@ -67,9 +67,9 @@ export const getOutletSubscriptionSummary = async (
 
   // Two-tier system: analytics/offers are Premium only.
   // Keep `free_tier` in the response for backward compatibility, but it never grants access.
-  const freeTierEligible = false;
-  const freeTierEndsAt: Date | null = null;
-  const freeTierDaysRemaining: number | null = null;
+  let freeTierEligible: boolean = false;
+  let freeTierEndsAt: Date | null = null;
+  let freeTierDaysRemaining: number | null = null;
 
   const entitlements = {
     analytics: isPremium && (subscription.status === 'active' || subscription.status === 'trial') && hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.ADVANCED_ANALYTICS),
@@ -90,7 +90,7 @@ export const getOutletSubscriptionSummary = async (
     entitlements,
     free_tier: {
       eligible: freeTierEligible,
-      ends_at: freeTierEndsAt ? freeTierEndsAt.toISOString() : null,
+      ends_at: (freeTierEndsAt as Date | null)?.toISOString() ?? null,
       days_remaining: freeTierDaysRemaining
     },
     had_paid_plan_before: Boolean(hadPaidPlanBefore)

@@ -24,7 +24,7 @@
     "migrate:outlet-centric": "tsx src/scripts/migrateToOutletCentric.ts",
     "backfill:subscriptions": "tsx src/scripts/backfillOutletSubscriptions.ts",
     "set:outlet-subscription": "tsx src/scripts/setOutletSubscription.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

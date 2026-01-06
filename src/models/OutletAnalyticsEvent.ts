@@ -51,7 +51,7 @@ const outletAnalyticsEventSchema = new Schema<IOutletAnalyticsEvent>(
     country: { type: String },
     ip_address: { type: String },
 
-    timestamp: { type: Date, default: Date.now, index: true },
+    timestamp: { type: Date, default: Date.now },
   },
   {
     timestamps: false,

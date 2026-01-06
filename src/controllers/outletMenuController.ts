@@ -4,6 +4,7 @@ import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
 import { Combo } from '../models/Combo.js';
+import { OutletMenuItem } from '../models/OutletMenuItem.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 /**
@@ -365,11 +366,13 @@ export const reorderOutletMenu = async (req: AuthRequest, res: Response) => {
     }
 
     // Bulk update
+    const outletObjectId = new mongoose.Types.ObjectId(outletId);
+
     const bulkOps = items.map((item: any) => ({
       updateOne: {
         filter: {
           _id: item.menu_item_id,
-          outlet_id: outletId
+          outlet_id: outletObjectId
         },
         update: {
           $set: { display_order: item.display_order }

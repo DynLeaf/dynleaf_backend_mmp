@@ -4,6 +4,8 @@ export interface IOutlet extends Document {
     brand_id: mongoose.Types.ObjectId;
     franchise_id?: mongoose.Types.ObjectId;
     created_by_user_id: mongoose.Types.ObjectId;
+    created_at?: Date;
+    updated_at?: Date;
     name: string;
     slug: string;
     status: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'REJECTED' | 'ARCHIVED';
@@ -162,7 +164,6 @@ outletSchema.index({ status: 1, approval_status: 1 });
 outletSchema.index({ brand_id: 1, status: 1, approval_status: 1 });
 outletSchema.index({ price_range: 1, avg_rating: -1 });
 outletSchema.index({ 'flags.is_featured': 1 }); // Featured outlets (removed duplicate 2dsphere)
-outletSchema.index({ slug: 1 }, { unique: true });
 outletSchema.index({ created_by_user_id: 1 });
 outletSchema.index({ subscription_id: 1 });
 

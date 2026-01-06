@@ -10,6 +10,7 @@ const ensureDirectories = () => {
         UPLOAD_DIR,
         path.join(UPLOAD_DIR, 'brands'),
         path.join(UPLOAD_DIR, 'outlets'),
+        path.join(UPLOAD_DIR, 'avatars'),
         path.join(UPLOAD_DIR, 'gallery'),
         path.join(UPLOAD_DIR, 'gallery', 'interior'),
         path.join(UPLOAD_DIR, 'gallery', 'exterior'),
@@ -39,7 +40,7 @@ export interface UploadResult {
  */
 export const saveBase64Image = async (
     base64Data: string,
-    folder: 'brands' | 'outlets' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food'| 'menu' | 'temp' | 'stories',
+    folder: 'brands' | 'outlets' | 'avatars' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food'| 'menu' | 'temp' | 'stories',
     customName?: string
 ): Promise<UploadResult> => {
     try {

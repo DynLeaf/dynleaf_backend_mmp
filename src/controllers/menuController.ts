@@ -11,7 +11,7 @@ import { sendSuccess, sendError } from '../utils/response.js';
 const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: number }>, discountPercentage: number) => {
     const foodItemIds = items.map(i => i.foodItemId);
     const foodItems = await FoodItem.find({ _id: { $in: foodItemIds } });
-    const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.base_price]));
+    const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
 
     const originalPrice = items.reduce((sum, i) => {
         const basePrice = priceById.get(i.foodItemId) ?? 0;
@@ -125,7 +125,8 @@ export const createFoodItem = async (req: Request, res: Response) => {
             };
         }
 
-        const foodItem = await FoodItem.create(foodItemData);
+        // Avoid `Model.create()` overload ambiguity when the input is typed `any`.
+        const foodItem = await new FoodItem(foodItemData).save();
 
         
         return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.price, isActive: foodItem.is_active }, null, 201);
@@ -220,7 +221,7 @@ export const updateFoodItem = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
         const item = await FoodItem.findByIdAndUpdate(foodItemId, req.body, { new: true });
-        return sendSuccess(res, { id: item?._id, name: item?.name, isVeg: item?.is_veg, basePrice: item?.base_price, isActive: item?.is_active });
+        return sendSuccess(res, { id: item?._id, name: item?.name, isVeg: item?.is_veg, basePrice: item?.price, isActive: item?.is_active });
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -434,8 +435,13 @@ export const createAddOn = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { name, price, category, isActive } = req.body;
 
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
+        }
+
         const addOn = await AddOn.create({
-            brand_id: brandId,
+            outlet_id: outlet._id,
             name,
             price,
             category,
@@ -457,7 +463,13 @@ export const createAddOn = async (req: Request, res: Response) => {
 export const listAddOns = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const addOns = await AddOn.find({ brand_id: brandId });
+
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendSuccess(res, []);
+        }
+
+        const addOns = await AddOn.find({ outlet_id: outlet._id });
 
         return sendSuccess(res, addOns.map(a => ({
             id: a._id,
@@ -519,8 +531,13 @@ export const createCombo = async (req: Request, res: Response) => {
         const { originalPrice, discountedPrice } = await computeComboPricing(normalizedItems, discountPercentage);
         const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
 
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
+        }
+
         const combo = await Combo.create({
-            brand_id: brandId,
+            outlet_id: outlet._id,
             name,
             description,
             image_url: imageUrl,
@@ -555,7 +572,13 @@ export const createCombo = async (req: Request, res: Response) => {
 export const listCombos = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const combos = await Combo.find({ brand_id: brandId });
+
+        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
+        if (!outlet) {
+            return sendSuccess(res, []);
+        }
+
+        const combos = await Combo.find({ outlet_id: outlet._id });
 
         return sendSuccess(res, combos.map(c => ({
             id: c._id,
@@ -768,39 +791,38 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             return sendSuccess(res, { dishes: [], metadata: { nearbyOutletsCount: 0, message: 'No outlets found within the search radius' } });
         }
 
-        // Step 2: Extract unique brand IDs
-        const brandIds = [...new Set(nearbyOutlets.map((outlet: any) => outlet.brand_id))];
-        console.log(`🏢 Found ${brandIds.length} unique brands`);
+        // Step 2: Extract unique outlet IDs
+        const outletIds = [...new Set(nearbyOutlets.map((outlet: any) => outlet._id.toString()))];
+        console.log(`🏪 Found ${outletIds.length} unique outlets`);
 
-        // Step 3: Fetch food items from those brands
-        const foodItems = await FoodItem.find({ 
-            brand_id: { $in: brandIds },
-            is_active: true 
+        // Step 3: Fetch food items from those outlets
+        const foodItems = await FoodItem.find({
+            outlet_id: { $in: outletIds },
+            is_active: true
         })
-        .populate('brand_id', 'name logo_url')
-        .populate('category_id', 'name')
-        .sort({ created_at: -1 }) // Sort by newest first
-        .limit(limitNum)
-        .lean();
+            .populate('category_id', 'name')
+            .sort({ created_at: -1 })
+            .limit(limitNum)
+            .lean();
 
         console.log(`🍽️ Found ${foodItems.length} food items`);
 
         // Step 4: Format response with outlet information
-        const formattedItems = foodItems.map(item => {
-            const outlet = nearbyOutlets.find((o: any) => o.brand_id.toString() === (item.brand_id as any)._id.toString());
+        const formattedItems = foodItems.map((item: any) => {
+            const outlet = nearbyOutlets.find((o: any) => o._id.toString() === item.outlet_id.toString());
             
             return {
                 id: item._id,
                 name: item.name,
                 description: item.description,
                 image: item.image_url,
-                price: item.base_price,
+                price: item.price,
                 isVeg: item.is_veg,
                 rating: 4.5, // Placeholder - calculate from reviews
                 restaurant: {
-                    id: (item.brand_id as any)?._id,
-                    name: (item.brand_id as any)?.name,
-                    logo: (item.brand_id as any)?.logo_url
+                    id: outlet?.brand?._id,
+                    name: outlet?.brand?.name,
+                    logo: outlet?.brand?.logo_url
                 },
                 outlet: outlet ? {
                     id: outlet._id,
@@ -815,7 +837,7 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             dishes: formattedItems,
             metadata: {
                 nearbyOutletsCount: nearbyOutlets.length,
-                brandsCount: brandIds.length,
+                brandsCount: outletIds.length,
                 searchRadius: radiusNum
             }
         });

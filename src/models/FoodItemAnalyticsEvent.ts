@@ -80,7 +80,7 @@ const foodItemAnalyticsEventSchema = new Schema<IFoodItemAnalyticsEvent>(
     user_id: { type: Schema.Types.ObjectId, ref: 'User', index: true },
     ip_address: { type: String },
 
-    timestamp: { type: Date, default: Date.now, index: true },
+    timestamp: { type: Date, default: Date.now },
   },
   {
     timestamps: false,

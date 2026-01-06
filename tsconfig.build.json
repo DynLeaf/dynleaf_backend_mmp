@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "src/**/__tests__/**",
+    "src/**/*.test.ts",
+    "src/scripts/**",
+    "src/utils/__tests__/**",
+    "src/utils/seed.ts",
+    "src/utils/test-api.ts"
+  ]
+}

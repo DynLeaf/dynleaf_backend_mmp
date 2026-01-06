@@ -73,7 +73,7 @@ export const createPromotion = async (req: Request, res: Response) => {
 
         return sendSuccess(res, {
             promotion: populatedPromotion
-        }, 201);
+        }, null, 201);
     } catch (error: any) {
         console.error('Create promotion error:', error);
         return sendError(res, error.message || 'Failed to create promotion');
