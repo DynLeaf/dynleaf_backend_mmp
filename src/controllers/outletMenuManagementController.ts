@@ -13,6 +13,85 @@ import { sendSuccess, sendError } from '../utils/response.js';
  * All operations are scoped to a specific outlet
  */
 
+type ImportDuplicateStrategy = 'skip' | 'update' | 'create';
+
+const normalizeString = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    return String(value).trim();
+};
+
+const parseBoolean = (value: any, defaultValue: boolean): boolean => {
+    if (value === undefined || value === null) return defaultValue;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+        const v = value.toLowerCase().trim();
+        if (['true', '1', 'yes', 'y'].includes(v)) return true;
+        if (['false', '0', 'no', 'n'].includes(v)) return false;
+    }
+    return defaultValue;
+};
+
+const parsePriceNumber = (value: any): number | null => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'string') {
+        const cleaned = value.replace(/[^0-9.-]/g, '');
+        const parsed = parseFloat(cleaned);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+};
+
+const normalizeTags = (value: any): string[] => {
+    if (Array.isArray(value)) {
+        return value.map(v => normalizeString(v)).filter(Boolean);
+    }
+    if (typeof value === 'string') {
+        return value
+            .split(/[,;|]/)
+            .map(v => v.trim())
+            .filter(Boolean);
+    }
+    return [];
+};
+
+const normalizeVariants = (value: any): { size: string; price: number }[] | undefined => {
+    if (value === undefined || value === null) return undefined;
+    if (!Array.isArray(value)) return undefined;
+
+    const variants: { size: string; price: number }[] = [];
+    for (const v of value) {
+        const rawSize = (v as any)?.size ?? (v as any)?.name;
+        const size = normalizeString(rawSize);
+        const price = parsePriceNumber((v as any)?.price);
+        if (!size) return undefined;
+        if (price === null || price < 0) return undefined;
+        variants.push({ size, price });
+    }
+    return variants;
+};
+
+const generateUniqueCategorySlugForOutlet = async (outletId: string, name: string, excludeId?: string) => {
+    const baseSlug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    let slug = baseSlug;
+    let counter = 1;
+    while (
+        await Category.findOne({
+            outlet_id: outletId,
+            slug,
+            ...(excludeId ? { _id: { $ne: excludeId } } : {})
+        })
+    ) {
+        slug = `${baseSlug}-${counter}`;
+        counter++;
+    }
+    return slug;
+};
+
 // ==================== CATEGORIES ====================
 
 export const createCategoryForOutlet = async (req: Request, res: Response) => {
@@ -571,6 +650,337 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             allergens: item?.allergens,
             isFeatured: item?.is_featured,
             discountPercentage: item?.discount_percentage
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+// ==================== IMPORT / EXPORT / SYNC ====================
+
+export const importMenuForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+
+        const body: any = req.body || {};
+        const items: any[] = Array.isArray(body.items) ? body.items : Array.isArray(body) ? body : [];
+        if (!Array.isArray(items) || items.length === 0) {
+            return sendError(res, 'No items provided for import', null, 400);
+        }
+
+        const options = body.options || {};
+        const dryRun = parseBoolean(options.dryRun, false);
+        const createMissingCategories = parseBoolean(options.createMissingCategories, true);
+        const onDuplicate: ImportDuplicateStrategy =
+            options.onDuplicate === 'update' || options.onDuplicate === 'create' || options.onDuplicate === 'skip'
+                ? options.onDuplicate
+                : 'skip';
+
+        // Preload categories for name->id lookup
+        const existingCategories = await Category.find({ outlet_id: outletId });
+        const categoryIdByName = new Map<string, string>();
+        for (const c of existingCategories) {
+            categoryIdByName.set(normalizeString(c.name).toLowerCase(), String(c._id));
+        }
+
+        // Preload existing items for duplicate detection
+        const existingItems = await FoodItem.find({ outlet_id: outletId }).select('_id name price');
+        const existingByKey = new Map<string, string>();
+        for (const i of existingItems) {
+            const key = `${normalizeString(i.name).toLowerCase()}|${Number(i.price).toFixed(2)}`;
+            existingByKey.set(key, String(i._id));
+        }
+
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
+        const errors: Array<{ index: number; name?: string; message: string }> = [];
+        const results: Array<{ index: number; status: 'created' | 'updated' | 'skipped' | 'failed'; id?: string; name?: string }> = [];
+
+        for (let index = 0; index < items.length; index++) {
+            const item = items[index];
+            const name = normalizeString(item?.name);
+
+            try {
+                if (!item || typeof item !== 'object') {
+                    throw new Error('Invalid item payload');
+                }
+
+                if (parseBoolean(item.isCombo, false)) {
+                    throw new Error('Combo import is not supported in this endpoint');
+                }
+
+                if (!name) {
+                    throw new Error('Name is required');
+                }
+
+                const price = parsePriceNumber(item.price);
+                if (price === null || price < 0) {
+                    throw new Error('Valid price is required');
+                }
+
+                // Resolve categoryId
+                let categoryId: string | undefined = item.categoryId ? String(item.categoryId) : undefined;
+                const categoryName = normalizeString(item.category);
+
+                if (categoryId) {
+                    const foundCategory = await Category.findOne({ _id: categoryId, outlet_id: outletId }).select('_id');
+                    if (!foundCategory) {
+                        throw new Error('categoryId does not belong to this outlet');
+                    }
+                } else if (categoryName) {
+                    const key = categoryName.toLowerCase();
+                    const existingId = categoryIdByName.get(key);
+                    if (existingId) {
+                        categoryId = existingId;
+                    } else if (createMissingCategories) {
+                        const slug = await generateUniqueCategorySlugForOutlet(outletId, categoryName);
+                        if (!dryRun) {
+                            const createdCategory = await Category.create({
+                                outlet_id: outletId,
+                                name: categoryName,
+                                slug,
+                                description: 'Imported category',
+                                is_active: true
+                            });
+                            categoryId = String(createdCategory._id);
+                            categoryIdByName.set(key, categoryId);
+                        } else {
+                            // Dry-run: pretend category will exist
+                            categoryId = 'dry-run-category';
+                        }
+                    } else {
+                        throw new Error('Category not found');
+                    }
+                } else {
+                    throw new Error('Category is required');
+                }
+
+                const key = `${name.toLowerCase()}|${price.toFixed(2)}`;
+                const duplicateId = existingByKey.get(key);
+
+                // Determine operation
+                const explicitUpdateId = item.updateId ? String(item.updateId) : undefined;
+                const isUpdate = parseBoolean(item.isUpdate, false);
+
+                let operation: 'create' | 'update' | 'skip' = 'create';
+                let targetId: string | undefined;
+
+                if (isUpdate && explicitUpdateId) {
+                    operation = 'update';
+                    targetId = explicitUpdateId;
+                } else if (duplicateId) {
+                    if (onDuplicate === 'skip') {
+                        operation = 'skip';
+                    } else if (onDuplicate === 'update') {
+                        operation = 'update';
+                        targetId = duplicateId;
+                    } else {
+                        operation = 'create';
+                    }
+                }
+
+                if (operation === 'skip') {
+                    skipped++;
+                    results.push({ index, status: 'skipped', name });
+                    continue;
+                }
+
+                const itemType = item.itemType === 'beverage' ? 'beverage' : 'food';
+                const isVeg = parseBoolean(item.isVeg, true);
+                const isActive = parseBoolean(item.isActive, true);
+                const isAvailable = parseBoolean(item.isAvailable, isActive);
+
+                const variants = normalizeVariants(item.variants);
+                if (item.variants !== undefined && item.variants !== null && variants === undefined) {
+                    throw new Error('Invalid variants');
+                }
+
+                const payload: any = {
+                    name,
+                    description: normalizeString(item.description) || undefined,
+                    category_id: categoryId === 'dry-run-category' ? undefined : new mongoose.Types.ObjectId(categoryId),
+                    item_type: itemType,
+                    is_veg: isVeg,
+                    food_type: isVeg ? 'veg' : 'non-veg',
+                    price,
+                    tax_percentage: item.taxPercentage !== undefined ? Number(item.taxPercentage) : undefined,
+                    image_url: normalizeString(item.imageUrl || item.image) || undefined,
+                    is_active: isActive,
+                    is_available: isAvailable,
+                    tags: normalizeTags(item.tags),
+                    addon_ids: Array.isArray(item.addonIds)
+                        ? item.addonIds.map((a: any) => new mongoose.Types.ObjectId(String(a)))
+                        : [],
+                    variants: variants ?? []
+                };
+
+                // Copy location from outlet (same as createFoodItemForOutlet)
+                if (outlet.location && outlet.location.coordinates && outlet.location.coordinates.length === 2) {
+                    payload.location = { type: 'Point', coordinates: outlet.location.coordinates };
+                }
+
+                if (dryRun) {
+                    if (operation === 'update') updated++;
+                    else created++;
+                    results.push({ index, status: operation === 'update' ? 'updated' : 'created', id: targetId, name });
+                    continue;
+                }
+
+                if (operation === 'update') {
+                    if (!targetId) throw new Error('Missing update target id');
+                    const updatedDoc = await FoodItem.findOneAndUpdate(
+                        { _id: targetId, outlet_id: outletId },
+                        payload,
+                        { new: true }
+                    );
+                    if (!updatedDoc) throw new Error('Food item not found for update');
+                    updated++;
+                    results.push({ index, status: 'updated', id: String(updatedDoc._id), name });
+                } else {
+                    const createdDoc = await new FoodItem({
+                        ...payload,
+                        outlet_id: outletId
+                    }).save();
+                    created++;
+                    const createdKey = `${name.toLowerCase()}|${price.toFixed(2)}`;
+                    existingByKey.set(createdKey, String(createdDoc._id));
+                    results.push({ index, status: 'created', id: String(createdDoc._id), name });
+                }
+            } catch (e: any) {
+                failed++;
+                errors.push({ index, name: name || undefined, message: e?.message || 'Unknown error' });
+                results.push({ index, status: 'failed', name: name || undefined });
+            }
+        }
+
+        return sendSuccess(res, {
+            outletId,
+            dryRun,
+            total: items.length,
+            created,
+            updated,
+            skipped,
+            failed,
+            errors,
+            results
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const exportMenuForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        const outlet = await Outlet.findById(outletId).select('_id');
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+
+        const [categories, items, addons, combos] = await Promise.all([
+            Category.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 }),
+            FoodItem.find({ outlet_id: outletId }).sort({ created_at: -1 }),
+            AddOn.find({ outlet_id: outletId }).sort({ created_at: -1 }),
+            Combo.find({ outlet_id: outletId }).sort({ created_at: -1 })
+        ]);
+
+        const categoryNameById = new Map<string, string>();
+        categories.forEach((c: any) => categoryNameById.set(String(c._id), c.name));
+
+        return sendSuccess(res, {
+            outletId,
+            exportedAt: new Date().toISOString(),
+            categories: categories.map((c: any) => ({
+                id: String(c._id),
+                name: c.name,
+                slug: c.slug,
+                description: c.description,
+                imageUrl: c.image_url,
+                sortOrder: c.display_order,
+                isActive: c.is_active
+            })),
+            items: items.map((i: any) => ({
+                id: String(i._id),
+                categoryId: i.category_id ? String(i.category_id) : null,
+                category: i.category_id ? categoryNameById.get(String(i.category_id)) || '' : '',
+                addonIds: Array.isArray(i.addon_ids) ? i.addon_ids.map((a: any) => String(a)) : [],
+                name: i.name,
+                description: i.description,
+                itemType: i.item_type,
+                isVeg: i.is_veg,
+                price: i.price,
+                taxPercentage: i.tax_percentage,
+                imageUrl: i.image_url,
+                isActive: i.is_active,
+                isAvailable: i.is_available,
+                tags: i.tags || [],
+                variants: Array.isArray(i.variants) ? i.variants.map((v: any) => ({ size: v.size, price: v.price })) : []
+            })),
+            addons: addons.map((a: any) => ({
+                id: String(a._id),
+                name: a.name,
+                price: a.price,
+                category: a.category,
+                isActive: a.is_active
+            })),
+            combos: combos.map((c: any) => ({
+                id: String(c._id),
+                name: c.name,
+                description: c.description,
+                imageUrl: c.image_url,
+                items: c.items,
+                discountPercentage: c.discount_percentage,
+                originalPrice: c.original_price,
+                price: c.price,
+                manualPriceOverride: c.manual_price_override,
+                isActive: c.is_active
+            }))
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getMenuSyncStatusForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        const outlet = await Outlet.findById(outletId).select('_id');
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+
+        const [lastItem, lastCategory, lastAddon, lastCombo] = await Promise.all([
+            FoodItem.findOne({ outlet_id: outletId }).sort({ updated_at: -1 }).select('updated_at'),
+            Category.findOne({ outlet_id: outletId }).sort({ updated_at: -1 }).select('updated_at'),
+            AddOn.findOne({ outlet_id: outletId }).sort({ updated_at: -1 }).select('updated_at'),
+            Combo.findOne({ outlet_id: outletId }).sort({ updated_at: -1 }).select('updated_at')
+        ]);
+
+        const candidates: Date[] = [];
+        const toDate = (d: any) => (d ? new Date(d) : null);
+        const d1 = toDate((lastItem as any)?.updated_at);
+        const d2 = toDate((lastCategory as any)?.updated_at);
+        const d3 = toDate((lastAddon as any)?.updated_at);
+        const d4 = toDate((lastCombo as any)?.updated_at);
+        if (d1) candidates.push(d1);
+        if (d2) candidates.push(d2);
+        if (d3) candidates.push(d3);
+        if (d4) candidates.push(d4);
+
+        const lastUpdatedAt = candidates.length > 0 ? new Date(Math.max(...candidates.map(d => d.getTime()))) : null;
+
+        return sendSuccess(res, {
+            outletId,
+            lastUpdatedAt: lastUpdatedAt ? lastUpdatedAt.toISOString() : null
         });
     } catch (error: any) {
         return sendError(res, error.message);

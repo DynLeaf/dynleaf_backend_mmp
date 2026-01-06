@@ -19,7 +19,10 @@ import {
     createComboForOutlet,
     listCombosForOutlet,
     updateComboForOutlet,
-    deleteComboForOutlet
+    deleteComboForOutlet,
+    importMenuForOutlet,
+    exportMenuForOutlet,
+    getMenuSyncStatusForOutlet
 } from '../controllers/outletMenuManagementController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -39,6 +42,11 @@ router.delete('/:outletId/categories/:categoryId', protect, deleteCategoryForOut
 // Food Items
 router.post('/:outletId/food-items', protect, createFoodItemForOutlet);
 router.get('/:outletId/food-items', listFoodItemsForOutlet);
+
+// Import/Export (batch)
+router.post('/:outletId/menu/import', protect, importMenuForOutlet);
+router.get('/:outletId/menu/export', protect, exportMenuForOutlet);
+router.get('/:outletId/menu/sync-status', protect, getMenuSyncStatusForOutlet);
 
 // Bulk Operations (MUST be before parameterized routes)
 router.patch('/:outletId/food-items/bulk-update', protect, bulkUpdateFoodItemsForOutlet);
