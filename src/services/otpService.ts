@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { getRedisClient } from '../config/redis.js';
+import { normalizePhoneE164, sendOtpSms } from './smsService.js';
 
 const OTP_EXPIRY = parseInt(process.env.OTP_EXPIRY || '300');
 const OTP_MAX_ATTEMPTS = parseInt(process.env.OTP_MAX_ATTEMPTS || '3');
@@ -12,6 +13,7 @@ export const generateOTP = (): string => {
 };
 
 export const sendOTP = async (phone: string): Promise<{ success: boolean; expiresIn: number }> => {
+    const normalizedPhone = normalizePhoneE164(phone);
     const otp = generateOTP();
     const otpHash = await bcrypt.hash(otp, 10);
     
@@ -21,12 +23,10 @@ export const sendOTP = async (phone: string): Promise<{ success: boolean; expire
         throw new Error('Redis connection required for OTP service');
     }
 
-    await redis.setex(`otp:${phone}`, OTP_EXPIRY, otpHash);
-    await redis.setex(`otp:attempts:${phone}`, OTP_EXPIRY, '0');
+    await redis.setex(`otp:${normalizedPhone}`, OTP_EXPIRY, otpHash);
+    await redis.setex(`otp:attempts:${normalizedPhone}`, OTP_EXPIRY, '0');
 
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`📱 OTP for ${phone}: ${otp}`);
-    }
+    await sendOtpSms(normalizedPhone, otp);
 
     return { success: true, expiresIn: OTP_EXPIRY };
 };
@@ -36,34 +36,36 @@ export const verifyOTP = async (phone: string, otp: string): Promise<boolean> =>
         return true;
     }
 
+    const normalizedPhone = normalizePhoneE164(phone);
+
     const redis = getRedisClient();
     
     if (!redis) {
         throw new Error('Redis connection required for OTP service');
     }
 
-    const storedHash = await redis.get(`otp:${phone}`);
-    const attempts = parseInt(await redis.get(`otp:attempts:${phone}`) || '0');
+    const storedHash = await redis.get(`otp:${normalizedPhone}`);
+    const attempts = parseInt(await redis.get(`otp:attempts:${normalizedPhone}`) || '0');
 
     if (!storedHash) {
         throw new Error('OTP expired or not found');
     }
 
     if (attempts >= OTP_MAX_ATTEMPTS) {
-        await redis.del(`otp:${phone}`);
-        await redis.del(`otp:attempts:${phone}`);
+        await redis.del(`otp:${normalizedPhone}`);
+        await redis.del(`otp:attempts:${normalizedPhone}`);
         throw new Error('Maximum OTP attempts exceeded');
     }
 
     const isValid = await bcrypt.compare(otp, storedHash);
 
     if (!isValid) {
-        await redis.incr(`otp:attempts:${phone}`);
+        await redis.incr(`otp:attempts:${normalizedPhone}`);
         throw new Error('Invalid OTP');
     }
 
-    await redis.del(`otp:${phone}`);
-    await redis.del(`otp:attempts:${phone}`);
+    await redis.del(`otp:${normalizedPhone}`);
+    await redis.del(`otp:attempts:${normalizedPhone}`);
     return true;
 };
 
@@ -71,12 +73,13 @@ export const checkRateLimit = async (phone: string): Promise<{ allowed: boolean;
     const redis = getRedisClient();
     const window = parseInt(process.env.RATE_LIMIT_OTP_WINDOW || '3600');
     const maxAttempts = parseInt(process.env.RATE_LIMIT_OTP_SEND || '5');
+    const normalizedPhone = normalizePhoneE164(phone);
 
     if (!redis) {
         throw new Error('Redis connection required for rate limiting');
     }
 
-    const key = `rate:otp:${phone}`;
+    const key = `rate:otp:${normalizedPhone}`;
     const count = await redis.incr(key);
 
     if (count === 1) {
