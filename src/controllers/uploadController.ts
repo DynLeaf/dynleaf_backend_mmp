@@ -11,7 +11,8 @@ type UploadAssetType =
     | 'gallery_food'
     | 'menu_item'
     | 'story'
-    | 'avatar';
+    | 'avatar'
+    | 'reel_thumbnail';
 
 const assetTypeToFolder: Record<UploadAssetType, string> = {
     brand_logo: 'brands',
@@ -21,7 +22,8 @@ const assetTypeToFolder: Record<UploadAssetType, string> = {
     gallery_food: 'gallery/food',
     menu_item: 'menu',
     story: 'stories',
-    avatar: 'avatars'
+    avatar: 'avatars',
+    reel_thumbnail: 'reels'
 };
 
 const assetTypeToResourceType: Record<UploadAssetType, 'image' | 'auto' | 'video'> = {
@@ -32,7 +34,8 @@ const assetTypeToResourceType: Record<UploadAssetType, 'image' | 'auto' | 'video
     gallery_food: 'image',
     menu_item: 'image',
     story: 'auto',
-    avatar: 'image'
+    avatar: 'image',
+    reel_thumbnail: 'image'
 };
 
 // Cloudinary upload-time transformations to reduce *stored* asset sizes.
@@ -48,7 +51,9 @@ const assetTypeToUploadTransformation: Partial<Record<UploadAssetType, string>> 
     // Avatar typically displayed small; cap harder.
     avatar: 'c_limit,w_512,h_512,q_auto:good,f_auto',
     // Stories can be portrait; only used when the story is an image.
-    story: 'c_limit,w_1080,h_1920,q_auto:good,f_auto'
+    story: 'c_limit,w_1080,h_1920,q_auto:good,f_auto',
+    // Reel thumbnails are displayed in cards; optimize for 16:9 display
+    reel_thumbnail: 'c_limit,w_1280,h_720,q_auto:good,f_auto'
 };
 
 const sha1 = (value: string) => crypto.createHash('sha1').update(value).digest('hex');

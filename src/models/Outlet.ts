@@ -72,6 +72,15 @@ export interface IOutlet extends Document {
         website?: string;
         google_review?: string;
     };
+    instagram_reels?: Array<{
+        id: string;
+        url: string;
+        title?: string;
+        thumbnail?: string;
+        added_at: Date;
+        is_active: boolean;
+        order: number;
+    }>;
     subscription_id?: mongoose.Types.ObjectId;
 }
 
@@ -154,6 +163,25 @@ const outletSchema = new Schema<IOutlet>({
         website: String,
         google_review: String
     },
+    instagram_reels: [{
+        id: { type: String, required: true },
+        url: { 
+            type: String, 
+            required: true,
+            validate: {
+                validator: function(v: string) {
+                    // Validate Instagram Reel URL format
+                    return /^https?:\/\/(www\.)?instagram\.com\/(reel|reels)\/[A-Za-z0-9_-]+\/?(\?.*)?$/.test(v);
+                },
+                message: 'Invalid Instagram Reel URL format'
+            }
+        },
+        title: { type: String, maxlength: 200 },
+        thumbnail: String,
+        added_at: { type: Date, default: Date.now },
+        is_active: { type: Boolean, default: true },
+        order: { type: Number, required: true }
+    }],
     subscription_id: { type: Schema.Types.ObjectId, ref: 'Subscription' }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

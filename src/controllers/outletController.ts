@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import mongoose from 'mongoose';
+import axios from 'axios';
 import { Outlet } from '../models/Outlet.js';
 import { Brand } from '../models/Brand.js';
 import { Compliance } from '../models/Compliance.js';
@@ -895,3 +896,225 @@ export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
         return sendError(res, error.message);
     }
 };
+
+// Add Instagram Reel
+export const addInstagramReel = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { url, title, thumbnail } = req.body;
+
+        // Validate URL format
+        const instagramReelRegex = /^https?:\/\/(www\.)?instagram\.com\/(reel|reels)\/[A-Za-z0-9_-]+\/?(\?.*)?$/;
+        if (!url || !instagramReelRegex.test(url)) {
+            return sendError(res, 'Invalid Instagram Reel URL format', null, 400);
+        }
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Check if user has access to this outlet
+        if (outlet.created_by_user_id.toString() !== req.user?.id && !req.user?.role?.includes('admin')) {
+            return sendError(res, 'Unauthorized', null, 403);
+        }
+
+        // Check limit (max 8 reels)
+        const currentReels = outlet.instagram_reels || [];
+        if (currentReels.length >= 8) {
+            return sendError(res, 'Maximum 8 Instagram Reels allowed', null, 400);
+        }
+
+        // Check for duplicate URLs
+        if (currentReels.some(reel => reel.url === url)) {
+            return sendError(res, 'This reel is already added', null, 400);
+        }
+
+        // Use provided thumbnail or try to fetch from Instagram
+        let thumbnailUrl = thumbnail || '';
+        
+        if (!thumbnailUrl) {
+            // Try to fetch thumbnail from Instagram (may not always work)
+            try {
+                const reelMatch = url.match(/instagram\.com\/(reel|reels)\/([A-Za-z0-9_-]+)/);
+                const reelShortcode = reelMatch ? reelMatch[2] : null;
+                
+                if (reelShortcode) {
+                    thumbnailUrl = `https://www.instagram.com/p/${reelShortcode}/media/?size=l`;
+                    console.log('📸 Using Instagram media URL as thumbnail');
+                }
+            } catch (error) {
+                console.warn('⚠️ Could not generate thumbnail URL');
+            }
+        }
+
+        // Generate unique ID
+        const reelId = new mongoose.Types.ObjectId().toString();
+
+        // Create new reel
+        const newReel = {
+            id: reelId,
+            url: url.trim(),
+            title: title?.trim() || '',
+            thumbnail: thumbnailUrl,
+            added_at: new Date(),
+            is_active: true,
+            order: currentReels.length // Add at the end
+        };
+
+        // Add to outlet
+        outlet.instagram_reels = [...currentReels, newReel];
+        await outlet.save();
+
+        console.log(`🎬 Added Instagram Reel to outlet ${outlet.name}`);
+
+        return sendSuccess(res, {
+            reel: newReel,
+            message: 'Instagram Reel added successfully'
+        });
+    } catch (error: any) {
+        console.error('addInstagramReel error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Delete Instagram Reel
+export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId, reelId } = req.params;
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Check if user has access to this outlet
+        if (outlet.created_by_user_id.toString() !== req.user?.id && !req.user?.role?.includes('admin')) {
+            return sendError(res, 'Unauthorized', null, 403);
+        }
+
+        const currentReels = outlet.instagram_reels || [];
+        const reelIndex = currentReels.findIndex(reel => reel.id === reelId);
+
+        if (reelIndex === -1) {
+            return sendError(res, 'Reel not found', null, 404);
+        }
+
+        // Remove the reel
+        currentReels.splice(reelIndex, 1);
+
+        // Re-order remaining reels
+        currentReels.forEach((reel, index) => {
+            reel.order = index;
+        });
+
+        outlet.instagram_reels = currentReels;
+        await outlet.save();
+
+        console.log(`🗑️ Deleted Instagram Reel from outlet ${outlet.name}`);
+
+        return sendSuccess(res, {
+            message: 'Instagram Reel deleted successfully'
+        });
+    } catch (error: any) {
+        console.error('deleteInstagramReel error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Reorder Instagram Reels
+export const reorderInstagramReels = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { reelIds } = req.body; // Array of reel IDs in new order
+
+        if (!Array.isArray(reelIds)) {
+            return sendError(res, 'reelIds must be an array', null, 400);
+        }
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Check if user has access to this outlet
+        if (outlet.created_by_user_id.toString() !== req.user?.id && !req.user?.role?.includes('admin')) {
+            return sendError(res, 'Unauthorized', null, 403);
+        }
+
+        const currentReels = outlet.instagram_reels || [];
+
+        // Validate that all IDs exist
+        if (reelIds.length !== currentReels.length || !reelIds.every(id => currentReels.some(reel => reel.id === id))) {
+            return sendError(res, 'Invalid reel IDs provided', null, 400);
+        }
+
+        // Reorder reels based on provided IDs
+        const reorderedReels = reelIds.map((id, index) => {
+            const reel = currentReels.find(r => r.id === id)!;
+            return {
+                ...reel,
+                order: index
+            };
+        });
+
+        outlet.instagram_reels = reorderedReels;
+        await outlet.save();
+
+        console.log(`🔄 Reordered Instagram Reels for outlet ${outlet.name}`);
+
+        return sendSuccess(res, {
+            reels: reorderedReels,
+            message: 'Instagram Reels reordered successfully'
+        });
+    } catch (error: any) {
+        console.error('reorderInstagramReels error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Update Instagram Reel (toggle active status or update title)
+export const updateInstagramReel = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId, reelId } = req.params;
+        const { is_active, title } = req.body;
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Check if user has access to this outlet
+        if (outlet.created_by_user_id.toString() !== req.user?.id && !req.user?.role?.includes('admin')) {
+            return sendError(res, 'Unauthorized', null, 403);
+        }
+
+        const currentReels = outlet.instagram_reels || [];
+        const reel = currentReels.find(r => r.id === reelId);
+
+        if (!reel) {
+            return sendError(res, 'Reel not found', null, 404);
+        }
+
+        // Update fields
+        if (typeof is_active === 'boolean') {
+            reel.is_active = is_active;
+        }
+        if (title !== undefined) {
+            reel.title = title.trim();
+        }
+
+        await outlet.save();
+
+        console.log(`✏️ Updated Instagram Reel for outlet ${outlet.name}`);
+
+        return sendSuccess(res, {
+            reel,
+            message: 'Instagram Reel updated successfully'
+        });
+    } catch (error: any) {
+        console.error('updateInstagramReel error:', error);
+        return sendError(res, error.message);
+    }
+};
+

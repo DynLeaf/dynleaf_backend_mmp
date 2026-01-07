@@ -15,7 +15,11 @@ import {
     getBrandOutlets,
     getNearbyOutlets,
     getFeaturedOutlets,
-    toggleFeaturedStatus
+    toggleFeaturedStatus,
+    addInstagramReel,
+    deleteInstagramReel,
+    reorderInstagramReels,
+    updateInstagramReel
 } from '../controllers/outletController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -52,6 +56,12 @@ router.put('/:outletId/operating-hours', protect, updateOperatingHours);
 router.post('/:outletId/photo-gallery', protect, uploadPhotoGallery);
 router.delete('/:outletId/photo-gallery', protect, deletePhotoGallery);
 router.put('/:outletId/social-links', protect, updateSocialLinks);
+
+// Instagram Reels routes
+router.post('/:outletId/reels', protect, addInstagramReel);
+router.delete('/:outletId/reels/:reelId', protect, deleteInstagramReel);
+router.put('/:outletId/reels/reorder', protect, reorderInstagramReels);
+router.patch('/:outletId/reels/:reelId', protect, updateInstagramReel);
 
 router.get('/:outletId/profile/overview', getProfileOverview);
 router.get('/:outletId/profile/about', getProfileAbout);
