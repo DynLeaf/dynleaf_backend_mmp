@@ -57,7 +57,7 @@ const validateMenuExtractionRequest = (body: any): { valid: boolean; error?: str
  */
 export const getServiceHealth = async (req: Request, res: Response): Promise<void> => {
   try {
-    const health = geminiService.getServiceHealth();
+    const health = await geminiService.getServiceHealth();
     
     res.status(200).json({
       success: true,
@@ -160,8 +160,8 @@ export const extractMenuFromImage = async (req: Request, res: Response): Promise
     // Log request (for monitoring)
     console.log('[GeminiController] Menu extraction request received');
 
-    // Call service
-    const result = await geminiService.extractMenuFromImage(imageBase64, { useCache });
+    // Call service (note: caching is handled internally by the service)
+    const result = await geminiService.extractMenuFromImage(imageBase64);
 
     res.status(200).json({
       success: true,
