@@ -9,11 +9,23 @@
  * - Comprehensive error handling
  * - Request queue for large volumes
  * - Monitoring and logging
+ * - Retry logic with exponential backoff
+ * - Request timeouts
+ * - Image validation
  * 
  * @module services/geminiService
  */
 
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const MAX_IMAGE_SIZE_MB = 20; // Gemini API limit
+const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const REQUEST_TIMEOUT_MS = 90000; // 90 seconds
+const MENU_EXTRACTION_TIMEOUT_MS = 120000; // 2 minutes for large menus
 
 // ============================================================================
 // Configuration & Types
@@ -68,6 +80,14 @@ interface CacheEntry<T> {
   data: T;
   timestamp: number;
   ttl: number;
+  expiresAt: number;
+}
+
+interface RetryConfig {
+  maxRetries: number;
+  initialDelayMs: number;
+  maxDelayMs: number;
+  backoffMultiplier: number;
 }
 
 // ============================================================================
@@ -143,61 +163,187 @@ class RateLimiter {
 }
 
 // ============================================================================
-// In-Memory Cache (Consider Redis for production scale)
+// Cache Manager with Proper LRU
 // ============================================================================
 
 class CacheManager {
   private cache: Map<string, CacheEntry<any>>;
+  private accessOrder: string[]; // Track access order for proper LRU
   private readonly maxSize: number;
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(maxSize = 1000) {
     this.cache = new Map();
+    this.accessOrder = [];
     this.maxSize = maxSize;
+    
+    // Cleanup expired entries every 5 minutes
+    this.startCleanupTimer();
   }
 
-  set<T>(key: string, data: T, ttlSeconds: number): void {
-    // Implement LRU eviction if cache is full
-    if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey) {
-        this.cache.delete(firstKey);
+  private startCleanupTimer(): void {
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupExpired();
+    }, 5 * 60 * 1000);
+  }
+
+  private cleanupExpired(): void {
+    const now = Date.now();
+    let removed = 0;
+
+    for (const [key, entry] of this.cache.entries()) {
+      if (now >= entry.expiresAt) {
+        this.cache.delete(key);
+        this.accessOrder = this.accessOrder.filter(k => k !== key);
+        removed++;
       }
     }
 
+    if (removed > 0) {
+      console.log(`[CacheManager] Cleaned up ${removed} expired entries`);
+    }
+  }
+
+  set<T>(key: string, data: T, ttlSeconds: number): void {
+    const now = Date.now();
+    const expiresAt = now + (ttlSeconds * 1000);
+
+    // Implement proper LRU eviction if cache is full
+    if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
+      // Remove least recently used (first in access order)
+      const lruKey = this.accessOrder.shift();
+      if (lruKey) {
+        this.cache.delete(lruKey);
+      }
+    }
+
+    // Update access order
+    this.accessOrder = this.accessOrder.filter(k => k !== key);
+    this.accessOrder.push(key);
+
     this.cache.set(key, {
       data,
-      timestamp: Date.now(),
+      timestamp: now,
       ttl: ttlSeconds * 1000,
+      expiresAt,
     });
   }
 
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);
-    if (!entry) return null;
-
-    // Check if entry has expired
-    if (Date.now() - entry.timestamp > entry.ttl) {
-      this.cache.delete(key);
+    if (!entry) {
       return null;
     }
+
+    // Check expiration
+    if (Date.now() >= entry.expiresAt) {
+      this.cache.delete(key);
+      this.accessOrder = this.accessOrder.filter(k => k !== key);
+      return null;
+    }
+
+    // Update access order (move to end = most recently used)
+    this.accessOrder = this.accessOrder.filter(k => k !== key);
+    this.accessOrder.push(key);
 
     return entry.data as T;
   }
 
   invalidate(key: string): void {
     this.cache.delete(key);
+    this.accessOrder = this.accessOrder.filter(k => k !== key);
   }
 
   clear(): void {
     this.cache.clear();
+    this.accessOrder = [];
+  }
+
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+    this.clear();
   }
 
   getStats() {
+    const now = Date.now();
+    const expired = Array.from(this.cache.values()).filter(e => now >= e.expiresAt).length;
+
     return {
       size: this.cache.size,
       maxSize: this.maxSize,
-      keys: Array.from(this.cache.keys()),
+      expired,
+      active: this.cache.size - expired,
+      oldestKey: this.accessOrder[0],
+      newestKey: this.accessOrder[this.accessOrder.length - 1],
     };
+  }
+}
+
+// ============================================================================
+// Retry Logic with Exponential Backoff
+// ============================================================================
+
+class RetryHelper {
+  constructor(private config: RetryConfig) {}
+
+  async executeWithRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string
+  ): Promise<T> {
+    let lastError: Error | null = null;
+    let delay = this.config.initialDelayMs;
+
+    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[RetryHelper] Retry attempt ${attempt}/${this.config.maxRetries} for ${operationName}`);
+          await this.sleep(delay);
+          delay = Math.min(delay * this.config.backoffMultiplier, this.config.maxDelayMs);
+        }
+
+        return await operation();
+
+      } catch (error) {
+        lastError = error as Error;
+        
+        // Don't retry on certain errors
+        if (this.isNonRetryableError(error)) {
+          console.log(`[RetryHelper] Non-retryable error for ${operationName}: ${lastError.message}`);
+          throw error;
+        }
+
+        if (attempt === this.config.maxRetries) {
+          console.error(`[RetryHelper] All ${this.config.maxRetries} retries failed for ${operationName}`);
+          throw lastError;
+        }
+      }
+    }
+
+    throw lastError || new Error('Retry failed');
+  }
+
+  private isNonRetryableError(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    
+    // Don't retry validation errors, auth errors, or rate limits
+    return (
+      message.includes('rate limit') ||
+      message.includes('quota') ||
+      message.includes('invalid') ||
+      message.includes('unauthorized') ||
+      message.includes('forbidden') ||
+      error?.status === 400 ||
+      error?.status === 401 ||
+      error?.status === 403 ||
+      error?.status === 429
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
@@ -210,492 +356,352 @@ class GeminiService {
   private isInitialized = false;
   private rateLimiter: RateLimiter;
   private cache: CacheManager;
-  private readonly apiKey: string;
-
-  // Models for different use cases
-  private readonly MODELS = {
-    FAST: 'gemini-2.0-flash-exp', // Fast responses for menu extraction
-    QUALITY: 'gemini-2.5-flash',  // Balanced for insights
-  } as const;
+  private retryHelper: RetryHelper;
 
   constructor() {
-    // Load API key from environment - NEVER from client
-    this.apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || '';
-
-    if (!this.apiKey) {
-      console.error('[GeminiService] ❌ GEMINI_API_KEY not configured in environment variables');
-    }
-
-    // Configure rate limits (adjust based on your GCP quota)
+    // Initialize rate limiter with tiered limits
     this.rateLimiter = new RateLimiter({
-      requestsPerMinute: 60,   // Conservative limit
-      requestsPerHour: 1000,   // Adjust based on quota
-      requestsPerDay: 10000,   // Adjust based on quota
+      requestsPerMinute: 60,
+      requestsPerHour: 1000,
+      requestsPerDay: 10000,
     });
 
     // Initialize cache
     this.cache = new CacheManager(1000);
 
+    // Initialize retry helper
+    this.retryHelper = new RetryHelper({
+      maxRetries: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+      backoffMultiplier: 2,
+    });
+
+    // Auto-initialize with API key from environment
     this.initialize();
   }
 
+  /**
+   * Initialize the Gemini client with API key
+   */
   private initialize(): void {
-    if (!this.apiKey) {
-      console.error('[GeminiService] Cannot initialize: API key missing');
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      console.warn('[GeminiService] GEMINI_API_KEY not found in environment');
       this.isInitialized = false;
       return;
     }
 
     try {
-      this.client = new GoogleGenerativeAI(this.apiKey);
+      this.client = new GoogleGenerativeAI(apiKey);
       this.isInitialized = true;
-      console.log('[GeminiService] ✓ Initialized successfully');
+      console.log('[GeminiService] Successfully initialized');
     } catch (error) {
       console.error('[GeminiService] Initialization failed:', error);
       this.isInitialized = false;
     }
   }
 
-  private async checkRateLimit(): Promise<void> {
-    const result = await this.rateLimiter.checkLimit();
-    if (!result.allowed) {
-      throw new Error(`Rate limit exceeded. Retry after ${result.retryAfter} seconds`);
+  /**
+   * Get generative model with specified configuration
+   */
+  private getModel(modelType: 'FAST' | 'QUALITY' = 'FAST'): GenerativeModel {
+    if (!this.client) {
+      throw new Error('Gemini client not initialized');
+    }
+
+    // KEEP EXISTING MODEL NAMES - DO NOT CHANGE
+    const modelName = modelType === 'FAST' 
+      ? 'gemini-2.0-flash-exp'  // Fast model for quick responses
+      : 'gemini-2.5-flash';      // Quality model for complex tasks
+
+    return this.client.getGenerativeModel({ model: modelName });
+  }
+
+  /**
+   * Timeout wrapper for API calls
+   */
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    operationName: string
+  ): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${operationName} timed out after ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
+  }
+
+  /**
+   * Validate image before API call
+   */
+  private validateImage(imageBase64: string): void {
+    // Check if base64 string is provided
+    if (!imageBase64 || imageBase64.trim().length === 0) {
+      throw new Error('Image data is required');
+    }
+
+    // Estimate size (base64 is ~4/3 of original)
+    const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    const estimatedSize = (base64Data.length * 3) / 4;
+
+    if (estimatedSize > MAX_IMAGE_SIZE_BYTES) {
+      throw new Error(
+        `Image size (~${(estimatedSize / (1024 * 1024)).toFixed(1)}MB) exceeds maximum allowed (${MAX_IMAGE_SIZE_MB}MB)`
+      );
+    }
+
+    // Validate format
+    const validFormats = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    const hasValidFormat = validFormats.some(format => imageBase64.includes(format));
+
+    if (!hasValidFormat && !imageBase64.startsWith('/9j/') && !imageBase64.startsWith('iVBOR')) {
+      throw new Error('Invalid image format. Supported: JPEG, PNG, WebP, PDF');
     }
   }
 
-  private getModel(modelType: keyof typeof this.MODELS): GenerativeModel | null {
-    if (!this.client || !this.isInitialized) {
-      return null;
-    }
-    return this.client.getGenerativeModel({ model: this.MODELS[modelType] });
-  }
-
-  // ============================================================================
-  // PUBLIC API: Dish Insights
-  // ============================================================================
-
-  async getDishInsights(dishName: string, description: string): Promise<DishInsight> {
-    // Generate cache key
-    const cacheKey = `dish_insight:${dishName}:${description}`;
-
-    // Check cache first
-    const cached = this.cache.get<DishInsight>(cacheKey);
-    if (cached) {
-      console.log('[GeminiService] Cache hit for dish insight');
-      return cached;
-    }
-
-    // Check rate limit
+  /**
+   * Get AI-generated insights for a dish
+   */
+  async getDishInsights(dishName: string, description?: string): Promise<DishInsight> {
+    const requestId = `dish-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     try {
-      await this.checkRateLimit();
-    } catch (error) {
-      console.warn('[GeminiService] Rate limit hit, returning fallback');
-      return this.getFallbackDishInsight();
-    }
-
-    // Check if service is available
-    if (!this.isInitialized || !this.client) {
-      console.warn('[GeminiService] Service not initialized, returning fallback');
-      return this.getFallbackDishInsight();
-    }
-
-    try {
-      const model = this.getModel('QUALITY');
-      if (!model) {
-        throw new Error('Model not available');
+      // Check rate limits
+      const limitCheck = await this.rateLimiter.checkLimit();
+      if (!limitCheck.allowed) {
+        throw new Error(`Rate limit exceeded. Retry after ${limitCheck.retryAfter} seconds`);
       }
 
-      const prompt = `You are an elite Michelin-star chef and sommelier.
-Analyze this dish: "${dishName}" - "${description}".
-
-Provide a very short, punchy JSON response with:
-1. "pairing": A perfect drink pairing (wine, cocktail, or mocktail).
-2. "funFact": A 1-sentence interesting culinary fact about the main ingredients.
-3. "tasteProfile": 3 adjectives describing the flavor (e.g., Umami, Earthy, Rich).
-
-Format:
-{
-  "pairing": "...",
-  "funFact": "...",
-  "tasteProfile": ["...", "...", "..."]
-}`;
-
-      this.rateLimiter.incrementCount();
-      
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 500,
-        },
-      });
-
-      const response = result.response;
-      const text = response.text();
-
-      // Parse response
-      const parsed = this.parseJsonResponse<DishInsight>(text);
-      
-      // Cache the result (24 hours TTL)
-      this.cache.set(cacheKey, parsed, 24 * 60 * 60);
-
-      return parsed;
-
-    } catch (error) {
-      console.error('[GeminiService] getDishInsights error:', error);
-      return this.getFallbackDishInsight();
-    }
-  }
-
-  // ============================================================================
-  // PUBLIC API: Menu Extraction from Image
-  // ============================================================================
-
-  async extractMenuFromImage(
-    imageBase64: string,
-    options: { useCache?: boolean } = {}
-  ): Promise<MenuExtractionResult> {
-    const { useCache = true } = options;
-
-    // Generate cache key from image hash (first 100 chars for performance)
-    const imageHash = this.hashString(imageBase64.substring(0, 100));
-    const cacheKey = `menu_extract:${imageHash}`;
-
-    // Check cache
-    if (useCache) {
-      const cached = this.cache.get<MenuExtractionResult>(cacheKey);
+      // Check cache
+      const cacheKey = `dish:${dishName}:${description || 'no-desc'}`;
+      const cached = this.cache.get<DishInsight>(cacheKey);
       if (cached) {
-        console.log('[GeminiService] Cache hit for menu extraction');
+        console.log(`[GeminiService][${requestId}] Cache hit for dish insights`);
         return cached;
       }
-    }
 
-    // Check rate limit
-    try {
-      await this.checkRateLimit();
-    } catch (error) {
-      throw new Error(`Rate limit exceeded: ${(error as Error).message}`);
-    }
+      console.log(`[GeminiService][${requestId}] Generating insights for: ${dishName}`);
 
-    // Check if service is available
-    if (!this.isInitialized || !this.client) {
-      throw new Error('Gemini service not available. Please check API key configuration.');
-    }
-
-    try {
-      const model = this.getModel('FAST');
-      if (!model) {
-        throw new Error('Model not available');
+      if (!this.isInitialized || !this.client) {
+        console.warn(`[GeminiService][${requestId}] Service not initialized, returning fallback`);
+        return this.getFallbackDishInsight();
       }
 
-      const prompt = this.getMenuExtractionPrompt();
+      // Execute with retry and timeout
+      const result = await this.retryHelper.executeWithRetry(async () => {
+        return await this.withTimeout(
+          this.generateDishInsights(dishName, description),
+          REQUEST_TIMEOUT_MS,
+          'getDishInsights'
+        );
+      }, 'getDishInsights');
 
-      // Parse base64 and mime type
-      const { base64Data, mimeType } = this.parseImageData(imageBase64);
+      // Cache result
+      this.cache.set(cacheKey, result, 24 * 60 * 60); // 24 hours
 
+      // Increment rate limit
       this.rateLimiter.incrementCount();
 
-      // Configure generation with longer timeout for large menus
-      const result = await model.generateContent({
-        contents: [
-          { 
-            role: 'user', 
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  data: base64Data,
-                  mimeType: mimeType,
-                },
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1, // Lower temperature for more consistent extraction
-          maxOutputTokens: 8192, // Allow large responses for extensive menus
-        },
-      });
-
-      const response = result.response;
-      const text = response.text();
-
-      // Parse and validate response
-      const parsed = this.parseMenuExtractionResponse(text);
-
-      // Cache the result (1 hour TTL for menu extractions)
-      if (useCache) {
-        this.cache.set(cacheKey, parsed, 60 * 60);
-      }
-
-      console.log(`[GeminiService] ✓ Extracted ${parsed.items.length} menu items`);
-      return parsed;
+      return result;
 
     } catch (error) {
-      console.error('[GeminiService] extractMenuFromImage error:', error);
+      console.error(`[GeminiService][${requestId}] Error getting dish insights:`, error);
+      return this.getFallbackDishInsight();
+    }
+  }
+
+  /**
+   * Internal method to generate dish insights
+   */
+  private async generateDishInsights(dishName: string, description?: string): Promise<DishInsight> {
+    const model = this.getModel('FAST');
+
+    const prompt = `Analyze this dish and provide:
+1. A recommended pairing (beverage or side dish)
+2. An interesting culinary fun fact
+3. A taste profile (3-5 adjectives describing the flavor)
+
+Dish: ${dishName}
+${description ? `Description: ${description}` : ''}
+
+Respond in JSON format:
+{
+  "pairing": "recommended pairing here",
+  "funFact": "interesting fact here",
+  "tasteProfile": ["adjective1", "adjective2", "adjective3"]
+}`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response.text();
+
+    // Parse JSON response
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse AI response');
+    }
+
+    return JSON.parse(jsonMatch[0]);
+  }
+
+  /**
+   * Extract menu items from an image
+   */
+  async extractMenuFromImage(imageBase64: string): Promise<MenuExtractionResult> {
+    const requestId = `menu-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    try {
+      // Validate image before processing
+      this.validateImage(imageBase64);
+
+      // Check rate limits
+      const limitCheck = await this.rateLimiter.checkLimit();
+      if (!limitCheck.allowed) {
+        throw new Error(`Rate limit exceeded. Retry after ${limitCheck.retryAfter} seconds`);
+      }
+
+      // Check cache
+      const cacheKey = `menu:${imageBase64.substring(0, 50)}`;
+      const cached = this.cache.get<MenuExtractionResult>(cacheKey);
+      if (cached) {
+        console.log(`[GeminiService][${requestId}] Cache hit for menu extraction`);
+        return cached;
+      }
+
+      console.log(`[GeminiService][${requestId}] Extracting menu from image`);
+
+      if (!this.isInitialized || !this.client) {
+        throw new Error('Gemini service not initialized');
+      }
+
+      // Execute with retry and timeout (longer for menu extraction)
+      const result = await this.retryHelper.executeWithRetry(async () => {
+        return await this.withTimeout(
+          this.extractMenuItemsFromImage(imageBase64),
+          MENU_EXTRACTION_TIMEOUT_MS,
+          'extractMenuFromImage'
+        );
+      }, 'extractMenuFromImage');
+
+      // Cache result (shorter TTL for menus as they change more frequently)
+      this.cache.set(cacheKey, result, 60 * 60); // 1 hour
+
+      // Increment rate limit
+      this.rateLimiter.incrementCount();
+
+      return result;
+
+    } catch (error) {
+      console.error(`[GeminiService][${requestId}] Error extracting menu:`, error);
       throw error;
     }
   }
 
-  // ============================================================================
-  // Helper Methods
-  // ============================================================================
+  /**
+   * Internal method to extract menu items from image
+   */
+  private async extractMenuItemsFromImage(imageBase64: string): Promise<MenuExtractionResult> {
+    const model = this.getModel('QUALITY');
 
-  private getFallbackDishInsight(): DishInsight {
-    return {
-      pairing: 'A classic sparkling water with lime.',
-      funFact: 'This dish is prepared with traditional techniques.',
-      tasteProfile: ['Delicious', 'Savory', 'Fresh'],
-    };
-  }
-
-  private parseImageData(imageBase64: string): { base64Data: string; mimeType: string } {
-    // Remove data URL prefix if present
+    // Clean base64 data
     const base64Data = imageBase64.includes(',') 
       ? imageBase64.split(',')[1] 
       : imageBase64;
 
-    // Detect mime type
-    let mimeType = 'image/jpeg';
-    if (imageBase64.includes('data:image/png')) mimeType = 'image/png';
-    else if (imageBase64.includes('data:image/webp')) mimeType = 'image/webp';
-    else if (imageBase64.includes('data:application/pdf')) mimeType = 'application/pdf';
+    const imagePart = {
+      inlineData: {
+        data: base64Data,
+        mimeType: 'image/jpeg',
+      },
+    };
 
-    return { base64Data, mimeType };
-  }
+    const prompt = `Extract all menu items from this image. For each item, provide:
+- name (string)
+- description (string, empty if not available)
+- price (number, 0 if not available)
+- category (string, e.g., "Appetizers", "Main Course", "Beverages")
+- itemType ("food" or "beverage")
+- isVeg (boolean, true if vegetarian)
+- isSpicy (boolean, true if spicy)
+- variants (array of {name, price}, if item has size/variant options)
+- addons (array of {name, price}, if add-ons are listed)
+- isCombo (boolean, true if it's a combo/set meal)
+- comboItems (array of strings, if it's a combo)
 
-  private parseJsonResponse<T>(text: string): T {
-    let jsonText = text.trim();
-
-    // Remove markdown code blocks
-    jsonText = jsonText
-      .replace(/^```json\s*/i, '')
-      .replace(/^```\s*/, '')
-      .replace(/\s*```$/g, '');
-
-    // Remove trailing commas
-    jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1');
-
-    // Extract JSON object if embedded in text
-    const firstBrace = jsonText.indexOf('{');
-    const lastBrace = jsonText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      jsonText = jsonText.substring(firstBrace, lastBrace + 1);
-    }
-
-    return JSON.parse(jsonText);
-  }
-
-  private parseMenuExtractionResponse(text: string): MenuExtractionResult {
-    try {
-      const parsed = this.parseJsonResponse<MenuExtractionResult>(text);
-      
-      // Validate structure
-      if (!parsed.items || !Array.isArray(parsed.items)) {
-        throw new Error('Invalid response structure: missing items array');
-      }
-
-      // Set defaults for metadata if missing
-      if (!parsed.metadata) {
-        parsed.metadata = {
-          totalExtracted: parsed.items.length,
-          categoriesFound: new Set(parsed.items.map(item => item.category).filter(Boolean)).size,
-          notes: 'Extracted successfully',
-        };
-      }
-
-      return parsed;
-
-    } catch (parseError) {
-      console.error('[GeminiService] JSON parse error:', parseError);
-      console.log('[GeminiService] Response preview:', text.substring(0, 500));
-
-      // Attempt recovery
-      const recovered = this.attemptJsonRecovery(text);
-      if (recovered) {
-        return recovered;
-      }
-
-      throw new Error(`Failed to parse AI response: ${(parseError as Error).message}`);
-    }
-  }
-
-  private attemptJsonRecovery(text: string): MenuExtractionResult | null {
-    try {
-      // Try to extract partial items array
-      const itemsMatch = text.match(/"items"\s*:\s*\[([\s\S]*?)\]/);
-      if (!itemsMatch) return null;
-
-      const itemsArrayContent = itemsMatch[1];
-      const items: MenuItem[] = [];
-
-      // Extract complete item objects
-      let depth = 0;
-      let currentItem = '';
-      let inString = false;
-      let escapeNext = false;
-
-      for (const char of itemsArrayContent) {
-        if (escapeNext) {
-          currentItem += char;
-          escapeNext = false;
-          continue;
-        }
-
-        if (char === '\\') {
-          escapeNext = true;
-          currentItem += char;
-          continue;
-        }
-
-        if (char === '"' && !escapeNext) {
-          inString = !inString;
-        }
-
-        if (!inString) {
-          if (char === '{') depth++;
-          if (char === '}') {
-            depth--;
-            currentItem += char;
-            if (depth === 0) {
-              try {
-                const cleaned = currentItem.trim().replace(/^,\s*/, '').replace(/,(\s*[}\]])/g, '$1');
-                const item = JSON.parse(cleaned);
-                items.push(item);
-                currentItem = '';
-                continue;
-              } catch {
-                currentItem = '';
-                continue;
-              }
-            }
-          }
-        }
-
-        if (depth > 0) {
-          currentItem += char;
-        }
-      }
-
-      if (items.length > 0) {
-        console.log(`[GeminiService] ✓ Recovered ${items.length} items from malformed JSON`);
-        return {
-          items,
-          metadata: {
-            totalExtracted: items.length,
-            categoriesFound: new Set(items.map(item => item.category).filter(Boolean)).size,
-            notes: 'Partial extraction - some items may be missing due to incomplete response',
-          },
-        };
-      }
-    } catch (error) {
-      console.error('[GeminiService] Recovery attempt failed:', error);
-    }
-
-    return null;
-  }
-
-  private getMenuExtractionPrompt(): string {
-    return `You are an expert menu extraction AI. Analyze this menu image/PDF and extract EVERY SINGLE menu item you can find.
-
-CRITICAL REQUIREMENTS:
-- Extract ALL menu items from this image/PDF with COMPLETE accuracy. Include EVERY item visible.
-
-For each item, extract:
+Respond in JSON format:
 {
-  "name": "Exact item name as written",
-  "description": "" (empty string if not visible),
-  "price": numeric_value_only (remove ₹, $, Rs, etc. Use base/default price if variants exist),
-  "category": "Section name" (Appetizers, Main Course, Desserts, Beverages, Rice & Biryani, Chinese, etc.),
-  "itemType": "food" or "beverage" (REQUIRED - classify as 'beverage' for drinks/juices/coffee/tea/shakes/smoothies/lassi/soda, otherwise 'food'),
-  "isVeg": true/false (true ONLY if marked with veg symbol/text),
-  "isSpicy": true/false (true ONLY if marked with spicy indicator),
-
-  // OPTIONAL: Extract if present
-  "variants": [{"name": "Small/Medium/Large/Half/Full", "price": numeric_value}] (if item has size/portion options),
-  "addons": [{"name": "Extra Cheese/Sauce/etc", "price": numeric_value}] (if customizations listed),
-  "isCombo": true/false (if marked as combo/meal/family pack),
-  "comboItems": ["Item 1", "Item 2"] (if combo, list included items)
-}
-
-Return ONLY this JSON format (must be complete and valid):
-{
-  "items": [
-    {
-      "name": "Pizza Margherita", 
-      "description": "Classic tomato and cheese", 
-      "price": 250, 
-      "category": "Pizzas",
-      "itemType": "food",
-      "isVeg": true, 
-      "isSpicy": false,
-      "variants": [
-        {"name": "Small", "price": 250},
-        {"name": "Medium", "price": 350},
-        {"name": "Large", "price": 450}
-      ],
-      "addons": [
-        {"name": "Extra Cheese", "price": 50},
-        {"name": "Olives", "price": 30}
-      ]
-    },
-    {
-      "name": "Mango Lassi", 
-      "description": "Refreshing yogurt-based mango drink", 
-      "price": 80, 
-      "category": "Beverages",
-      "itemType": "beverage",
-      "isVeg": true, 
-      "isSpicy": false,
-      "variants": [
-        {"name": "Small", "price": 60},
-        {"name": "Large", "price": 80}
-      ]
-    }
-  ],
+  "items": [...],
   "metadata": {
-    "totalExtracted": 170,
-    "categoriesFound": 12,
-    "notes": "Extracted all visible items with variants and combos"
+    "totalExtracted": number,
+    "categoriesFound": number,
+    "notes": "any important notes about extraction"
   }
-}
+}`;
 
-VERIFY BEFORE RETURNING:
-- Count total items extracted
-- Ensure no sections are skipped
-- Confirm all categories are included
-- Extract variants/combos/addons if visible
-- Make sure JSON is complete and properly closed
+    const result = await model.generateContent([prompt, imagePart]);
+    const response = result.response.text();
 
-Return complete, valid JSON with EVERY item visible in the menu.`;
-  }
-
-  private hashString(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32bit integer
+    // Parse JSON response
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('Failed to parse menu extraction response');
     }
-    return hash.toString(36);
+
+    return JSON.parse(jsonMatch[0]);
   }
 
-  // ============================================================================
-  // Service Health & Monitoring
-  // ============================================================================
-
-  getServiceHealth() {
+  /**
+   * Get service health and statistics
+   */
+  async getServiceHealth() {
     return {
       isInitialized: this.isInitialized,
-      hasApiKey: !!this.apiKey,
-      rateLimit: this.rateLimiter.getStats(),
+      hasApiKey: !!process.env.GEMINI_API_KEY,
+      rateLimits: this.rateLimiter.getStats(),
       cache: this.cache.getStats(),
+      models: {
+        fast: 'gemini-2.0-flash-exp',
+        quality: 'gemini-2.5-flash',
+      },
+      timeouts: {
+        requestTimeoutMs: REQUEST_TIMEOUT_MS,
+        menuExtractionTimeoutMs: MENU_EXTRACTION_TIMEOUT_MS,
+      },
+      imageValidation: {
+        maxSizeMB: MAX_IMAGE_SIZE_MB,
+        supportedFormats: ['JPEG', 'PNG', 'WebP', 'PDF'],
+      },
     };
   }
 
-  clearCache() {
+  /**
+   * Clear all cached data
+   */
+  clearCache(): void {
     this.cache.clear();
     console.log('[GeminiService] Cache cleared');
+  }
+
+  /**
+   * Graceful shutdown - cleanup resources
+   */
+  destroy(): void {
+    this.cache.destroy();
+    console.log('[GeminiService] Service destroyed');
+  }
+
+  /**
+   * Fallback response when AI is unavailable
+   */
+  private getFallbackDishInsight(): DishInsight {
+    return {
+      pairing: 'A refreshing beverage complements most dishes',
+      funFact: 'Every dish has a unique story behind it',
+      tasteProfile: ['Flavorful', 'Satisfying', 'Delicious'],
+    };
   }
 }
 
@@ -704,4 +710,3 @@ Return complete, valid JSON with EVERY item visible in the menu.`;
 // ============================================================================
 
 export const geminiService = new GeminiService();
-export type { DishInsight, MenuItem, MenuExtractionResult };
