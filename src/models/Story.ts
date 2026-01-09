@@ -8,6 +8,22 @@ export interface IStorySlide {
     ctaText?: string; // "View Menu", "Visit Profile", etc.
     orderIndex: number;
     duration?: number; // Duration in seconds for images, or video length
+
+    // Text formatting
+    textColor?: string;
+    textSize?: 'small' | 'medium' | 'large';
+    textStyle?: 'normal' | 'bold' | 'italic';
+    captionBgColor?: string;
+    captionOpacity?: number;
+
+    // Image adjustment (Instagram-style pan/zoom)
+    imageScale?: number;
+    imagePosition?: { x: number; y: number };
+    imagePositionPct?: { x: number; y: number };
+
+    // Caption positioning (draggable)
+    captionPosition?: { x: number; y: number };
+    captionPositionPct?: { x: number; y: number };
 }
 
 export interface IStory extends Document {
@@ -35,7 +51,35 @@ const storySlideSchema = new Schema<IStorySlide>({
     ctaLink: { type: String },
     ctaText: { type: String },
     orderIndex: { type: Number, required: true },
-    duration: { type: Number, default: 5 } // Default 5s for images
+    duration: { type: Number, default: 5 }, // Default 5s for images
+
+    // Text formatting
+    textColor: { type: String },
+    textSize: { type: String, enum: ['small', 'medium', 'large'] },
+    textStyle: { type: String, enum: ['normal', 'bold', 'italic'] },
+    captionBgColor: { type: String },
+    captionOpacity: { type: Number },
+
+    // Image adjustment
+    imageScale: { type: Number },
+    imagePosition: {
+        x: { type: Number },
+        y: { type: Number }
+    },
+    imagePositionPct: {
+        x: { type: Number },
+        y: { type: Number }
+    },
+
+    // Caption positioning
+    captionPosition: {
+        x: { type: Number },
+        y: { type: Number }
+    },
+    captionPositionPct: {
+        x: { type: Number },
+        y: { type: Number }
+    }
 });
 
 const storySchema = new Schema<IStory>({

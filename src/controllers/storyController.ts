@@ -63,6 +63,14 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             return sendError(res, `Daily story limit reached (${MAX_STORIES_PER_DAY})`, 400);
         }
 
+        const normalizePoint = (value: any): { x: number; y: number } | undefined => {
+            if (!value || typeof value !== 'object') return undefined;
+            const x = typeof value.x === 'number' ? value.x : undefined;
+            const y = typeof value.y === 'number' ? value.y : undefined;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+            return { x, y };
+        };
+
         // 3. Process Slides (Upload Media)
         const processedSlides = await Promise.all(slides.map(async (slide: any, index: number) => {
             let mediaUrl = slide.mediaUrl;
@@ -70,6 +78,11 @@ export const createStory = async (req: AuthRequest, res: Response) => {
                 const uploadResult = await saveBase64Image(mediaUrl, 'stories');
                 mediaUrl = uploadResult.url;
             }
+
+            const imagePosition = normalizePoint(slide.imagePosition);
+            const imagePositionPct = normalizePoint(slide.imagePositionPct);
+            const captionPosition = normalizePoint(slide.captionPosition);
+            const captionPositionPct = normalizePoint(slide.captionPositionPct);
             
             return {
                 mediaUrl,
@@ -78,7 +91,23 @@ export const createStory = async (req: AuthRequest, res: Response) => {
                 ctaLink: slide.ctaLink,
                 ctaText: slide.ctaText,
                 orderIndex: index,
-                duration: slide.duration || 5
+                duration: slide.duration || 5,
+
+                // Text formatting
+                textColor: slide.textColor,
+                textSize: slide.textSize,
+                textStyle: slide.textStyle,
+                captionBgColor: slide.captionBgColor,
+                captionOpacity: slide.captionOpacity,
+
+                // Image adjustment
+                imageScale: slide.imageScale,
+                imagePosition,
+                imagePositionPct,
+
+                // Caption positioning
+                captionPosition,
+                captionPositionPct
             };
         }));
 
