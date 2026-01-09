@@ -37,7 +37,7 @@ export const createCategory = async (req: Request, res: Response) => {
         const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         let slug = baseSlug;
         let counter = 1;
-        
+
         // Ensure slug is unique for this outlet
         while (await Category.findOne({ outlet_id: outlet._id, slug })) {
             slug = `${baseSlug}-${counter}`;
@@ -62,13 +62,13 @@ export const createCategory = async (req: Request, res: Response) => {
 export const listCategories = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        
+
         // Get the first outlet for this brand
         const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
         if (!outlet) {
             return sendSuccess(res, []); // Return empty array if no outlet
         }
-        
+
         const categories = await Category.find({ outlet_id: outlet._id });
         return sendSuccess(res, categories.map(c => ({ id: c._id, name: c.name, slug: c.slug, isActive: c.is_active })));
     } catch (error: any) {
@@ -99,7 +99,7 @@ export const createFoodItem = async (req: Request, res: Response) => {
 
         // Determine food_type from isVeg
         const foodType = isVeg ? 'veg' : 'non-veg';
-       
+
         // Prepare food item data
         const foodItemData: any = {
             outlet_id: outlet._id,
@@ -128,7 +128,7 @@ export const createFoodItem = async (req: Request, res: Response) => {
         // Avoid `Model.create()` overload ambiguity when the input is typed `any`.
         const foodItem = await new FoodItem(foodItemData).save();
 
-        
+
         return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.price, isActive: foodItem.is_active }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -147,24 +147,24 @@ export const listFoodItems = async (req: Request, res: Response) => {
         }
 
         const query: any = { outlet_id: outlet._id };
-        
+
         if (search) {
             query.name = { $regex: search, $options: 'i' };
         }
-        
+
         if (tags) {
             const tagArray = typeof tags === 'string' ? tags.split(',') : tags;
             query.tags = { $in: tagArray };
         }
-        
+
         if (isVeg !== undefined) {
             query.is_veg = isVeg === 'true';
         }
-        
+
         if (isActive !== undefined) {
             query.is_active = isActive === 'true';
         }
-        
+
         if (itemType && (itemType === 'food' || itemType === 'beverage')) {
             query.item_type = itemType;
         }
@@ -202,7 +202,7 @@ export const listFoodItems = async (req: Request, res: Response) => {
             isFeatured: i.is_featured,
             discountPercentage: i.discount_percentage
         }));
-      
+
         return sendSuccess(res, {
             items: mappedItems,
             pagination: {
@@ -311,7 +311,7 @@ export const duplicateFoodItem = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
         const originalItem = await FoodItem.findById(foodItemId);
-        
+
         if (!originalItem) {
             return sendError(res, 'Food item not found', 404);
         }
@@ -338,8 +338,8 @@ export const duplicateFoodItem = async (req: Request, res: Response) => {
             discount_percentage: originalItem.discount_percentage
         });
 
-        return sendSuccess(res, { 
-            id: duplicatedItem._id, 
+        return sendSuccess(res, {
+            id: duplicatedItem._id,
             name: duplicatedItem.name,
             isVeg: duplicatedItem.is_veg,
             basePrice: duplicatedItem.price,
@@ -685,162 +685,153 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = 20, radius = 50000 } = req.query;
-        
+        const { latitude, longitude, limit = 20, page = 1, radius = 50000 } = req.query;
+
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
 
         const lat = parseFloat(latitude as string);
         const lng = parseFloat(longitude as string);
-        const limitNum = parseInt(limit as string);
-        const radiusNum = parseInt(radius as string); // radius in meters
+        const pageNum = parseInt(page as string) || 1;
+        const limitNum = parseInt(limit as string) || 20;
+        const skip = (pageNum - 1) * limitNum;
+        const radiusNum = parseInt(radius as string) || 50000; // Default 50km to capture wide area
 
-        console.log(`🔍 Finding trending dishes near [${lat}, ${lng}] within ${radiusNum}m`);
+        console.log(`🔥 Trending: [${lat}, ${lng}], Rad: ${radiusNum}m, Page: ${pageNum}`);
 
-        // Step 1: Find nearby outlets using aggregation with distance calculation
-        const nearbyOutlets = await Outlet.aggregate([
+        const pipeline: any[] = [
+            // 1. GeoNear: Find candidates within max radius
             {
-                $match: {
-                    status: 'ACTIVE',
-                    approval_status: 'APPROVED',
-                    'location.coordinates': { $exists: true, $ne: [] }
+                $geoNear: {
+                    near: { type: 'Point', coordinates: [lng, lat] },
+                    distanceField: 'distance',
+                    maxDistance: radiusNum,
+                    query: { is_active: true, is_available: true },
+                    spherical: true
                 }
             },
+            // 2. Calculate Signals: Net Votes & Distance Bucket
             {
                 $addFields: {
-                    distance: {
-                        $let: {
-                            vars: {
-                                lat1: { $arrayElemAt: ['$location.coordinates', 1] },
-                                lon1: { $arrayElemAt: ['$location.coordinates', 0] },
-                                lat2: lat,
-                                lon2: lng
-                            },
-                            in: {
-                                $multiply: [
-                                    6371000, // Earth radius in meters
-                                    {
-                                        $acos: {
-                                            $max: [
-                                                -1,
-                                                {
-                                                    $min: [
-                                                        1,
-                                                        {
-                                                            $add: [
-                                                                {
-                                                                    $multiply: [
-                                                                        { $sin: { $multiply: [{ $divide: ['$$lat1', 57.2958] }, 1] } },
-                                                                        { $sin: { $multiply: [{ $divide: ['$$lat2', 57.2958] }, 1] } }
-                                                                    ]
-                                                                },
-                                                                {
-                                                                    $multiply: [
-                                                                        { $cos: { $multiply: [{ $divide: ['$$lat1', 57.2958] }, 1] } },
-                                                                        { $cos: { $multiply: [{ $divide: ['$$lat2', 57.2958] }, 1] } },
-                                                                        { $cos: { $multiply: [{ $divide: [{ $subtract: ['$$lon2', '$$lon1'] }, 57.2958] }, 1] } }
-                                                                    ]
-                                                                }
-                                                            ]
-                                                        }
-                                                    ]
-                                                }
-                                            ]
-                                        }
-                                    }
-                                ]
-                            }
-                        }
+                    net_votes: {
+                        $subtract: [
+                            { $ifNull: ['$upvote_count', 0] },
+                            { $ifNull: ['$downvote_count', 0] }
+                        ]
+                    },
+                    // Bucketize distance into 10km chunks (0-10km=0, 10-20km=1)
+                    distance_bucket: {
+                        $floor: { $divide: ['$distance', 10000] }
                     }
                 }
             },
-            {
-                $match: {
-                    distance: { $lte: radiusNum }
-                }
-            },
-            {
-                $sort: { distance: 1 }
-            },
+            // 3. Join with Outlet to ensure Active/Approved
             {
                 $lookup: {
-                    from: 'brands',
-                    localField: 'brand_id',
+                    from: 'outlets',
+                    localField: 'outlet_id',
                     foreignField: '_id',
-                    as: 'brand'
+                    as: 'outlet'
                 }
             },
-            {
-                $unwind: '$brand'
-            },
+            { $unwind: '$outlet' },
             {
                 $match: {
-                    'brand.verification_status': 'approved',
-                    $or: [
-                        { 'brand.is_active': true },
-                        { 'brand.is_active': { $exists: false } }
+                    'outlet.status': 'ACTIVE',
+                    'outlet.approval_status': 'APPROVED'
+                }
+            },
+            // 4. Sort: Nearest Bucket -> High Votes -> High Views
+            {
+                $sort: {
+                    distance_bucket: 1, // Priority 1: Distance Chunks
+                    net_votes: -1,      // Priority 2: Popularity (Sentiment)
+                    view_count: -1      // Priority 3: Popularity (Visibility)
+                }
+            },
+            // 5. Faceted Pagination
+            {
+                $facet: {
+                    metadata: [{ $count: "total" }],
+                    data: [
+                        { $skip: skip },
+                        { $limit: limitNum },
+                        // Populate details only for the page we return
+                        {
+                            $lookup: {
+                                from: 'categories',
+                                localField: 'category_id',
+                                foreignField: '_id',
+                                as: 'category'
+                            }
+                        },
+                        {
+                            $unwind: { path: '$category', preserveNullAndEmptyArrays: true }
+                        },
+                        {
+                            $lookup: {
+                                from: 'brands',
+                                localField: 'outlet.brand_id',
+                                foreignField: '_id',
+                                as: 'brand'
+                            }
+                        },
+                        {
+                            $unwind: { path: '$brand', preserveNullAndEmptyArrays: true }
+                        }
                     ]
                 }
             }
-        ]);
+        ];
 
-        console.log(`📍 Found ${nearbyOutlets.length} nearby outlets`);
+        const result = await FoodItem.aggregate(pipeline);
+        const metadata = result[0].metadata[0] || { total: 0 };
+        const dishes = result[0].data || [];
 
-        if (nearbyOutlets.length === 0) {
-            return sendSuccess(res, { dishes: [], metadata: { nearbyOutletsCount: 0, message: 'No outlets found within the search radius' } });
-        }
+        console.log(`🍽️ Returned ${dishes.length} trending dishes (Total: ${metadata.total})`);
 
-        // Step 2: Extract unique outlet IDs
-        const outletIds = [...new Set(nearbyOutlets.map((outlet: any) => outlet._id.toString()))];
-        console.log(`🏪 Found ${outletIds.length} unique outlets`);
+        const formattedItems = dishes.map((item: any) => ({
+            id: item._id,
+            name: item.name,
+            description: item.description,
+            image: item.image_url,
+            price: item.price,
+            isVeg: item.is_veg,
+            rating: item.avg_rating || 4.5,
+            stats: {
+                netVotes: item.net_votes,
+                views: item.view_count || 0,
+                orders: item.order_count || 0
+            },
+            restaurant: {
+                id: item.brand?._id,
+                name: item.brand?.name || item.outlet?.name,
+                logo: item.brand?.logo_url || item.outlet?.media?.cover_image_url
+            },
+            outlet: {
+                id: item.outlet._id,
+                name: item.outlet.name,
+                distance: Math.round(item.distance),
+                bucket: item.distance_bucket
+            },
+            category: item.category?.name
+        }));
 
-        // Step 3: Fetch food items from those outlets
-        const foodItems = await FoodItem.find({
-            outlet_id: { $in: outletIds },
-            is_active: true
-        })
-            .populate('category_id', 'name')
-            .sort({ created_at: -1 })
-            .limit(limitNum)
-            .lean();
-
-        console.log(`🍽️ Found ${foodItems.length} food items`);
-
-        // Step 4: Format response with outlet information
-        const formattedItems = foodItems.map((item: any) => {
-            const outlet = nearbyOutlets.find((o: any) => o._id.toString() === item.outlet_id.toString());
-            
-            return {
-                id: item._id,
-                name: item.name,
-                description: item.description,
-                image: item.image_url,
-                price: item.price,
-                isVeg: item.is_veg,
-                rating: 4.5, // Placeholder - calculate from reviews
-                restaurant: {
-                    id: outlet?.brand?._id,
-                    name: outlet?.brand?.name,
-                    logo: outlet?.brand?.logo_url
-                },
-                outlet: outlet ? {
-                    id: outlet._id,
-                    name: outlet.name,
-                    distance: Math.round(outlet.distance)
-                } : null,
-                category: (item.category_id as any)?.name
-            };
-        });
-
-        return sendSuccess(res, { 
+        return sendSuccess(res, {
             dishes: formattedItems,
             metadata: {
-                nearbyOutletsCount: nearbyOutlets.length,
-                brandsCount: outletIds.length,
-                searchRadius: radiusNum
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    total: metadata.total,
+                    totalPages: Math.ceil(metadata.total / limitNum)
+                },
+                searchRadius: radiusNum,
+                strategy: 'bucket_score_optimized'
             }
         });
+
     } catch (error: any) {
         console.error('getTrendingDishes error:', error);
         return sendError(res, error.message);
