@@ -25,7 +25,8 @@ import {
     listCombos,
     updateCombo,
     deleteCombo,
-    getTrendingDishes
+    getTrendingDishes,
+    getFoodItemById
 } from '../controllers/menuController.js';
 import { toggleVote, getUserVote, getVoteAnalytics } from '../controllers/voteController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -35,6 +36,7 @@ const router = express.Router();
 
 // Public routes
 router.get('/menu/trending-dishes', getTrendingDishes);
+router.get('/food-items/:foodItemId', getFoodItemById);
 
 // Categories
 router.post('/brands/:brandId/categories', protect, createCategory);

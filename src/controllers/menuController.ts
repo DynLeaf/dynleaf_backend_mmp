@@ -838,3 +838,61 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
     }
 };
 
+export const getFoodItemById = async (req: Request, res: Response) => {
+    try {
+        const { foodItemId } = req.params;
+        const item = await FoodItem.findById(foodItemId)
+            .populate('category_id')
+            .lean();
+
+        if (!item) {
+            return sendError(res, 'Food item not found', 404);
+        }
+
+        const outlet: any = await Outlet.findById(item.outlet_id).populate('brand_id').lean();
+
+        const mappedItem = {
+            id: item._id,
+            categoryId: item.category_id ? (item.category_id as any)._id : null,
+            category: item.category_id ? (item.category_id as any).name : null,
+            name: item.name,
+            description: item.description,
+            itemType: item.item_type,
+            foodType: item.food_type,
+            isVeg: item.is_veg,
+            basePrice: item.price,
+            price: item.price,
+            taxPercentage: item.tax_percentage,
+            imageUrl: item.image_url,
+            isActive: item.is_active,
+            tags: item.tags || [],
+            preparationTime: item.preparation_time,
+            calories: item.calories,
+            spiceLevel: item.spice_level,
+            allergens: item.allergens,
+            isFeatured: item.is_featured,
+            discountPercentage: item.discount_percentage,
+            rating: (item as any).avg_rating || 4.5,
+            totalReviews: (item as any).total_reviews || 0,
+            upvote_count: item.upvote_count || 0,
+            view_count: item.view_count || 0,
+            order_count: item.order_count || 0,
+            restaurant: {
+                id: outlet?.brand_id?._id,
+                name: outlet?.brand_id?.name || outlet?.name,
+                logo: outlet?.brand_id?.logo_url || outlet?.media?.cover_image_url
+            },
+            outlet: {
+                id: outlet?._id,
+                name: outlet?.name,
+                location: outlet?.location,
+                address: outlet?.address?.full_address || outlet?.address?.street
+            }
+        };
+
+        return sendSuccess(res, mappedItem);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+

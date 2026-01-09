@@ -183,8 +183,8 @@ export const searchPlaces = async (req: Request, res: Response, next: NextFuncti
                 limit: 16,
                 q: qRaw,
                 ...(countrycodes ? { countrycodes } : {})
-                ,...(viewbox ? { viewbox } : {})
-                ,...(typeof bounded === 'boolean' ? { bounded: bounded ? 1 : 0 } : {})
+                , ...(viewbox ? { viewbox } : {})
+                , ...(typeof bounded === 'boolean' ? { bounded: bounded ? 1 : 0 } : {})
             },
             timeout: 7000,
             headers: {
