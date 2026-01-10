@@ -14,9 +14,6 @@ import {
     uploadFoodItemImage,
     createVariant,
     updateVariant,
-    createMenu,
-    listMenus,
-    updateMenuStructure,
     createAddOn,
     listAddOns,
     updateAddOn,
@@ -78,11 +75,6 @@ router.post('/brands/:brandId/combos', protect, createCombo);
 router.get('/brands/:brandId/combos', listCombos);
 router.patch('/combos/:comboId', protect, updateCombo);
 router.delete('/combos/:comboId', protect, deleteCombo);
-
-// Menus
-router.post('/brands/:brandId/menus', protect, createMenu);
-router.get('/brands/:brandId/menus', listMenus);
-router.put('/menus/:menuId/structure', protect, updateMenuStructure);
 
 export default router;
 // trigger restart

@@ -6,10 +6,10 @@ import { Outlet } from "../models/Outlet.js";
 import { Subscription } from "../models/Subscription.js";
 import { normalizePlanToTier, hasFeature, SUBSCRIPTION_FEATURES } from "../config/subscriptionPlans.js";
 import { User } from "../models/User.js";
-import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
+import { Menu } from "../models/Menu.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
@@ -348,7 +348,7 @@ router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
       .lean();
 
     // Count total items across all menus
-    const totalItems = menus.reduce((sum, menu) => {
+    const totalItems = menus.reduce((sum: number, menu: any) => {
       return sum + menu.categories.reduce((catSum: number, cat: any) => {
         return catSum + (cat.items?.length || 0);
       }, 0);
@@ -365,7 +365,7 @@ router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
       brand: brandData,
       outlets,
       outletsCount: outlets.length,
-      menus: menus.map(menu => ({
+      menus: menus.map((menu: any) => ({
         _id: menu._id,
         name: menu.name,
         slug: menu.slug,
@@ -1017,10 +1017,10 @@ router.get("/users/:id", adminAuth, async (req, res) => {
 
     const managedOutletsByRole = missingRoleOutletIds.length
       ? await Outlet.find({ _id: { $in: missingRoleOutletIds } })
-          .populate("brand_id", "name")
-          .select("name slug status approval_status created_at brand_id")
-          .sort({ created_at: -1 })
-          .lean()
+        .populate("brand_id", "name")
+        .select("name slug status approval_status created_at brand_id")
+        .sort({ created_at: -1 })
+        .lean()
       : [];
 
     // Dedupe managed outlets
@@ -1035,8 +1035,8 @@ router.get("/users/:id", adminAuth, async (req, res) => {
 
     const subscriptions = allOutletIds.length
       ? await Subscription.find({ outlet_id: { $in: allOutletIds } })
-          .select('outlet_id plan status end_date trial_ends_at payment_status')
-          .lean()
+        .select('outlet_id plan status end_date trial_ends_at payment_status')
+        .lean()
       : [];
 
     const subByOutletId = new Map<string, any>();

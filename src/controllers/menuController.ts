@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
-import { Menu } from '../models/Menu.js';
 import { FoodVariant } from '../models/FoodVariant.js';
 import { AddOn } from '../models/AddOn.js';
 import { Combo } from '../models/Combo.js';
@@ -247,45 +246,6 @@ export const updateVariant = async (req: Request, res: Response) => {
     }
 };
 
-export const createMenu = async (req: Request, res: Response) => {
-    try {
-        const { brandId } = req.params;
-        const { name, isDefault } = req.body;
-
-        const menu = await Menu.create({
-            brand_id: brandId,
-            name,
-            is_default: isDefault
-        });
-
-        return sendSuccess(res, { id: menu._id, name: menu.name, isDefault: menu.is_default, isActive: menu.is_active }, null, 201);
-    } catch (error: any) {
-        return sendError(res, error.message);
-    }
-};
-
-export const listMenus = async (req: Request, res: Response) => {
-    try {
-        const { brandId } = req.params;
-        const menus = await Menu.find({ brand_id: brandId });
-        return sendSuccess(res, menus.map(m => ({ id: m._id, name: m.name, isDefault: m.is_default, isActive: m.is_active })));
-    } catch (error: any) {
-        return sendError(res, error.message);
-    }
-};
-
-export const updateMenuStructure = async (req: Request, res: Response) => {
-    try {
-        const { menuId } = req.params;
-        const { categories } = req.body;
-
-        await Menu.findByIdAndUpdate(menuId, { categories });
-
-        return sendSuccess(res, null, 'Menu structure updated');
-    } catch (error: any) {
-        return sendError(res, error.message);
-    }
-};
 
 export const deleteFoodItem = async (req: Request, res: Response) => {
     try {
@@ -834,6 +794,21 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error('getTrendingDishes error:', error);
+
+        // Handle common MongoDB errors when collection/index is missing (common in empty DBs)
+        const errorMessage = error.message || '';
+        if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
+            console.warn('Returning empty trending dishes due to missing data/indexes');
+            return sendSuccess(res, {
+                dishes: [],
+                metadata: {
+                    pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+                    searchRadius: req.query.radius || 50000,
+                    strategy: 'fallback_empty'
+                }
+            });
+        }
+
         return sendError(res, error.message);
     }
 };
