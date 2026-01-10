@@ -6,11 +6,6 @@ import { connectRedis } from './config/redis.js';
 import { startAnalyticsAggregation } from './jobs/aggregatePromotionAnalytics.js';
 import { startOutletAnalyticsAggregation } from './jobs/aggregateOutletAnalytics.js';
 import { startFoodItemAnalyticsAggregation } from './jobs/aggregateFoodItemAnalytics.js';
-import { FoodItem } from './models/FoodItem.js';
-import { Offer } from './models/Offer.js';
-import { Outlet } from './models/Outlet.js';
-import { OutletMenuItem } from './models/OutletMenuItem.js';
-
 const PORT = Number(process.env.PORT) || 5005;
 
 const startServer = async () => {
@@ -19,18 +14,6 @@ const startServer = async () => {
         console.log(
             `[mongo] connected host=${mongoose.connection.host} db=${mongoose.connection.name}`
         );
-
-        // Ensure indexes for geospatial queries
-        // This prevents $geoNear from failing on empty/new databases
-        console.log('[mongo] Ensuring indexes...');
-        await Promise.all([
-            FoodItem.createIndexes(),
-            Offer.createIndexes(),
-            Outlet.createIndexes(),
-            OutletMenuItem.createIndexes()
-        ]);
-        console.log('[mongo] Indexes ensured.');
-
         await connectRedis();
 
         // Start cron jobs

@@ -65,4 +65,27 @@ const offerSchema = new mongoose.Schema({
 // Create indexes for queries
 offerSchema.index({ location: '2dsphere' });
 
+// Pre-save hook to ensure location is inherited from Outlet for geospatial queries
+offerSchema.pre('save', async function () {
+    const doc = this as any;
+    if (!doc.location || !doc.location.coordinates || doc.location.coordinates.length === 0) {
+        try {
+            const Outlet = mongoose.model('Outlet');
+            // If it's a multi-outlet offer, use first outlet's location
+            const outletId = doc.outlet_ids && doc.outlet_ids.length > 0 ? doc.outlet_ids[0] : null;
+            if (outletId) {
+                const outlet: any = await Outlet.findById(outletId);
+                if (outlet && outlet.location && outlet.location.coordinates) {
+                    doc.location = {
+                        type: 'Point',
+                        coordinates: outlet.location.coordinates
+                    };
+                }
+            }
+        } catch (error) {
+            console.error('Error in Offer pre-save hook sync:', error);
+        }
+    }
+});
+
 export const Offer = mongoose.model('Offer', offerSchema);

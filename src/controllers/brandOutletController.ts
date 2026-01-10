@@ -125,23 +125,6 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getFeaturedBrands:', error);
-
-    const errorMessage = error.message || '';
-    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
-      console.warn('Returning empty featured brands due to missing data/indexes');
-      return res.json({
-        status: true,
-        data: {
-          brands: [],
-          metadata: {
-            total: 0,
-            search_radius_km: (req.query.radius as any) / 1000 || 100,
-            center: { latitude: parseFloat(req.query.latitude as string), longitude: parseFloat(req.query.longitude as string) }
-          }
-        }
-      });
-    }
-
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch featured brands'
@@ -344,30 +327,6 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getNearbyOutletsNew:', error);
-
-    const errorMessage = error.message || '';
-    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
-      console.warn('Returning empty nearby outlets (new) due to missing data/indexes');
-      return res.json({
-        status: true,
-        data: {
-          outlets: [],
-          metadata: {
-            total: 0,
-            search_radius_km: (req.query.radius as any) / 1000 || 50,
-            center: { latitude: parseFloat(req.query.latitude as string), longitude: parseFloat(req.query.longitude as string) },
-            filters: {
-              isVeg: req.query.isVeg || 'all',
-              minRating: req.query.minRating || 'none',
-              priceRange: req.query.priceRange || 'all',
-              cuisines: req.query.cuisines || 'all',
-              sortBy: req.query.sortBy || 'distance'
-            }
-          }
-        }
-      });
-    }
-
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch nearby outlets'

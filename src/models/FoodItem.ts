@@ -6,13 +6,13 @@ export interface IFoodItem extends Document {
     name: string;
     slug?: string;
     description?: string;
-    
+
     // Dynleaf "story" elements
     story?: string; // Why this dish is special
     chef_recommendation?: string; // Chef's notes
     origin_story?: string; // History of the dish
     preparation_notes?: string; // How it's made
-    
+
     item_type: 'food' | 'beverage';
     food_type: 'veg' | 'non-veg' | 'egg' | 'vegan';
     is_veg: boolean;
@@ -24,18 +24,18 @@ export interface IFoodItem extends Document {
 
     // Variants (e.g., sizes)
     variants?: { size: string; price: number }[];
-    
+
     // Media
     image_url?: string;
     images?: string[]; // Multiple images
     video_url?: string; // Preparation video
-    
+
     // Geospatial (copied from outlet for fast geo queries)
     location?: {
         type: string;
         coordinates: number[];
     };
-    
+
     // Additional fields
     cuisines?: string[];
     tags?: string[];
@@ -45,22 +45,22 @@ export interface IFoodItem extends Document {
     preparation_time?: number;
     serves?: number;
     calories?: number;
-    
+
     // Nutritional info
     nutritional_info?: {
         protein?: number;
         carbs?: number;
         fat?: number;
     };
-    
+
     spice_level?: 'mild' | 'medium' | 'hot' | 'extra_hot';
     allergens?: string[];
     ingredients?: string[];
-    
+
     // Stock management
     stock_status?: 'in_stock' | 'low_stock' | 'out_of_stock';
     stock_quantity?: number;
-    
+
     // Time-based availability
     availability_schedule?: {
         is_time_restricted: boolean;
@@ -68,7 +68,7 @@ export interface IFoodItem extends Document {
         available_until?: string;
         available_days?: number[];
     };
-    
+
     // Outlet-level engagement metrics
     total_votes?: number; // Legacy or total interaction count
     upvote_count?: number; // Displayed count
@@ -78,7 +78,7 @@ export interface IFoodItem extends Document {
     view_count?: number;
     order_count?: number;
     save_count?: number;
-    
+
     // Outlet-level flags
     is_signature?: boolean;
     is_bestseller?: boolean;
@@ -87,9 +87,9 @@ export interface IFoodItem extends Document {
     is_seasonal?: boolean;
     season_start?: Date;
     season_end?: Date;
-    
+
     discount_percentage?: number;
-    
+
     created_by_user_id?: mongoose.Types.ObjectId;
 }
 
@@ -99,13 +99,13 @@ const foodItemSchema = new Schema<IFoodItem>({
     name: { type: String, required: true, trim: true },
     slug: { type: String },
     description: { type: String },
-    
+
     // Story elements
     story: { type: String },
     chef_recommendation: { type: String },
     origin_story: { type: String },
     preparation_notes: { type: String },
-    
+
     item_type: { type: String, enum: ['food', 'beverage'], default: 'food', required: true },
     food_type: { type: String, enum: ['veg', 'non-veg', 'egg', 'vegan'], required: true },
     is_veg: { type: Boolean, default: true },
@@ -121,18 +121,18 @@ const foodItemSchema = new Schema<IFoodItem>({
             price: { type: Number, required: true, min: 0 }
         }
     ],
-    
+
     // Media
     image_url: { type: String },
     images: [{ type: String }],
     video_url: { type: String },
-    
+
     // Geospatial
     location: {
         type: { type: String, enum: ['Point'], default: 'Point' },
         coordinates: { type: [Number], required: false }
     },
-    
+
     // Additional fields
     cuisines: [{ type: String }],
     tags: [{ type: String }],
@@ -142,22 +142,22 @@ const foodItemSchema = new Schema<IFoodItem>({
     preparation_time: { type: Number },
     serves: { type: Number },
     calories: { type: Number },
-    
+
     // Nutritional info
     nutritional_info: {
         protein: { type: Number },
         carbs: { type: Number },
         fat: { type: Number }
     },
-    
+
     spice_level: { type: String, enum: ['mild', 'medium', 'hot', 'extra_hot'] },
     allergens: [{ type: String }],
     ingredients: [{ type: String }],
-    
+
     // Stock management
     stock_status: { type: String, enum: ['in_stock', 'low_stock', 'out_of_stock'], default: 'in_stock' },
     stock_quantity: { type: Number },
-    
+
     // Time-based availability
     availability_schedule: {
         is_time_restricted: { type: Boolean, default: false },
@@ -165,7 +165,7 @@ const foodItemSchema = new Schema<IFoodItem>({
         available_until: { type: String },
         available_days: [{ type: Number }]
     },
-    
+
     // Engagement metrics
     total_votes: { type: Number, default: 0 },
     upvote_count: { type: Number, default: 0 },
@@ -175,7 +175,7 @@ const foodItemSchema = new Schema<IFoodItem>({
     view_count: { type: Number, default: 0 },
     order_count: { type: Number, default: 0 },
     save_count: { type: Number, default: 0 },
-    
+
     // Flags
     is_signature: { type: Boolean, default: false },
     is_bestseller: { type: Boolean, default: false },
@@ -184,9 +184,9 @@ const foodItemSchema = new Schema<IFoodItem>({
     is_seasonal: { type: Boolean, default: false },
     season_start: { type: Date },
     season_end: { type: Date },
-    
+
     discount_percentage: { type: Number, default: 0, min: 0, max: 100 },
-    
+
     created_by_user_id: { type: Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
@@ -201,5 +201,24 @@ foodItemSchema.index({ food_type: 1 });
 foodItemSchema.index({ avg_rating: -1 });
 foodItemSchema.index({ order_count: -1 });
 foodItemSchema.index({ outlet_id: 1, is_featured: 1, avg_rating: -1 });
+
+// Pre-save hook to ensure location is inherited from Outlet for geospatial queries
+foodItemSchema.pre('save', async function () {
+    const doc = this as any;
+    if (!doc.location || !doc.location.coordinates || doc.location.coordinates.length === 0) {
+        try {
+            const Outlet = mongoose.model('Outlet');
+            const outlet: any = await Outlet.findById(doc.outlet_id);
+            if (outlet && outlet.location && outlet.location.coordinates) {
+                doc.location = {
+                    type: 'Point',
+                    coordinates: outlet.location.coordinates
+                };
+            }
+        } catch (error) {
+            console.error('Error in FoodItem pre-save hook sync:', error);
+        }
+    }
+});
 
 export const FoodItem = mongoose.model<IFoodItem>('FoodItem', foodItemSchema);

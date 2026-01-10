@@ -341,21 +341,6 @@ export const getNearbyOffers = async (req: any, res: Response) => {
         });
     } catch (error: any) {
         console.error('Get nearby offers error:', error);
-
-        // Handle common MongoDB errors when collection/index is missing (common in empty DBs)
-        const errorMessage = error.message || '';
-        if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
-            console.warn('Returning empty nearby offers due to missing data/indexes');
-            return sendSuccess(res, {
-                offers: [],
-                metadata: {
-                    total: 0,
-                    search_radius_km: (req.query.radius as any) / 1000 || 50,
-                    strategy: 'fallback_empty'
-                }
-            });
-        }
-
         return sendError(res, error.message);
     }
 };

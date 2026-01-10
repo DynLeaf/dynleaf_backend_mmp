@@ -254,24 +254,6 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getNearbyFood:', error);
-
-    const errorMessage = error.message || '';
-    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
-      console.warn('Returning empty nearby food due to missing data/indexes');
-      return res.json({
-        status: true,
-        data: {
-          items: [],
-          metadata: {
-            total: 0,
-            search_radius_km: (req.query.radius as any) / 1000 || 50,
-            center: { latitude: parseFloat(req.query.latitude as string), longitude: parseFloat(req.query.longitude as string) },
-            strategy: 'fallback_empty'
-          }
-        }
-      });
-    }
-
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch nearby food'
@@ -428,18 +410,6 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getTrendingDishesNew:', error);
-
-    const errorMessage = error.message || '';
-    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
-      console.warn('Returning empty trending dishes (new) due to missing data/indexes');
-      return res.json({
-        status: true,
-        data: {
-          dishes: []
-        }
-      });
-    }
-
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch trending dishes'
