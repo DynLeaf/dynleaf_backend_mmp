@@ -6,7 +6,6 @@ import { Outlet } from "../models/Outlet.js";
 import { Subscription } from "../models/Subscription.js";
 import { normalizePlanToTier, hasFeature, SUBSCRIPTION_FEATURES } from "../config/subscriptionPlans.js";
 import { User } from "../models/User.js";
-import { Menu } from "../models/Menu.js";
 import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
@@ -1017,10 +1016,10 @@ router.get("/users/:id", adminAuth, async (req, res) => {
 
     const managedOutletsByRole = missingRoleOutletIds.length
       ? await Outlet.find({ _id: { $in: missingRoleOutletIds } })
-          .populate("brand_id", "name")
-          .select("name slug status approval_status created_at brand_id")
-          .sort({ created_at: -1 })
-          .lean()
+        .populate("brand_id", "name")
+        .select("name slug status approval_status created_at brand_id")
+        .sort({ created_at: -1 })
+        .lean()
       : [];
 
     // Dedupe managed outlets
@@ -1035,8 +1034,8 @@ router.get("/users/:id", adminAuth, async (req, res) => {
 
     const subscriptions = allOutletIds.length
       ? await Subscription.find({ outlet_id: { $in: allOutletIds } })
-          .select('outlet_id plan status end_date trial_ends_at payment_status')
-          .lean()
+        .select('outlet_id plan status end_date trial_ends_at payment_status')
+        .lean()
       : [];
 
     const subByOutletId = new Map<string, any>();
