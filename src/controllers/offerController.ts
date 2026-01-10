@@ -265,6 +265,8 @@ export const getNearbyOffers = async (req: any, res: Response) => {
         const radiusNum = parseInt(radius as string);
         const limitNum = parseInt(limit as string);
 
+        const now = new Date(); // Filter for currently valid offers
+
         const pipeline: any[] = [
             {
                 $geoNear: {
@@ -272,7 +274,11 @@ export const getNearbyOffers = async (req: any, res: Response) => {
                     distanceField: 'distance',
                     maxDistance: radiusNum,
                     spherical: true,
-                    query: { is_active: true }
+                    query: { 
+                        is_active: true,
+                        valid_from: { $lte: now },
+                        valid_till: { $gte: now } 
+                    }
                 }
             },
             {
