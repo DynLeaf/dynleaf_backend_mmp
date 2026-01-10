@@ -246,13 +246,13 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
     const [foodDocs, outletDocs, promoDocs, votedFoodDocs] = await Promise.all([
       FoodItem.find({ _id: { $in: topFoodIds } }, { name: 1 }).lean(),
       Outlet.find({ _id: { $in: topOutletIds } }, { name: 1 }).lean(),
-      FeaturedPromotion.find({ _id: { $in: topPromoIds } }, { 'display_data.title': 1 }).lean(),
+      FeaturedPromotion.find({ _id: { $in: topPromoIds } }, { 'display_data.banner_text': 1, 'display_data.link_url': 1 }).lean(),
       FoodItem.find({ _id: { $in: topVotedFoodIds } }, { name: 1 }).lean(),
     ]);
 
     const foodNameById = new Map(foodDocs.map((f: any) => [String(f._id), f.name]));
     const outletNameById = new Map(outletDocs.map((o: any) => [String(o._id), o.name]));
-    const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.title]));
+    const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.banner_text || p.display_data?.link_url || 'Promotion']));
     const votedFoodNameById = new Map(votedFoodDocs.map((f: any) => [String(f._id), f.name]));
 
     const totalFoodViewsNow = foodAgg.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
@@ -622,9 +622,9 @@ export const getAdminPromotionsAnalytics = async (req: Request, res: Response) =
     const promoIds = topPromosAgg.map((d: any) => d._id);
     const promoDocs = await FeaturedPromotion.find(
       { _id: { $in: promoIds } },
-      { 'display_data.title': 1 }
+      { 'display_data.banner_text': 1, 'display_data.link_url': 1 }
     ).lean();
-    const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.title]));
+    const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.banner_text || p.display_data?.link_url || 'Promotion']));
 
     const totals = totalsAgg[0] || { totalImpressions: 0, totalClicks: 0, totalMenuViews: 0 };
     const ctrPct = totals.totalImpressions > 0 ? (totals.totalClicks / totals.totalImpressions) * 100 : 0;

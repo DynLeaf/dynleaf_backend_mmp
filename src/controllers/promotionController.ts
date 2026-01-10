@@ -18,41 +18,42 @@ export const createPromotion = async (req: Request, res: Response) => {
             payment
         } = req.body;
 
-        // Validate outlet exists
-        const outlet = await Outlet.findById(outlet_id);
-        if (!outlet) {
-            return sendError(res, 'Outlet not found', 404);
+        // Validate required fields
+        if (!display_data?.banner_image_url || !display_data?.link_url) {
+            return sendError(res, 'Banner image URL and link URL are required', 400);
         }
 
-        // Check for overlapping active promotions for the same outlet
-        const overlapping = await FeaturedPromotion.findOne({
-            outlet_id,
-            is_active: true,
-            $or: [
-                {
-                    'scheduling.start_date': { $lte: scheduling.end_date },
-                    'scheduling.end_date': { $gte: scheduling.start_date }
-                }
-            ]
-        });
-
-        if (overlapping) {
-            return sendError(res, 'Outlet already has an active promotion during this period', 400);
+        // Determine creator - use outlet owner or admin creating the promotion
+        let createdBy;
+        if (outlet_id) {
+            const outlet = await Outlet.findById(outlet_id);
+            if (!outlet) {
+                return sendError(res, 'Outlet not found', 404);
+            }
+            createdBy = outlet.created_by_user_id;
+        } else {
+            // Use a special admin ID for standalone promotions
+            // Create or get admin user ObjectId (using a fixed admin ID)
+            const adminUserId = new mongoose.Types.ObjectId('000000000000000000000001');
+            createdBy = adminUserId;
         }
+
+        // Set default dates if not provided
+        const startDate = scheduling?.start_date ? new Date(scheduling.start_date) : new Date();
+        const endDate = scheduling?.end_date ? new Date(scheduling.end_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
         const promotion = await FeaturedPromotion.create({
-            outlet_id,
+            outlet_id: outlet_id || undefined,
             promotion_type: promotion_type || 'featured_today',
             display_data: {
-                title: display_data.title,
-                subtitle: display_data.subtitle,
                 banner_image_url: display_data.banner_image_url,
-                badge_text: display_data.badge_text || 'Sponsored'
+                banner_text: display_data.banner_text,
+                link_url: display_data.link_url
             },
             scheduling: {
-                start_date: new Date(scheduling.start_date),
-                end_date: new Date(scheduling.end_date),
-                display_priority: scheduling.display_priority || 50
+                start_date: startDate,
+                end_date: endDate,
+                display_priority: scheduling?.display_priority || 50
             },
             targeting: {
                 locations: targeting?.locations || [],
@@ -64,7 +65,7 @@ export const createPromotion = async (req: Request, res: Response) => {
                 payment_date: payment.payment_date ? new Date(payment.payment_date) : undefined
             } : undefined,
             is_active: true,
-            created_by: outlet.created_by_user_id // Use the outlet owner as creator
+            created_by: createdBy
         });
 
         const populatedPromotion = await FeaturedPromotion.findById(promotion._id)
@@ -169,22 +170,10 @@ export const updatePromotion = async (req: Request, res: Response) => {
             return sendError(res, 'Promotion not found', 404);
         }
 
-        // If updating scheduling, check for overlaps
-        if (updates.scheduling) {
-            const overlapping = await FeaturedPromotion.findOne({
-                _id: { $ne: id },
-                outlet_id: promotion.outlet_id,
-                is_active: true,
-                $or: [
-                    {
-                        'scheduling.start_date': { $lte: new Date(updates.scheduling.end_date) },
-                        'scheduling.end_date': { $gte: new Date(updates.scheduling.start_date) }
-                    }
-                ]
-            });
-
-            if (overlapping) {
-                return sendError(res, 'Scheduling conflict with another active promotion', 400);
+        // Validate banner image and link URL if updating display_data
+        if (updates.display_data) {
+            if (updates.display_data.banner_image_url === '' || updates.display_data.link_url === '') {
+                return sendError(res, 'Banner image URL and link URL cannot be empty', 400);
             }
         }
 

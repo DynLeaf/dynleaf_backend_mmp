@@ -1,14 +1,13 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IFeaturedPromotion extends Document {
-    outlet_id: mongoose.Types.ObjectId;
+    outlet_id?: mongoose.Types.ObjectId;
     promotion_type: 'featured_today' | 'sponsored' | 'premium';
     
     display_data: {
-        title: string;
-        subtitle?: string;
-        banner_image_url?: string;
-        badge_text?: string;
+        banner_image_url: string;
+        banner_text?: string;
+        link_url: string;
     };
     
     scheduling: {
@@ -45,7 +44,7 @@ const FeaturedPromotionSchema = new Schema<IFeaturedPromotion>(
         outlet_id: {
             type: Schema.Types.ObjectId,
             ref: 'Outlet',
-            required: true,
+            required: false,
             index: true
         },
         promotion_type: {
@@ -55,26 +54,20 @@ const FeaturedPromotionSchema = new Schema<IFeaturedPromotion>(
             required: true
         },
         display_data: {
-            title: {
+            banner_image_url: {
                 type: String,
                 required: true,
-                trim: true,
-                maxlength: 100
+                trim: true
             },
-            subtitle: {
+            banner_text: {
                 type: String,
                 trim: true,
                 maxlength: 200
             },
-            banner_image_url: {
+            link_url: {
                 type: String,
+                required: true,
                 trim: true
-            },
-            badge_text: {
-                type: String,
-                trim: true,
-                maxlength: 20,
-                default: 'Sponsored'
             }
         },
         scheduling: {
