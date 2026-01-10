@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { Offer } from '../models/Offer.js';
+import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 
 export const createOffer = async (req: AuthRequest, res: Response) => {
@@ -36,11 +37,17 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Title is required', null, 400);
         }
 
+        const outlet = req.outlet || await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
         const offer = await Offer.create({
-            brand_id: req.outlet?.brand_id,
+            brand_id: outlet.brand_id,
             created_by_user_id: req.user.id,
             created_by_role: req.user.activeRole?.role,
             outlet_ids: [outletId],
+            location: outlet.location,
             title,
             subtitle,
             description,
@@ -241,6 +248,93 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
         });
     } catch (error: any) {
         console.error('Toggle offer status error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+export const getNearbyOffers = async (req: any, res: Response) => {
+    try {
+        const { latitude, longitude, radius = 50000, limit = 20 } = req.query;
+
+        if (!latitude || !longitude) {
+            return sendError(res, 'Latitude and longitude are required', null, 400);
+        }
+
+        const lat = parseFloat(latitude as string);
+        const lng = parseFloat(longitude as string);
+        const radiusNum = parseInt(radius as string);
+        const limitNum = parseInt(limit as string);
+
+        const pipeline: any[] = [
+            {
+                $geoNear: {
+                    near: { type: 'Point', coordinates: [lng, lat] },
+                    distanceField: 'distance',
+                    maxDistance: radiusNum,
+                    spherical: true,
+                    query: { is_active: true }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'outlets',
+                    localField: 'outlet_ids',
+                    foreignField: '_id',
+                    as: 'outlet_details'
+                }
+            },
+            {
+                $lookup: {
+                    from: 'brands',
+                    localField: 'brand_id',
+                    foreignField: '_id',
+                    as: 'brand_details'
+                }
+            },
+            { $unwind: { path: '$brand_details', preserveNullAndEmptyArrays: true } },
+            { $limit: limitNum },
+            {
+                $project: {
+                    _id: 1,
+                    title: 1,
+                    subtitle: 1,
+                    description: 1,
+                    offer_type: 1,
+                    banner_image_url: 1,
+                    discount_percentage: 1,
+                    discount_amount: 1,
+                    valid_till: 1,
+                    code: 1,
+                    distance: { $round: ['$distance', 0] },
+                    outlet: { $arrayElemAt: ['$outlet_details', 0] },
+                    brand: {
+                        _id: '$brand_details._id',
+                        name: '$brand_details.name',
+                        logo_url: '$brand_details.logo_url'
+                    }
+                }
+            }
+        ];
+
+        const offers = await Offer.aggregate(pipeline);
+        console.log(`Found ${offers.length} nearby offers for [${lng}, ${lat}]`);
+        if (offers.length === 0) {
+            // Check if any active offers exist at all
+            const totalActive = await Offer.countDocuments({ is_active: true } as any);
+            const totalWithLoc = await Offer.countDocuments({ 'location.coordinates': { $exists: true } } as any);
+            console.log(`Total active: ${totalActive}, Total with location: ${totalWithLoc}`);
+        }
+
+        return sendSuccess(res, {
+            offers,
+            metadata: {
+                total: offers.length,
+                search_radius_km: radiusNum / 1000,
+                center: { latitude: lat, longitude: lng }
+            }
+        });
+    } catch (error: any) {
+        console.error('Get nearby offers error:', error);
         return sendError(res, error.message);
     }
 };

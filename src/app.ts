@@ -14,6 +14,7 @@ import onboardingRoutes from './routes/onboardingRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import subscriptionRoutes from './routes/subscriptionRoutes.js';
 import offerRoutes from './routes/offerRoutes.js';
+import offerSearchRoutes from './routes/offerSearchRoutes.js';
 import storyRoutes from './routes/storyRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import businessRoutes from './routes/businessRoutes.js';
@@ -25,7 +26,7 @@ import logger from './middleware/logger.js';
 import * as promotionController from './controllers/promotionController.js';
 import errorHandler from './middleware/errorMiddleware.js';
 import path from 'path';
-import {fileURLToPath} from 'url';
+import { fileURLToPath } from 'url';
 
 const app = express();
 
@@ -48,8 +49,8 @@ app.use(cors({
     credentials: true
 }));
 app.use(cookieParser());
-app.use(express.json({limit: '10mb'}));
-app.use(express.urlencoded({extended: true, limit: '10mb'}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
@@ -58,7 +59,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 app.use(logger);
 
 app.get('/v1', (req, res) => {
-    res.json({message: 'Welcome to Dynleaf API'});
+    res.json({ message: 'Welcome to Dynleaf API' });
 });
 
 app.use('/v1/auth', authRoutes);
@@ -76,6 +77,7 @@ app.use('/v1/onboarding', onboardingRoutes);
 app.use('/v1/admin', adminRoutes);
 app.use('/v1/admin', subscriptionRoutes);
 app.use('/v1/outlets', offerRoutes);
+app.use('/v1/offers', offerSearchRoutes);
 app.use('/v1/stories', storyRoutes);
 app.use('/v1/places', placesRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths

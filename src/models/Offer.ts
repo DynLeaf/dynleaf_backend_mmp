@@ -15,22 +15,22 @@ const offerSchema = new mongoose.Schema({
     badge_text: String,
     code: String,
     terms: String,
-    
+
     // Discount details
     discount_percentage: Number,
     discount_amount: Number,
     max_discount_amount: Number,
-    
+
     // Conditions
     min_order_amount: Number,
     applicable_category_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
     applicable_food_item_ids: [{ type: mongoose.Schema.Types.ObjectId, ref: 'FoodItem' }],
-    
+
     // Time-based rules
     days_of_week: [Number],
     time_from: String,
     time_to: String,
-    
+
     visibility_scope: String,
     visibility_priority: Number,
     display_order: { type: Number, default: 0 },
@@ -44,7 +44,25 @@ const offerSchema = new mongoose.Schema({
     review_note: String,
     is_active: { type: Boolean, default: true },
     view_count: { type: Number, default: 0 },
-    click_count: { type: Number, default: 0 }
+    click_count: { type: Number, default: 0 },
+
+    // Geospatial (copied from outlet for fast geo queries)
+    location: {
+        type: { type: String, enum: ['Point'], default: 'Point' },
+        coordinates: {
+            type: [Number],
+            required: false,
+            validate: {
+                validator: function (v: number[]) {
+                    return !v || (v.length === 2 && v[0] >= -180 && v[0] <= 180 && v[1] >= -90 && v[1] <= 90);
+                },
+                message: 'Coordinates must be [longitude, latitude] with valid ranges'
+            }
+        }
+    }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+
+// Create indexes for queries
+offerSchema.index({ location: '2dsphere' });
 
 export const Offer = mongoose.model('Offer', offerSchema);
