@@ -20,6 +20,7 @@ import userRoutes from './routes/userRoutes.js';
 import businessRoutes from './routes/businessRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import foodItemAnalyticsRoutes from './routes/foodItemAnalyticsRoutes.js';
+import analyticsBatchRoutes from './routes/analyticsBatchRoutes.js';
 import geminiRoutes from './routes/geminiRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
 import logger from './middleware/logger.js';
@@ -84,6 +85,7 @@ app.use('/v1', menuRoutes); // Menu routes handle multiple paths
 
 // Food item analytics
 app.use('/v1/analytics/food-items', foodItemAnalyticsRoutes);
+app.use('/v1/analytics', analyticsBatchRoutes);
 
 // AI-powered features (Gemini)
 app.use('/v1/gemini', geminiRoutes);
