@@ -106,10 +106,11 @@ export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> =>
     params.append('otp', otp);
     params.append('template_id', templateId);
 
-    console.log(otp, 'otp')
     try {
+      console.log(otp, 'otp')
       const url =
-        `https://thesmsbuddy.com/api/v1/otp/create?key=${apiKey}&type=1&to=${mobile}&sender=${senderId}&message=Dear%20Customer%20%2C%20Your%20Dynleaf%20verification%20code%20is%20%7B%23otp%23%7D%20for%20Logged%20in%20.%20Please%20enter%20this%20OTP%20to%20continue&flash=0&template_id=1707176804088370688`;
+        `https://thesmsbuddy.com/api/v1/otp/create?key=${apiKey}&type=1&to=${mobile}&sender=${senderId}&message=Dear%20Customer%20%2C%20Your%20Dynleaf%20verification%20code%20is%20%7B%23${otp}%23%7D%20for%20Logged%20in%20.%20Please%20enter%20this%20OTP%20to%20continue&flash=0&template_id=1707176804088370688`;
+      console.log(url, 'url')
 
       const response = await axios.post(
         url,
