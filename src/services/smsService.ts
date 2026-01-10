@@ -89,8 +89,8 @@ export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> =>
     ;
     console.log(apiKey, senderId, templateId, messageTemplate, 'i am ajmal')
 
-    if (!apiKey || !senderId || !templateId) {
-      throw new Error('SMSBuddy is not configured. Set SMSBUDDY_API_KEY, SMSBUDDY_SENDER_ID, SMSBUDDY_TEMPLATE_ID');
+    if (!apiKey || !senderId || !templateId || !messageTemplate) {
+      throw new Error('SMSBuddy is not configured. Set SMSBUDDY_API_KEY, SMSBUDDY_SENDER_ID, SMSBUDDY_TEMPLATE_ID, SMSBUDDY_MESSAGE_TEMPLATE');
     }
 
     const e164 = normalizePhoneE164(toPhone);
@@ -102,18 +102,18 @@ export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> =>
     params.append('key', apiKey);
     params.append('to', mobile);
     params.append('sender', senderId);
-    params.append('message', messageTemplate);
+    params.append('message', messageTemplate || 'Dear Customer, Your Dynleaf verification code is {#OTP#} for Logged in. Please enter this OTP to continue');
     params.append('otp', otp);
     params.append('template_id', templateId);
 
     try {
       console.log(otp, 'otp')
       const url =
-        `https://thesmsbuddy.com/api/v1/otp/create?key=${apiKey}&type=1&to=${mobile}&sender=${senderId}&message=Dear%20Customer%20%2C%20Your%20Dynleaf%20verification%20code%20is%20%7B%23${otp}%23%7D%20for%20Logged%20in%20.%20Please%20enter%20this%20OTP%20to%20continue&flash=0&template_id=1707176804088370688`;
+        `https://thesmsbuddy.com/api/v1/otp/create?key=${apiKey}&type=1&to=${mobile}&sender=${senderId}&message=Dear%20Customer%20%2C%20Your%20Dynleaf%20verification%20code%20is%20${otp}%20for%20Logged%20in%20.%20Please%20enter%20this%20OTP%20to%20continue&flash=0&template_id=1707176804088370688`;
       console.log(url, 'url')
 
       const response = await axios.post(
-        url,
+        url, {},
         {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',

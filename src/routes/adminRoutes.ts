@@ -9,6 +9,7 @@ import { User } from "../models/User.js";
 import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
+import { Menu } from "../models/Menu.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
@@ -347,7 +348,7 @@ router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
       .lean();
 
     // Count total items across all menus
-    const totalItems = menus.reduce((sum, menu) => {
+    const totalItems = menus.reduce((sum: number, menu: any) => {
       return sum + menu.categories.reduce((catSum: number, cat: any) => {
         return catSum + (cat.items?.length || 0);
       }, 0);
@@ -364,7 +365,7 @@ router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
       brand: brandData,
       outlets,
       outletsCount: outlets.length,
-      menus: menus.map(menu => ({
+      menus: menus.map((menu: any) => ({
         _id: menu._id,
         name: menu.name,
         slug: menu.slug,
