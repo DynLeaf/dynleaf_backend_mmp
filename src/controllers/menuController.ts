@@ -794,6 +794,21 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
     } catch (error: any) {
         console.error('getTrendingDishes error:', error);
+
+        // Handle common MongoDB errors when collection/index is missing (common in empty DBs)
+        const errorMessage = error.message || '';
+        if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
+            console.warn('Returning empty trending dishes due to missing data/indexes');
+            return sendSuccess(res, {
+                dishes: [],
+                metadata: {
+                    pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+                    searchRadius: req.query.radius || 50000,
+                    strategy: 'fallback_empty'
+                }
+            });
+        }
+
         return sendError(res, error.message);
     }
 };

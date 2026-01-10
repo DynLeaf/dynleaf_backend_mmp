@@ -53,7 +53,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
           }
         }
       },
-      
+
       // Stage 2: Lookup food item details
       {
         $lookup: {
@@ -64,7 +64,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
         }
       },
       { $unwind: '$food_item' },
-      
+
       // Stage 3: Lookup outlet details
       {
         $lookup: {
@@ -75,7 +75,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
         }
       },
       { $unwind: '$outlet' },
-      
+
       // Stage 4: Lookup brand details
       {
         $lookup: {
@@ -86,7 +86,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
         }
       },
       { $unwind: '$brand' },
-      
+
       // Stage 5: Lookup category
       {
         $lookup: {
@@ -102,7 +102,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
           preserveNullAndEmptyArrays: true
         }
       },
-      
+
       // Stage 6: Filter active outlets and approved brands
       {
         $match: {
@@ -177,13 +177,13 @@ export const getNearbyFood = async (req: Request, res: Response) => {
         image: '$food_item.image_url',
         images: '$food_item.images',
         is_veg: '$food_item.is_veg',
-        
+
         category: {
           _id: '$category._id',
           name: '$category.name',
           slug: '$category.slug'
         },
-        
+
         // Outlet info
         outlet: {
           _id: '$outlet._id',
@@ -192,7 +192,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
           address: '$outlet.address',
           distance: { $round: ['$distance', 0] }
         },
-        
+
         // Brand info
         brand: {
           _id: '$brand._id',
@@ -200,21 +200,21 @@ export const getNearbyFood = async (req: Request, res: Response) => {
           logo_url: '$brand.logo_url',
           cuisines: '$brand.cuisines'
         },
-        
+
         // Pricing
         price: '$final_price',
         base_price: '$food_item.base_price',
         discount: '$final_discount',
-        
+
         // Availability
         is_available: '$is_available',
         stock_status: '$stock_status',
-        
+
         // Engagement
         orders: '$orders_at_outlet',
         rating: '$rating_at_outlet',
         votes: '$votes_at_outlet',
-        
+
         // Details
         preparation_time: {
           $ifNull: ['$preparation_time_override', '$food_item.preparation_time']
@@ -223,7 +223,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
         calories: '$food_item.calories',
         allergens: '$food_item.allergens',
         tags: '$food_item.tags',
-        
+
         // Flags
         is_featured: '$is_featured_at_outlet',
         is_signature: '$food_item.is_signature',
@@ -254,6 +254,24 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getNearbyFood:', error);
+
+    const errorMessage = error.message || '';
+    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
+      console.warn('Returning empty nearby food due to missing data/indexes');
+      return res.json({
+        status: true,
+        data: {
+          items: [],
+          metadata: {
+            total: 0,
+            search_radius_km: (req.query.radius as any) / 1000 || 50,
+            center: { latitude: parseFloat(req.query.latitude as string), longitude: parseFloat(req.query.longitude as string) },
+            strategy: 'fallback_empty'
+          }
+        }
+      });
+    }
+
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch nearby food'
@@ -309,7 +327,7 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
           }
         }
       },
-      
+
       // Lookup outlet
       {
         $lookup: {
@@ -320,7 +338,7 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
         }
       },
       { $unwind: '$outlet' },
-      
+
       // Lookup brand from outlet
       {
         $lookup: {
@@ -331,7 +349,7 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
         }
       },
       { $unwind: '$brand' },
-      
+
       // Lookup category
       {
         $lookup: {
@@ -342,7 +360,7 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
         }
       },
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
-      
+
       // Filter
       {
         $match: {
@@ -410,6 +428,18 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Error in getTrendingDishesNew:', error);
+
+    const errorMessage = error.message || '';
+    if (errorMessage.includes('geoNear') || errorMessage.includes('index') || errorMessage.includes('does not exist')) {
+      console.warn('Returning empty trending dishes (new) due to missing data/indexes');
+      return res.json({
+        status: true,
+        data: {
+          dishes: []
+        }
+      });
+    }
+
     res.status(500).json({
       status: false,
       message: error.message || 'Failed to fetch trending dishes'
