@@ -704,10 +704,19 @@ Respond in JSON format:
       ? imageBase64.split(',')[1]
       : imageBase64;
 
+    // Detect mime type from data URI or default to image/jpeg
+    let mimeType = 'image/jpeg';
+    if (imageBase64.includes('data:')) {
+      const mimeMatch = imageBase64.match(/data:([^;]+);/);
+      if (mimeMatch) {
+        mimeType = mimeMatch[1];
+      }
+    }
+
     const imagePart = {
       inlineData: {
         data: base64Data,
-        mimeType: 'image/jpeg',
+        mimeType: mimeType,
       },
     };
 
@@ -819,21 +828,14 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
         isSpicy: Boolean(item.isSpicy),
         isCombo: Boolean(item.isCombo),
 
-        // Validate variants
-        variants: (item.variants || []).filter(v =>
-          v.name && v.price >= 0
-        ).map(v => ({
-          name: v.name.trim(),
-          price: Math.round(v.price * 100) / 100,
-        })),
+        // Validate and clean variants
+        variants: this.validateAndCleanVariants(item.variants, item),
 
-        // Validate addons
-        addons: (item.addons || []).filter(a =>
-          a.name && a.price >= 0
-        ).map(a => ({
-          name: a.name.trim(),
-          price: Math.round(a.price * 100) / 100,
-        })),
+        // Validate and clean addons
+        addons: this.validateAndCleanAddons(item.addons, item),
+
+        // Validate and clean combo items
+        comboItems: this.validateAndCleanComboItems(item.comboItems, item),
 
         // Preserve confidence and notes
         confidence: item.confidence || 'medium',
@@ -861,6 +863,149 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
         imageQuality: result.metadata.imageQuality || 'good',
       },
     };
+  }
+
+  /**
+   * Validate and clean variants
+   */
+  private validateAndCleanVariants(variants: any[] | undefined, item: any): MenuVariant[] {
+    if (!variants || !Array.isArray(variants) || variants.length === 0) {
+      return [];
+    }
+
+    const validVariants: MenuVariant[] = [];
+    const seenNames = new Set<string>();
+    const errors: string[] = [];
+
+    variants.forEach((v, idx) => {
+      // Validate variant has name and price
+      if (!v.name || typeof v.name !== 'string' || v.name.trim().length === 0) {
+        errors.push(`Variant ${idx + 1}: missing name`);
+        return;
+      }
+
+      if (typeof v.price !== 'number' || v.price < 0) {
+        errors.push(`Variant "${v.name}": invalid price (${v.price})`);
+        return;
+      }
+
+      const normalizedName = v.name.toLowerCase().trim();
+
+      // Check for duplicates
+      if (seenNames.has(normalizedName)) {
+        errors.push(`Duplicate variant: ${v.name}`);
+        return;
+      }
+
+      seenNames.add(normalizedName);
+      validVariants.push({
+        name: v.name.trim(),
+        price: Math.round(v.price * 100) / 100,
+      });
+    });
+
+    // Add errors to extraction notes
+    if (errors.length > 0) {
+      item.extractionNotes = (item.extractionNotes || '') +
+        ` Variant issues: ${errors.join('; ')}`;
+      if (item.confidence === 'high') {
+        item.confidence = 'medium';
+      }
+    }
+
+    return validVariants;
+  }
+
+  /**
+   * Validate and clean addons
+   */
+  private validateAndCleanAddons(addons: any[] | undefined, item: any): MenuAddon[] {
+    if (!addons || !Array.isArray(addons) || addons.length === 0) {
+      return [];
+    }
+
+    const validAddons: MenuAddon[] = [];
+    const seenNames = new Set<string>();
+    const errors: string[] = [];
+
+    addons.forEach((a, idx) => {
+      // Validate addon has name and price
+      if (!a.name || typeof a.name !== 'string' || a.name.trim().length === 0) {
+        errors.push(`Addon ${idx + 1}: missing name`);
+        return;
+      }
+
+      if (typeof a.price !== 'number' || a.price < 0) {
+        errors.push(`Addon "${a.name}": invalid price (${a.price})`);
+        return;
+      }
+
+      const normalizedName = a.name.toLowerCase().trim();
+
+      // Check for duplicates
+      if (seenNames.has(normalizedName)) {
+        errors.push(`Duplicate addon: ${a.name}`);
+        return;
+      }
+
+      seenNames.add(normalizedName);
+      validAddons.push({
+        name: a.name.trim(),
+        price: Math.round(a.price * 100) / 100,
+      });
+    });
+
+    // Add errors to extraction notes
+    if (errors.length > 0) {
+      item.extractionNotes = (item.extractionNotes || '') +
+        ` Addon issues: ${errors.join('; ')}`;
+      if (item.confidence === 'high') {
+        item.confidence = 'medium';
+      }
+    }
+
+    return validAddons;
+  }
+
+  /**
+   * Validate and clean combo items
+   */
+  private validateAndCleanComboItems(comboItems: any[] | undefined, item: any): string[] | undefined {
+    if (!item.isCombo) {
+      return undefined;
+    }
+
+    if (!comboItems || !Array.isArray(comboItems) || comboItems.length === 0) {
+      item.extractionNotes = (item.extractionNotes || '') +
+        ' Combo marked but no items found';
+      item.isCombo = false;
+      item.confidence = 'low';
+      return undefined;
+    }
+
+    const validItems: string[] = [];
+    const seenItems = new Set<string>();
+
+    comboItems.forEach((ci) => {
+      if (typeof ci === 'string' && ci.trim().length > 0) {
+        const normalized = ci.toLowerCase().trim();
+        if (!seenItems.has(normalized)) {
+          seenItems.add(normalized);
+          validItems.push(ci.trim());
+        }
+      }
+    });
+
+    // Combo must have at least 2 items
+    if (validItems.length < 2) {
+      item.extractionNotes = (item.extractionNotes || '') +
+        ` Combo needs at least 2 items (found ${validItems.length})`;
+      item.isCombo = false;
+      item.confidence = 'low';
+      return undefined;
+    }
+
+    return validItems;
   }
 
   /**
