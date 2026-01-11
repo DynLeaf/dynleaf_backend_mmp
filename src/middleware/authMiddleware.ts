@@ -136,7 +136,7 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
         // Load the outlet to attach to request
         const Outlet = (await import('../models/Outlet.js')).Outlet;
         const outlet = await Outlet.findById(outletId).lean();
-        
+
         if (!outlet) {
             return res.status(404).json({ error: 'Outlet not found' });
         }
@@ -157,39 +157,39 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
 
         const hasAccess = req.user.roles.some((r: any) => {
             console.log('Checking role:', r.role, 'scope:', r.scope);
-            
+
             if (r.role === 'admin') {
                 console.log('✓ Admin access granted');
                 return true;
             }
-            
+
             if (r.scope === 'outlet' && r.outletId?.toString() === outletId) {
                 console.log('✓ Outlet-level access granted');
                 return true;
             }
-            
+
             if (r.scope === 'brand' && r.brandId) {
                 const userBrandId = r.brandId.toString();
                 const outletBrandId = outlet.brand_id?.toString();
                 console.log('Brand comparison:', userBrandId, '===', outletBrandId, '?', userBrandId === outletBrandId);
-                
+
                 if (outletBrandId && userBrandId === outletBrandId) {
                     console.log('✓ Brand-level access granted');
                     return true;
                 }
             }
-            
+
             return false;
         });
 
         if (!hasAccess) {
             console.log('❌ Access denied');
-            return res.status(403).json({ 
+            return res.status(403).json({
                 error: 'No access to this outlet',
                 message: 'You do not have permission to access this outlet'
             });
         }
-        
+
         console.log('✓ Access granted');
         console.log('=================================');
 
@@ -214,6 +214,57 @@ export const adminOnly = (req: AuthRequest, res: Response, next: NextFunction) =
     }
 
     next();
+};
+
+// Optional authentication - attempts to authenticate but doesn't fail if no token
+export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+        const authHeader = req.headers.authorization;
+        let token = null;
+
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            token = authHeader.split(' ')[1];
+        } else if (req.cookies && req.cookies.accessToken) {
+            token = req.cookies.accessToken;
+        }
+
+        // If no token, just continue without authentication
+        if (!token) {
+            return next();
+        }
+
+        // Try to verify token
+        const decoded = tokenService.verifyAccessToken(token);
+        const isValidSession = await sessionService.validateSession(decoded.sessionId);
+
+        if (!isValidSession) {
+            // Invalid session, continue without auth
+            return next();
+        }
+
+        const user = await User.findById(decoded.id).select('-password_hash');
+
+        if (!user || !user.is_active || user.is_suspended) {
+            // User issues, continue without auth
+            return next();
+        }
+
+        // Valid user, attach to request
+        req.user = {
+            id: decoded.id,
+            phone: decoded.phone,
+            roles: decoded.roles,
+            activeRole: decoded.activeRole,
+            permissions: decoded.permissions,
+            sessionId: decoded.sessionId
+        };
+
+        await sessionService.updateSessionActivity(decoded.sessionId);
+        next();
+    } catch (error: any) {
+        // Any error, just continue without authentication
+        next();
+    }
 };
 
 export const protect = authenticate;

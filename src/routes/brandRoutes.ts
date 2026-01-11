@@ -1,16 +1,16 @@
 import express from 'express';
-import { 
-    createBrand, 
-    searchBrands, 
-    joinBrand, 
-    requestAccess, 
-    getUserBrands, 
+import {
+    createBrand,
+    searchBrands,
+    joinBrand,
+    requestAccess,
+    getUserBrands,
     updateBrand,
     getNearbyBrands,
     getFeaturedBrands,
     getBrandById
 } from '../controllers/brandController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -18,9 +18,11 @@ const router = express.Router();
 router.get('/nearby', getNearbyBrands);
 router.get('/featured', getFeaturedBrands);
 
+// Public/Optional auth routes - accessible to everyone, but can use auth if available
+router.get('/', optionalAuth, searchBrands);
+
 // Protected routes
 router.post('/', protect, createBrand);
-router.get('/', protect, searchBrands);
 router.get('/my-brands', protect, getUserBrands);
 router.put('/:brandId', protect, updateBrand);
 router.post('/:brandId/join', protect, joinBrand);
