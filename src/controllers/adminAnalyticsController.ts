@@ -6,6 +6,7 @@ import { FoodItemAnalyticsEvent } from '../models/FoodItemAnalyticsEvent.js';
 import { OutletAnalyticsSummary } from '../models/OutletAnalyticsSummary.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { PromotionAnalyticsSummary } from '../models/PromotionAnalyticsSummary.js';
+import { PromotionEvent } from '../models/PromotionEvent.js';
 import { FeaturedPromotion } from '../models/FeaturedPromotion.js';
 import { DishVote } from '../models/DishVote.js';
 import { FoodItem } from '../models/FoodItem.js';
@@ -281,35 +282,35 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
 
     const topFood = foodAgg[0]
       ? {
-          id: String(foodAgg[0]._id),
-          name: foodNameById.get(String(foodAgg[0]._id)) || 'Unknown',
-          views: foodAgg[0].views || 0,
-        }
+        id: String(foodAgg[0]._id),
+        name: foodNameById.get(String(foodAgg[0]._id)) || 'Unknown',
+        views: foodAgg[0].views || 0,
+      }
       : null;
 
     const topOutlet = outletAgg[0]
       ? {
-          id: String(outletAgg[0]._id),
-          name: outletNameById.get(String(outletAgg[0]._id)) || 'Unknown',
-          views: outletAgg[0].total_views || 0,
-        }
+        id: String(outletAgg[0]._id),
+        name: outletNameById.get(String(outletAgg[0]._id)) || 'Unknown',
+        views: outletAgg[0].total_views || 0,
+      }
       : null;
 
     const topPromotion = promoAgg[0]
       ? {
-          id: String(promoAgg[0]._id),
-          title: promoTitleById.get(String(promoAgg[0]._id)) || 'Unknown',
-          impressions: promoAgg[0].impressions || 0,
-          clicks: promoAgg[0].clicks || 0,
-        }
+        id: String(promoAgg[0]._id),
+        title: promoTitleById.get(String(promoAgg[0]._id)) || 'Unknown',
+        impressions: promoAgg[0].impressions || 0,
+        clicks: promoAgg[0].clicks || 0,
+      }
       : null;
 
     const mostVotedFood = votesAgg[0]
       ? {
-          id: String(votesAgg[0]._id),
-          name: votedFoodNameById.get(String(votesAgg[0]._id)) || 'Unknown',
-          votes: votesAgg[0].votes || 0,
-        }
+        id: String(votesAgg[0]._id),
+        name: votedFoodNameById.get(String(votesAgg[0]._id)) || 'Unknown',
+        votes: votesAgg[0].votes || 0,
+      }
       : null;
 
     const averageOutletViewsNow = outletAgg.length > 0 ? totalOutletViewsNow / outletAgg.length : 0;
@@ -575,7 +576,7 @@ export const getAdminPromotionsAnalytics = async (req: Request, res: Response) =
       date_to: req.query.date_to,
     });
 
-    const [topPromosAgg, totalsAgg, activeCount] = await Promise.all([
+    const [summariesAgg, liveEventsAgg, activeCount] = await Promise.all([
       PromotionAnalyticsSummary.aggregate([
         { $match: { date: { $gte: window.start, $lte: window.end } } },
         {
@@ -586,32 +587,34 @@ export const getAdminPromotionsAnalytics = async (req: Request, res: Response) =
             menu_views: { $sum: '$metrics.menu_views' },
           },
         },
-        {
-          $addFields: {
-            score: { $add: ['$impressions', { $multiply: ['$clicks', 3] }] },
-            ctrPct: {
-              $cond: [
-                { $gt: ['$impressions', 0] },
-                { $multiply: [{ $divide: ['$clicks', '$impressions'] }, 100] },
-                0,
-              ],
-            },
-          },
-        },
-        { $sort: { score: -1 } },
-        { $limit: 10 },
       ]),
-      PromotionAnalyticsSummary.aggregate([
-        { $match: { date: { $gte: window.start, $lte: window.end } } },
-        {
-          $group: {
-            _id: null,
-            totalImpressions: { $sum: '$metrics.impressions' },
-            totalClicks: { $sum: '$metrics.clicks' },
-            totalMenuViews: { $sum: '$metrics.menu_views' },
+      // Live data for today (if inside window)
+      (async () => {
+        const todayUtc = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+        if (window.end < todayUtc) return [];
+
+        return PromotionEvent.aggregate([
+          {
+            $match: {
+              timestamp: { $gte: todayUtc, $lte: window.end }
+            }
           },
-        },
-      ]),
+          {
+            $group: {
+              _id: '$promotion_id',
+              impressions: {
+                $sum: { $cond: [{ $eq: ['$event_type', 'impression'] }, 1, 0] }
+              },
+              clicks: {
+                $sum: { $cond: [{ $eq: ['$event_type', 'click'] }, 1, 0] }
+              },
+              menu_views: {
+                $sum: { $cond: [{ $eq: ['$event_type', 'menu_view'] }, 1, 0] }
+              },
+            }
+          }
+        ]);
+      })(),
       FeaturedPromotion.countDocuments({
         is_active: true,
         'scheduling.start_date': { $lte: new Date() },
@@ -619,15 +622,44 @@ export const getAdminPromotionsAnalytics = async (req: Request, res: Response) =
       }),
     ]);
 
+    // Merge summaries and live events
+    const mergedPromoMap = new Map<string, any>();
+
+    const processAgg = (agg: any[]) => {
+      for (const d of agg) {
+        const id = String(d._id);
+        const existing = mergedPromoMap.get(id) || { impressions: 0, clicks: 0, menu_views: 0 };
+        mergedPromoMap.set(id, {
+          impressions: existing.impressions + (d.impressions || 0),
+          clicks: existing.clicks + (d.clicks || 0),
+          menu_views: existing.menu_views + (d.menu_views || 0),
+        });
+      }
+    };
+
+    processAgg(summariesAgg);
+    processAgg(liveEventsAgg);
+
+    const topPromosAgg = Array.from(mergedPromoMap.entries()).map(([id, metrics]) => ({
+      _id: id,
+      ...metrics,
+      score: metrics.impressions + (metrics.clicks * 3),
+      ctrPct: metrics.impressions > 0 ? (metrics.clicks / metrics.impressions) * 100 : 0,
+    })).sort((a, b) => b.score - a.score).slice(0, 10);
+
+    const aggregatedTotals = Array.from(mergedPromoMap.values()).reduce((acc, curr) => ({
+      totalImpressions: acc.totalImpressions + curr.impressions,
+      totalClicks: acc.totalClicks + curr.clicks,
+      totalMenuViews: acc.totalMenuViews + curr.menu_views,
+    }), { totalImpressions: 0, totalClicks: 0, totalMenuViews: 0 });
+
     const promoIds = topPromosAgg.map((d: any) => d._id);
     const promoDocs = await FeaturedPromotion.find(
       { _id: { $in: promoIds } },
       { 'display_data.banner_text': 1, 'display_data.link_url': 1 }
     ).lean();
     const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.banner_text || p.display_data?.link_url || 'Promotion']));
-
-    const totals = totalsAgg[0] || { totalImpressions: 0, totalClicks: 0, totalMenuViews: 0 };
-    const ctrPct = totals.totalImpressions > 0 ? (totals.totalClicks / totals.totalImpressions) * 100 : 0;
+    const ctrPct = aggregatedTotals.totalImpressions > 0 ? (aggregatedTotals.totalClicks / aggregatedTotals.totalImpressions) * 100 : 0;
 
     return sendSuccess(
       res,
@@ -639,9 +671,9 @@ export const getAdminPromotionsAnalytics = async (req: Request, res: Response) =
         },
         totals: {
           activePromotions: activeCount,
-          totalImpressions: totals.totalImpressions || 0,
-          totalClicks: totals.totalClicks || 0,
-          totalMenuViews: totals.totalMenuViews || 0,
+          totalImpressions: aggregatedTotals.totalImpressions || 0,
+          totalClicks: aggregatedTotals.totalClicks || 0,
+          totalMenuViews: aggregatedTotals.totalMenuViews || 0,
           ctrPct,
         },
         topPromotions: topPromosAgg.map((d: any) => ({
@@ -938,10 +970,10 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
         },
         trendingFoodItem: topFoodId
           ? {
-              id: topFoodId,
-              name: (topFoodDoc as any)?.name || 'Unknown',
-              views: topFoodViews,
-            }
+            id: topFoodId,
+            name: (topFoodDoc as any)?.name || 'Unknown',
+            views: topFoodViews,
+          }
           : null,
       },
       'Discovery analytics'
