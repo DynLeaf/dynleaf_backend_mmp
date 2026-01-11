@@ -26,13 +26,17 @@ export const sendOTP = async (phone: string): Promise<{ success: boolean; expire
     await redis.setex(`otp:${normalizedPhone}`, OTP_EXPIRY, otpHash);
     await redis.setex(`otp:attempts:${normalizedPhone}`, OTP_EXPIRY, '0');
 
-    await sendOtpSms(normalizedPhone, otp);
+    if (process.env.NODE_ENV === 'production') {
+        await sendOtpSms(normalizedPhone, otp);
+    } else {
+        console.log(`[DEV MODE] OTP for ${normalizedPhone}: ${otp} (SMS NOT SENT)`);
+    }
 
     return { success: true, expiresIn: OTP_EXPIRY };
 };
 
 export const verifyOTP = async (phone: string, otp: string): Promise<boolean> => {
-    if (process.env.NODE_ENV === 'development' && otp === '123456') {
+    if (process.env.NODE_ENV !== 'production' && otp === '000000') {
         return true;
     }
 
