@@ -2,9 +2,9 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IPromotionAnalyticsSummary extends Document {
   promotion_id: mongoose.Types.ObjectId;
-  outlet_id: mongoose.Types.ObjectId;
+  outlet_id?: mongoose.Types.ObjectId;
   date: Date;
-  
+
   metrics: {
     impressions: number;
     clicks: number;
@@ -13,15 +13,15 @@ export interface IPromotionAnalyticsSummary extends Document {
     ctr: number; // Click-through rate
     conversion_rate: number; // Menu views / clicks
   };
-  
+
   device_breakdown: {
     mobile: number;
     desktop: number;
     tablet: number;
   };
-  
+
   location_breakdown: Map<string, number>;
-  
+
   hourly_breakdown: Array<{
     hour: number;
     impressions: number;
@@ -30,20 +30,20 @@ export interface IPromotionAnalyticsSummary extends Document {
 }
 
 const promotionAnalyticsSummarySchema = new Schema<IPromotionAnalyticsSummary>({
-  promotion_id: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'FeaturedPromotion', 
-    required: true, 
-    index: true 
+  promotion_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'FeaturedPromotion',
+    required: true,
+    index: true
   },
-  outlet_id: { 
-    type: Schema.Types.ObjectId, 
-    ref: 'Outlet', 
-    required: true, 
-    index: true 
+  outlet_id: {
+    type: Schema.Types.ObjectId,
+    ref: 'Outlet',
+    required: false,
+    index: true
   },
   date: { type: Date, required: true, index: true },
-  
+
   metrics: {
     impressions: { type: Number, default: 0 },
     clicks: { type: Number, default: 0 },
@@ -52,19 +52,19 @@ const promotionAnalyticsSummarySchema = new Schema<IPromotionAnalyticsSummary>({
     ctr: { type: Number, default: 0 },
     conversion_rate: { type: Number, default: 0 }
   },
-  
+
   device_breakdown: {
     mobile: { type: Number, default: 0 },
     desktop: { type: Number, default: 0 },
     tablet: { type: Number, default: 0 }
   },
-  
-  location_breakdown: { 
-    type: Map, 
-    of: Number, 
-    default: new Map() 
+
+  location_breakdown: {
+    type: Map,
+    of: Number,
+    default: new Map()
   },
-  
+
   hourly_breakdown: [{
     hour: { type: Number, min: 0, max: 23 },
     impressions: { type: Number, default: 0 },
