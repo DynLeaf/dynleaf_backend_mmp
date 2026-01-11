@@ -59,6 +59,8 @@ interface MenuItem {
   addons?: MenuAddon[];
   isCombo?: boolean;
   comboItems?: string[];
+  confidence?: 'high' | 'medium' | 'low';
+  extractionNotes?: string;
 }
 
 interface MenuExtractionResult {
@@ -67,6 +69,8 @@ interface MenuExtractionResult {
     totalExtracted: number;
     categoriesFound: number;
     notes: string;
+    confidence?: 'high' | 'medium' | 'low';
+    imageQuality?: 'excellent' | 'good' | 'poor';
   };
 }
 
@@ -176,7 +180,7 @@ class CacheManager {
     this.cache = new Map();
     this.accessOrder = [];
     this.maxSize = maxSize;
-    
+
     // Cleanup expired entries every 5 minutes
     this.startCleanupTimer();
   }
@@ -287,7 +291,7 @@ class CacheManager {
 // ============================================================================
 
 class RetryHelper {
-  constructor(private config: RetryConfig) {}
+  constructor(private config: RetryConfig) { }
 
   async executeWithRetry<T>(
     operation: () => Promise<T>,
@@ -308,7 +312,7 @@ class RetryHelper {
 
       } catch (error) {
         lastError = error as Error;
-        
+
         // Don't retry on certain errors
         if (this.isNonRetryableError(error)) {
           console.log(`[RetryHelper] Non-retryable error for ${operationName}: ${lastError.message}`);
@@ -327,7 +331,7 @@ class RetryHelper {
 
   private isNonRetryableError(error: any): boolean {
     const message = error?.message?.toLowerCase() || '';
-    
+
     // Don't retry validation errors, auth errors, or rate limits
     return (
       message.includes('rate limit') ||
@@ -412,7 +416,7 @@ class GeminiService {
     }
 
     // KEEP EXISTING MODEL NAMES - DO NOT CHANGE
-    const modelName = modelType === 'FAST' 
+    const modelName = modelType === 'FAST'
       ? 'gemini-2.0-flash-exp'  // Fast model for quick responses
       : 'gemini-2.5-flash';      // Quality model for complex tasks
 
@@ -468,7 +472,7 @@ class GeminiService {
    */
   async getDishInsights(dishName: string, description?: string): Promise<DishInsight> {
     const requestId = `dish-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     try {
       // Check rate limits
       const limitCheck = await this.rateLimiter.checkLimit();
@@ -552,7 +556,7 @@ Respond in JSON format:
    */
   async extractMenuFromImage(imageBase64: string): Promise<MenuExtractionResult> {
     const requestId = `menu-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     try {
       // Validate image before processing
       this.validateImage(imageBase64);
@@ -601,14 +605,103 @@ Respond in JSON format:
   }
 
   /**
+   * Extract menu items from multiple images (multi-page menus)
+   */
+  async extractMenuFromMultipleImages(
+    imageBase64Array: string[]
+  ): Promise<MenuExtractionResult> {
+    const requestId = `menu-batch-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    try {
+      if (!imageBase64Array || imageBase64Array.length === 0) {
+        throw new Error('At least one image is required');
+      }
+
+      if (imageBase64Array.length > 10) {
+        throw new Error('Maximum 10 images allowed per batch');
+      }
+
+      console.log(`[GeminiService][${requestId}] Processing ${imageBase64Array.length} images`);
+
+      const allResults: MenuItem[] = [];
+      const allCategories = new Set<string>();
+      let overallConfidence: 'high' | 'medium' | 'low' = 'high';
+      let overallImageQuality: 'excellent' | 'good' | 'poor' = 'excellent';
+      const notes: string[] = [];
+
+      // Process images sequentially to avoid rate limits
+      for (let i = 0; i < imageBase64Array.length; i++) {
+        try {
+          console.log(`[GeminiService][${requestId}] Processing image ${i + 1}/${imageBase64Array.length}`);
+
+          const result = await this.extractMenuFromImage(imageBase64Array[i]);
+
+          allResults.push(...result.items);
+          result.items.forEach(item => allCategories.add(item.category));
+
+          // Track worst confidence and quality
+          if (result.metadata.confidence === 'low' || overallConfidence === 'low') {
+            overallConfidence = 'low';
+          } else if (result.metadata.confidence === 'medium' || overallConfidence === 'medium') {
+            overallConfidence = 'medium';
+          }
+
+          if (result.metadata.imageQuality === 'poor' || overallImageQuality === 'poor') {
+            overallImageQuality = 'poor';
+          } else if (result.metadata.imageQuality === 'good' || overallImageQuality === 'good') {
+            overallImageQuality = 'good';
+          }
+
+          if (result.metadata.notes) {
+            notes.push(`Page ${i + 1}: ${result.metadata.notes}`);
+          }
+
+          // Add delay between requests to respect rate limits (except for last image)
+          if (i < imageBase64Array.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+          }
+
+        } catch (error) {
+          console.error(`[GeminiService][${requestId}] Error processing image ${i + 1}:`, error);
+          notes.push(`Page ${i + 1}: Extraction failed - ${error instanceof Error ? error.message : 'Unknown error'}`);
+          overallConfidence = 'low';
+        }
+      }
+
+      // Deduplicate across all pages
+      const uniqueItems = allResults.filter((item, index, self) =>
+        index === self.findIndex(t =>
+          t.name.toLowerCase() === item.name.toLowerCase() &&
+          Math.abs(t.price - item.price) < 0.01
+        )
+      );
+
+      return {
+        items: uniqueItems,
+        metadata: {
+          totalExtracted: uniqueItems.length,
+          categoriesFound: allCategories.size,
+          notes: `Extracted from ${imageBase64Array.length} images. ${notes.join(' ')}`,
+          confidence: overallConfidence,
+          imageQuality: overallImageQuality,
+        },
+      };
+
+    } catch (error) {
+      console.error(`[GeminiService][${requestId}] Batch extraction error:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Internal method to extract menu items from image
    */
   private async extractMenuItemsFromImage(imageBase64: string): Promise<MenuExtractionResult> {
     const model = this.getModel('QUALITY');
 
     // Clean base64 data
-    const base64Data = imageBase64.includes(',') 
-      ? imageBase64.split(',')[1] 
+    const base64Data = imageBase64.includes(',')
+      ? imageBase64.split(',')[1]
       : imageBase64;
 
     const imagePart = {
@@ -618,28 +711,66 @@ Respond in JSON format:
       },
     };
 
-    const prompt = `Extract all menu items from this image. For each item, provide:
-- name (string)
-- description (string, empty if not available)
-- price (number, 0 if not available)
-- category (string, e.g., "Appetizers", "Main Course", "Beverages")
-- itemType ("food" or "beverage")
-- isVeg (boolean, true if vegetarian)
-- isSpicy (boolean, true if spicy)
-- variants (array of {name, price}, if item has size/variant options)
-- addons (array of {name, price}, if add-ons are listed)
-- isCombo (boolean, true if it's a combo/set meal)
-- comboItems (array of strings, if it's a combo)
+    const prompt = `You are an expert menu digitization assistant. Extract ALL menu items from this image with maximum accuracy.
 
-Respond in JSON format:
+EXTRACTION RULES:
+1. Extract EVERY visible item, even if partially visible
+2. If price is unclear, use 0 (don't skip the item)
+3. Infer category from context if not explicitly labeled
+4. Detect vegetarian items by green dot symbols or "veg" labels
+5. Detect spicy items by chili symbols or "spicy" labels
+6. For combo meals, list all included items
+7. Extract variants (Small/Medium/Large) as separate entries in variants array
+8. Extract add-ons if listed separately
+
+CATEGORY DETECTION:
+- Look for section headers (Appetizers, Main Course, Desserts, Beverages, etc.)
+- If no header, infer from item names and descriptions
+- Use "Uncategorized" only as last resort
+
+PRICE EXTRACTION:
+- Extract numeric value only (remove currency symbols)
+- For ranges (e.g., "₹100-150"), use the lower value
+- For "Market Price" or "MP", use 0
+
+ITEM TYPE DETECTION:
+- "beverage" for: drinks, juices, shakes, coffee, tea, smoothies, lassi, soda, water
+- "food" for: everything else
+
+CONFIDENCE SCORING (for each item):
+- "high": Clear text, clear price, clear category
+- "medium": Some fields unclear or inferred
+- "low": Poor image quality or heavily inferred data
+
+OUTPUT FORMAT (strict JSON):
 {
-  "items": [...],
+  "items": [
+    {
+      "name": "Item Name",
+      "description": "Brief description or empty string",
+      "price": 0,
+      "category": "Category Name",
+      "itemType": "food" | "beverage",
+      "isVeg": true | false,
+      "isSpicy": false,
+      "variants": [{"name": "Small", "price": 100}],
+      "addons": [{"name": "Extra Cheese", "price": 20}],
+      "isCombo": false,
+      "comboItems": [],
+      "confidence": "high" | "medium" | "low",
+      "extractionNotes": "Any notes about extraction challenges"
+    }
+  ],
   "metadata": {
-    "totalExtracted": number,
-    "categoriesFound": number,
-    "notes": "any important notes about extraction"
+    "totalExtracted": 0,
+    "categoriesFound": 0,
+    "notes": "Any extraction challenges or important observations",
+    "confidence": "high" | "medium" | "low",
+    "imageQuality": "excellent" | "good" | "poor"
   }
-}`;
+}
+
+IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
 
     const result = await model.generateContent([prompt, imagePart]);
     const response = result.response.text();
@@ -647,10 +778,162 @@ Respond in JSON format:
     // Parse JSON response
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('Failed to parse menu extraction response');
+      // Try to extract partial results
+      return this.extractPartialResults(response);
     }
 
-    return JSON.parse(jsonMatch[0]);
+    try {
+      const rawResult = JSON.parse(jsonMatch[0]);
+
+      // Validate and clean the extracted data
+      return this.validateAndCleanExtractedMenu(rawResult);
+    } catch (parseError) {
+      console.error('[GeminiService] JSON parse error:', parseError);
+      return this.extractPartialResults(response);
+    }
+  }
+
+  /**
+   * Validate and clean extracted menu data
+   */
+  private validateAndCleanExtractedMenu(
+    result: MenuExtractionResult
+  ): MenuExtractionResult {
+    const cleanedItems = result.items
+      .filter(item => {
+        // Remove invalid items
+        if (!item.name || item.name.trim().length === 0) return false;
+        if (item.price < 0) return false;
+        return true;
+      })
+      .map(item => ({
+        ...item,
+        // Clean and normalize data
+        name: item.name.trim(),
+        description: item.description?.trim() || '',
+        category: this.normalizeCategoryName(item.category?.trim() || 'Uncategorized'),
+        price: Math.round(item.price * 100) / 100, // Round to 2 decimals
+
+        // Ensure boolean fields
+        isVeg: Boolean(item.isVeg),
+        isSpicy: Boolean(item.isSpicy),
+        isCombo: Boolean(item.isCombo),
+
+        // Validate variants
+        variants: (item.variants || []).filter(v =>
+          v.name && v.price >= 0
+        ).map(v => ({
+          name: v.name.trim(),
+          price: Math.round(v.price * 100) / 100,
+        })),
+
+        // Validate addons
+        addons: (item.addons || []).filter(a =>
+          a.name && a.price >= 0
+        ).map(a => ({
+          name: a.name.trim(),
+          price: Math.round(a.price * 100) / 100,
+        })),
+
+        // Preserve confidence and notes
+        confidence: item.confidence || 'medium',
+        extractionNotes: item.extractionNotes?.trim() || '',
+      }));
+
+    // Deduplicate items with same name and price
+    const uniqueItems = cleanedItems.filter((item, index, self) =>
+      index === self.findIndex(t =>
+        t.name.toLowerCase() === item.name.toLowerCase() &&
+        Math.abs(t.price - item.price) < 0.01
+      )
+    );
+
+    // Count unique categories
+    const categories = new Set(uniqueItems.map(item => item.category));
+
+    return {
+      items: uniqueItems,
+      metadata: {
+        totalExtracted: uniqueItems.length,
+        categoriesFound: categories.size,
+        notes: `${result.metadata.notes || 'Extraction completed'}. Cleaned and validated.`,
+        confidence: result.metadata.confidence || 'medium',
+        imageQuality: result.metadata.imageQuality || 'good',
+      },
+    };
+  }
+
+  /**
+   * Normalize category names for consistency
+   */
+  private normalizeCategoryName(category: string): string {
+    const categoryMap: Record<string, string> = {
+      // Appetizers
+      'starters': 'Appetizers',
+      'starter': 'Appetizers',
+      'apps': 'Appetizers',
+      'appetizer': 'Appetizers',
+
+      // Main Course
+      'mains': 'Main Course',
+      'main': 'Main Course',
+      'entrees': 'Main Course',
+      'entree': 'Main Course',
+      'main course': 'Main Course',
+
+      // Beverages
+      'drinks': 'Beverages',
+      'drink': 'Beverages',
+      'juices': 'Beverages',
+      'juice': 'Beverages',
+      'beverage': 'Beverages',
+
+      // Desserts
+      'sweets': 'Desserts',
+      'sweet': 'Desserts',
+      'dessert': 'Desserts',
+
+      // Sides
+      'side dishes': 'Sides',
+      'side dish': 'Sides',
+      'side': 'Sides',
+
+      // Breakfast
+      'breakfast items': 'Breakfast',
+      'breakfast item': 'Breakfast',
+
+      // Lunch
+      'lunch items': 'Lunch',
+      'lunch item': 'Lunch',
+
+      // Dinner
+      'dinner items': 'Dinner',
+      'dinner item': 'Dinner',
+    };
+
+    const normalized = category.toLowerCase().trim();
+    return categoryMap[normalized] || category;
+  }
+
+  /**
+   * Extract partial results when JSON parsing fails
+   */
+  private extractPartialResults(responseText: string): MenuExtractionResult {
+    console.warn('[GeminiService] JSON parsing failed, attempting partial extraction');
+
+    // Try to find any item-like structures in the response
+    // This is a fallback for when AI doesn't return proper JSON
+
+    return {
+      items: [],
+      metadata: {
+        totalExtracted: 0,
+        categoriesFound: 0,
+        notes: 'Extraction failed. Please try again with a clearer image or contact support.',
+        confidence: 'low',
+        imageQuality: 'poor',
+      },
+    };
   }
 
   /**

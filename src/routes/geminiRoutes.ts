@@ -8,6 +8,7 @@ import {
   getServiceHealth,
   getDishInsights,
   extractMenuFromImage,
+  extractMenuFromMultipleImages,
   clearCache,
 } from '../controllers/geminiController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -75,6 +76,18 @@ router.post(
   protect,
   menuExtractionRateLimiter,
   extractMenuFromImage
+);
+
+/**
+ * POST /api/gemini/extract-menu-batch
+ * Extract menu items from multiple images (multi-page menus)
+ * Requires authentication
+ */
+router.post(
+  '/extract-menu-batch',
+  protect,
+  menuExtractionRateLimiter,
+  extractMenuFromMultipleImages
 );
 
 /**

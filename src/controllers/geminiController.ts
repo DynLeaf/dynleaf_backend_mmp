@@ -30,11 +30,11 @@ const validateMenuExtractionRequest = (body: any): { valid: boolean; error?: str
   if (!body.imageBase64 || typeof body.imageBase64 !== 'string') {
     return { valid: false, error: 'imageBase64 is required and must be a string' };
   }
-  
+
   // Check if it's a valid base64 or data URL
   const isDataUrl = body.imageBase64.startsWith('data:');
   const isBase64 = /^[A-Za-z0-9+/]+={0,2}$/.test(body.imageBase64.split(',').pop() || '');
-  
+
   if (!isDataUrl && !isBase64) {
     return { valid: false, error: 'imageBase64 must be a valid base64 string or data URL' };
   }
@@ -58,7 +58,7 @@ const validateMenuExtractionRequest = (body: any): { valid: boolean; error?: str
 export const getServiceHealth = async (req: Request, res: Response): Promise<void> => {
   try {
     const health = await geminiService.getServiceHealth();
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -112,9 +112,9 @@ export const getDishInsights = async (req: Request, res: Response): Promise<void
 
   } catch (error) {
     console.error('[GeminiController] getDishInsights error:', error);
-    
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
+
     // Check for rate limit errors
     if (errorMessage.includes('Rate limit')) {
       res.status(429).json({
@@ -170,9 +170,9 @@ export const extractMenuFromImage = async (req: Request, res: Response): Promise
 
   } catch (error) {
     console.error('[GeminiController] extractMenuFromImage error:', error);
-    
+
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    
+
     // Check for rate limit errors
     if (errorMessage.includes('Rate limit')) {
       res.status(429).json({
@@ -202,13 +202,98 @@ export const extractMenuFromImage = async (req: Request, res: Response): Promise
 };
 
 /**
+ * POST /api/gemini/extract-menu-batch
+ * Extract menu items from multiple images (multi-page menus)
+ * 
+ * Request body:
+ * {
+ *   "images": string[] (array of base64 or data URLs),
+ *   "useCache": boolean (optional, default: true)
+ * }
+ */
+export const extractMenuFromMultipleImages = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { images, useCache = true } = req.body;
+
+    // Validate request
+    if (!images || !Array.isArray(images)) {
+      res.status(400).json({
+        success: false,
+        error: 'images array is required',
+      });
+      return;
+    }
+
+    if (images.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'At least one image is required',
+      });
+      return;
+    }
+
+    if (images.length > 10) {
+      res.status(400).json({
+        success: false,
+        error: 'Maximum 10 images allowed per batch',
+      });
+      return;
+    }
+
+    // Validate each image
+    for (let i = 0; i < images.length; i++) {
+      const validation = validateMenuExtractionRequest({ imageBase64: images[i] });
+      if (!validation.valid) {
+        res.status(400).json({
+          success: false,
+          error: `Image ${i + 1}: ${validation.error}`,
+        });
+        return;
+      }
+    }
+
+    // Log request (for monitoring)
+    console.log(`[GeminiController] Batch menu extraction request (${images.length} images)`);
+
+    // Call service
+    const result = await geminiService.extractMenuFromMultipleImages(images);
+
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+
+  } catch (error) {
+    console.error('[GeminiController] extractMenuFromMultipleImages error:', error);
+
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    // Check for rate limit errors
+    if (errorMessage.includes('Rate limit')) {
+      res.status(429).json({
+        success: false,
+        error: errorMessage,
+        retryAfter: parseInt(errorMessage.match(/\d+/)?.[0] || '60'),
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to extract menu from images',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+    });
+  }
+};
+
+/**
  * POST /api/gemini/clear-cache
  * Clear the Gemini service cache (admin only)
  */
 export const clearCache = async (req: Request, res: Response): Promise<void> => {
   try {
     geminiService.clearCache();
-    
+
     res.status(200).json({
       success: true,
       message: 'Cache cleared successfully',
