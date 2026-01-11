@@ -1,4 +1,4 @@
-import pdf from 'pdf-parse';
+const pdf = require('pdf-parse');
 
 export interface PDFExtractionResult {
     text: string;
@@ -58,7 +58,7 @@ export class PDFService {
             // Form feed character (\f or \x0C) typically indicates page breaks
             const pages = data.text.split('\f');
 
-            pages.forEach((pageText, index) => {
+            pages.forEach((pageText: string, index: number) => {
                 const trimmed = pageText.trim();
                 if (trimmed.length > 0) {
                     pageTexts.push(trimmed);
