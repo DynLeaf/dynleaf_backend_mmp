@@ -6,6 +6,7 @@ import { connectRedis } from './config/redis.js';
 import { startAnalyticsAggregation } from './jobs/aggregatePromotionAnalytics.js';
 import { startOutletAnalyticsAggregation } from './jobs/aggregateOutletAnalytics.js';
 import { startFoodItemAnalyticsAggregation } from './jobs/aggregateFoodItemAnalytics.js';
+import { fallbackRetryJob } from './jobs/fallbackRetryJob.js';
 const PORT = Number(process.env.PORT) || 5005;
 
 const startServer = async () => {
@@ -20,6 +21,10 @@ const startServer = async () => {
         startAnalyticsAggregation();
         startOutletAnalyticsAggregation();
         startFoodItemAnalyticsAggregation();
+
+        // Start fallback retry job for analytics
+        fallbackRetryJob.start();
+        console.log('✅ Analytics fallback retry job started');
 
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`🚀 Server is running in ${process.env.NODE_ENV} mode on port ${PORT}`);
