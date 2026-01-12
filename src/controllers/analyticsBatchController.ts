@@ -4,6 +4,8 @@ import { FoodItemAnalyticsEvent } from '../models/FoodItemAnalyticsEvent.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { PromotionEvent } from '../models/PromotionEvent.js';
 import { FeaturedPromotion } from '../models/FeaturedPromotion.js';
+import { OfferEvent } from '../models/OfferEvent.js';
+import { Offer } from '../models/Offer.js';
 
 import { sendSuccess, sendError } from '../utils/response.js';
 
@@ -33,6 +35,7 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
         const foodItemEvents: any[] = [];
         const outletEvents: any[] = [];
         const promotionEvents: any[] = [];
+        const offerEvents: any[] = [];
 
         for (const event of events) {
             const { type, timestamp, payload } = event;
@@ -93,6 +96,26 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
                 } else {
                     console.warn(`[AnalyticsBatch] Invalid promoId in payload:`, payload);
                 }
+            } else if (type.startsWith('offer_')) {
+                const offerObjectId = mongoose.Types.ObjectId.isValid(payload.offerId)
+                    ? new mongoose.Types.ObjectId(payload.offerId)
+                    : undefined;
+
+                const outletObjectId = payload.outletId && mongoose.Types.ObjectId.isValid(payload.outletId)
+                    ? new mongoose.Types.ObjectId(payload.outletId)
+                    : undefined;
+
+                if (offerObjectId) {
+                    console.log(`[AnalyticsBatch] Identified offer event: ${type} for offer ${offerObjectId}`);
+                    offerEvents.push({
+                        ...baseData,
+                        offer_id: offerObjectId,
+                        outlet_id: outletObjectId,
+                        event_type: type.replace('offer_', ''), // offer_impression -> impression
+                    });
+                } else {
+                    console.warn(`[AnalyticsBatch] Invalid offerId in payload:`, payload);
+                }
             }
         }
 
@@ -137,6 +160,36 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
             }
         }
 
+        if (offerEvents.length > 0) {
+            console.log(`[AnalyticsBatch] Attempting to insert ${offerEvents.length} offer events`);
+            promises.push(OfferEvent.insertMany(offerEvents, { ordered: false }));
+
+            // Also increment counters in Offer for real-time display
+            const offerUpdates = offerEvents.reduce((acc: any, event: any) => {
+                const id = event.offer_id.toString();
+                if (!acc[id]) acc[id] = { view_count: 0, click_count: 0 };
+                if (event.event_type === 'impression' || event.event_type === 'view') acc[id].view_count++;
+                else if (event.event_type === 'click') acc[id].click_count++;
+                return acc;
+            }, {});
+
+            const offerBulkOps = Object.entries(offerUpdates).map(([id, counts]: [string, any]) => ({
+                updateOne: {
+                    filter: { _id: new mongoose.Types.ObjectId(id) },
+                    update: {
+                        $inc: {
+                            view_count: counts.view_count,
+                            click_count: counts.click_count
+                        }
+                    }
+                }
+            }));
+
+            if (offerBulkOps.length > 0) {
+                promises.push(Offer.bulkWrite(offerBulkOps as any));
+            }
+        }
+
         const results = await Promise.allSettled(promises);
 
         // Log any failures
@@ -148,13 +201,14 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
             }
         });
 
-        console.log(`[AnalyticsBatch] Processed: food=${foodItemEvents.length}, outlet=${outletEvents.length}, promo=${promotionEvents.length}`);
+        console.log(`[AnalyticsBatch] Processed: food=${foodItemEvents.length}, outlet=${outletEvents.length}, promo=${promotionEvents.length}, offers=${offerEvents.length}`);
 
         return sendSuccess(res, {
             processed: events.length,
             food_items: foodItemEvents.length,
             outlets: outletEvents.length,
-            promotions: promotionEvents.length
+            promotions: promotionEvents.length,
+            offers: offerEvents.length
         });
     } catch (error: any) {
         console.error('Process analytics batch error:', error);
