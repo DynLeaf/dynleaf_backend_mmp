@@ -119,7 +119,7 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
         const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
         let slug = baseSlug;
         let counter = 1;
-        
+
         // Ensure slug is unique for this outlet
         while (await Category.findOne({ outlet_id: outletId, slug })) {
             slug = `${baseSlug}-${counter}`;
@@ -136,14 +136,14 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
             is_active: isActive ?? true
         });
 
-        return sendSuccess(res, { 
-            id: category._id, 
-            name: category.name, 
-            slug: category.slug, 
+        return sendSuccess(res, {
+            id: category._id,
+            name: category.name,
+            slug: category.slug,
             description: category.description,
             imageUrl: category.image_url,
             sortOrder: category.display_order,
-            isActive: category.is_active 
+            isActive: category.is_active
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -153,7 +153,7 @@ export const createCategoryForOutlet = async (req: Request, res: Response) => {
 export const listCategoriesForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        
+
         const categories = await Category.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 });
 
         const counts = await FoodItem.aggregate([
@@ -166,10 +166,10 @@ export const listCategoriesForOutlet = async (req: Request, res: Response) => {
             if (row?._id) countByCategoryId.set(String(row._id), Number(row.count) || 0);
         }
 
-        return sendSuccess(res, categories.map(c => ({ 
-            id: c._id, 
-            name: c.name, 
-            slug: c.slug, 
+        return sendSuccess(res, categories.map(c => ({
+            id: c._id,
+            name: c.name,
+            slug: c.slug,
             description: c.description,
             imageUrl: c.image_url,
             sortOrder: c.display_order,
@@ -184,7 +184,7 @@ export const listCategoriesForOutlet = async (req: Request, res: Response) => {
 export const updateCategoryForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, categoryId } = req.params;
-        
+
         // Verify category belongs to outlet
         const category = await Category.findOne({ _id: categoryId, outlet_id: outletId });
         if (!category) {
@@ -241,9 +241,9 @@ export const updateCategoryForOutlet = async (req: Request, res: Response) => {
         const updatedCategory = await Category.findByIdAndUpdate(categoryId, updates, { new: true });
 
         const itemCount = await FoodItem.countDocuments({ outlet_id: outletId, category_id: categoryId });
-        return sendSuccess(res, { 
-            id: updatedCategory?._id, 
-            name: updatedCategory?.name, 
+        return sendSuccess(res, {
+            id: updatedCategory?._id,
+            name: updatedCategory?.name,
             description: updatedCategory?.description,
             imageUrl: updatedCategory?.image_url,
             sortOrder: updatedCategory?.display_order,
@@ -258,7 +258,7 @@ export const updateCategoryForOutlet = async (req: Request, res: Response) => {
 export const deleteCategoryForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, categoryId } = req.params;
-        
+
         // Verify category belongs to outlet
         const category = await Category.findOne({ _id: categoryId, outlet_id: outletId });
         if (!category) {
@@ -308,7 +308,9 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             spiceLevel,
             allergens,
             isFeatured,
-            discountPercentage
+            discountPercentage,
+            isRecommended,
+            is_recommended
         } = req.body;
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
@@ -354,7 +356,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
                 normalizedVariants.push({ size, price: priceNum });
             }
         }
-       
+
         // Prepare food item data
         const foodItemData: any = {
             outlet_id: outletId,
@@ -377,7 +379,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             spice_level: spiceLevel,
             allergens,
             is_featured: isFeatured,
-            discount_percentage: discountPercentage
+            discount_percentage: discountPercentage,
+            is_recommended: isRecommended ?? is_recommended ?? false
         };
 
         // Copy location from outlet if available (for geospatial queries)
@@ -412,6 +415,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             spiceLevel: foodItem.spice_level,
             allergens: foodItem.allergens,
             isFeatured: foodItem.is_featured,
+            isRecommended: foodItem.is_recommended,
             discountPercentage: foodItem.discount_percentage
         }, null, 201);
     } catch (error: any) {
@@ -425,24 +429,24 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
         const { search, category, tags, isVeg, isActive, itemType, page = '1', limit = '50', sortBy = 'created_at', sortOrder = 'desc' } = req.query;
 
         const query: any = { outlet_id: outletId };
-        
+
         if (search) {
             query.name = { $regex: search, $options: 'i' };
         }
-        
+
         if (tags) {
             const tagArray = typeof tags === 'string' ? tags.split(',') : tags;
             query.tags = { $in: tagArray };
         }
-        
+
         if (isVeg !== undefined) {
             query.is_veg = isVeg === 'true';
         }
-        
+
         if (isActive !== undefined) {
             query.is_active = isActive === 'true';
         }
-        
+
         if (itemType && (itemType === 'food' || itemType === 'beverage')) {
             query.item_type = itemType;
         }
@@ -486,9 +490,10 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
             spiceLevel: i.spice_level,
             allergens: i.allergens,
             isFeatured: i.is_featured,
+            isRecommended: i.is_recommended,
             discountPercentage: i.discount_percentage
         }));
-      
+
         return sendSuccess(res, {
             items: mappedItems,
             pagination: {
@@ -506,7 +511,7 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
 export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, foodItemId } = req.params;
-        
+
         // Verify food item belongs to outlet
         const foodItem = await FoodItem.findOne({ _id: foodItemId, outlet_id: outletId });
         if (!foodItem) {
@@ -603,6 +608,11 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             delete updates.discountPercentage;
         }
 
+        if (body.isRecommended !== undefined && body.is_recommended === undefined) {
+            updates.is_recommended = body.isRecommended;
+            delete updates.isRecommended;
+        }
+
         if (body.variants !== undefined) {
             if (body.variants === null) {
                 updates.variants = [];
@@ -649,6 +659,7 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             spiceLevel: item?.spice_level,
             allergens: item?.allergens,
             isFeatured: item?.is_featured,
+            isRecommended: item?.is_recommended,
             discountPercentage: item?.discount_percentage
         });
     } catch (error: any) {
@@ -990,7 +1001,7 @@ export const getMenuSyncStatusForOutlet = async (req: Request, res: Response) =>
 export const deleteFoodItemForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, foodItemId } = req.params;
-        
+
         // Verify food item belongs to outlet
         const foodItem = await FoodItem.findOne({ _id: foodItemId, outlet_id: outletId });
         if (!foodItem) {
@@ -1026,7 +1037,7 @@ export const deleteFoodItemForOutlet = async (req: Request, res: Response) => {
 export const duplicateFoodItemForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId, foodItemId } = req.params;
-        
+
         // Verify food item belongs to outlet
         const originalItem = await FoodItem.findOne({ _id: foodItemId, outlet_id: outletId });
         if (!originalItem) {
@@ -1055,6 +1066,7 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             spice_level: originalItem.spice_level,
             allergens: originalItem.allergens,
             is_featured: false,
+            is_recommended: originalItem.is_recommended,
             discount_percentage: originalItem.discount_percentage
         });
 
@@ -1080,6 +1092,7 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             spiceLevel: duplicatedItem.spice_level,
             allergens: duplicatedItem.allergens,
             isFeatured: duplicatedItem.is_featured,
+            isRecommended: duplicatedItem.is_recommended,
             discountPercentage: duplicatedItem.discount_percentage
         }, 'Food item duplicated successfully', 201);
     } catch (error: any) {
@@ -1169,6 +1182,11 @@ export const bulkUpdateFoodItemsForOutlet = async (req: Request, res: Response) 
             delete normalized.discountPercentage;
         }
 
+        if (body.isRecommended !== undefined && body.is_recommended === undefined) {
+            normalized.is_recommended = body.isRecommended;
+            delete normalized.isRecommended;
+        }
+
         if (body.isActive !== undefined && body.is_active === undefined) {
             normalized.is_active = body.isActive;
             delete normalized.isActive;
@@ -1204,6 +1222,7 @@ export const bulkUpdateFoodItemsForOutlet = async (req: Request, res: Response) 
             'spice_level',
             'allergens',
             'is_featured',
+            'is_recommended',
             'discount_percentage'
         ]);
 
@@ -1264,9 +1283,9 @@ export const bulkDeleteFoodItemsForOutlet = async (req: Request, res: Response) 
         }
 
         // Only delete items that belong to this outlet
-        const result = await FoodItem.deleteMany({ 
-            _id: { $in: itemIds }, 
-            outlet_id: outletId 
+        const result = await FoodItem.deleteMany({
+            _id: { $in: itemIds },
+            outlet_id: outletId
         });
 
         return sendSuccess(res, null, `${result.deletedCount} items deleted successfully`);

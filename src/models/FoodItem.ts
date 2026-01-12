@@ -81,6 +81,7 @@ export interface IFoodItem extends Document {
 
     // Outlet-level flags
     is_signature?: boolean;
+    is_recommended?: boolean;
     is_bestseller?: boolean;
     is_new?: boolean;
     is_featured?: boolean;
@@ -178,6 +179,7 @@ const foodItemSchema = new Schema<IFoodItem>({
 
     // Flags
     is_signature: { type: Boolean, default: false },
+    is_recommended: { type: Boolean, default: false },
     is_bestseller: { type: Boolean, default: false },
     is_new: { type: Boolean, default: false },
     is_featured: { type: Boolean, default: false },
