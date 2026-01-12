@@ -1204,9 +1204,10 @@ router.get('/analytics/overview', adminAuth, adminAnalyticsController.getAdminAn
 router.get('/analytics/food', adminAuth, adminAnalyticsController.getAdminFoodAnalytics);
 router.get('/analytics/outlets', adminAuth, adminAnalyticsController.getAdminOutletAnalytics);
 router.get('/analytics/promotions', adminAuth, adminAnalyticsController.getAdminPromotionsAnalytics);
+router.get('/analytics/offers', adminAuth, adminAnalyticsController.getAdminOffersAnalytics);
 router.get('/analytics/users', adminAuth, adminAnalyticsController.getAdminUsersAnalytics);
 router.get('/analytics/growth', adminAuth, adminAnalyticsController.getAdminGrowthAnalytics);
 router.get('/analytics/engagement', adminAuth, adminAnalyticsController.getAdminEngagementAnalytics);
-router.get('/analytics/discovery', adminAuth, adminAnalyticsController.getAdminDiscoveryAnalytics);
+router.get('/analytics/discovery', adminAnalyticsController.getAdminDiscoveryAnalytics);
 
 export default router;

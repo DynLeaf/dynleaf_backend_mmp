@@ -8,6 +8,8 @@ import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { PromotionAnalyticsSummary } from '../models/PromotionAnalyticsSummary.js';
 import { PromotionEvent } from '../models/PromotionEvent.js';
 import { FeaturedPromotion } from '../models/FeaturedPromotion.js';
+import { Offer } from '../models/Offer.js';
+import { OfferEvent } from '../models/OfferEvent.js';
 import { DishVote } from '../models/DishVote.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Outlet } from '../models/Outlet.js';
@@ -55,6 +57,9 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
       nearbyDiscoveriesNow,
       nearbyDiscoveriesPrev,
       activePromotionsCount,
+      offersAgg,
+      offersAggPrev,
+      activeOffersCount,
     ] = await Promise.all([
       // Food views totals + top viewed items
       FoodItemAnalyticsSummary.aggregate([
@@ -237,24 +242,84 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
         'scheduling.start_date': { $lte: new Date() },
         'scheduling.end_date': { $gte: new Date() },
       }),
+
+      // Offers analytics
+      OfferEvent.aggregate([
+        { $match: { timestamp: { $gte: window.start, $lte: window.end } } },
+        {
+          $group: {
+            _id: '$offer_id',
+            views: {
+              $sum: { $cond: [{ $in: ['$event_type', ['impression', 'view']] }, 1, 0] },
+            },
+            clicks: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'click'] }, 1, 0] },
+            },
+            code_copies: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'code_copy'] }, 1, 0] },
+            },
+          },
+        },
+        {
+          $addFields: {
+            score: { $add: ['$views', { $multiply: ['$clicks', 2] }, { $multiply: ['$code_copies', 3] }] },
+          },
+        },
+        { $sort: { score: -1 } },
+        { $limit: 10 },
+      ]),
+      OfferEvent.aggregate([
+        { $match: { timestamp: { $gte: window.prevStart, $lte: window.prevEnd } } },
+        {
+          $group: {
+            _id: '$offer_id',
+            views: {
+              $sum: { $cond: [{ $in: ['$event_type', ['impression', 'view']] }, 1, 0] },
+            },
+            clicks: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'click'] }, 1, 0] },
+            },
+            code_copies: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'code_copy'] }, 1, 0] },
+            },
+          },
+        },
+        {
+          $addFields: {
+            score: { $add: ['$views', { $multiply: ['$clicks', 2] }, { $multiply: ['$code_copies', 3] }] },
+          },
+        },
+        { $sort: { score: -1 } },
+        { $limit: 10 },
+      ]),
+
+      // Active offers count
+      Offer.countDocuments({
+        is_active: true,
+        valid_from: { $lte: new Date() },
+        valid_till: { $gte: new Date() },
+      } as any),
     ]);
 
     const topFoodIds = foodAgg.map((d: any) => d._id);
     const topOutletIds = outletAgg.map((d: any) => d._id);
     const topPromoIds = promoAgg.map((d: any) => d._id);
     const topVotedFoodIds = votesAgg.map((d: any) => d._id);
+    const topOfferIds = offersAgg.map((d: any) => d._id);
 
-    const [foodDocs, outletDocs, promoDocs, votedFoodDocs] = await Promise.all([
+    const [foodDocs, outletDocs, promoDocs, votedFoodDocs, offerDocs] = await Promise.all([
       FoodItem.find({ _id: { $in: topFoodIds } }, { name: 1 }).lean(),
       Outlet.find({ _id: { $in: topOutletIds } }, { name: 1 }).lean(),
       FeaturedPromotion.find({ _id: { $in: topPromoIds } }, { 'display_data.banner_text': 1, 'display_data.link_url': 1 }).lean(),
       FoodItem.find({ _id: { $in: topVotedFoodIds } }, { name: 1 }).lean(),
+      Offer.find({ _id: { $in: topOfferIds } }, { title: 1 }).lean(),
     ]);
 
     const foodNameById = new Map(foodDocs.map((f: any) => [String(f._id), f.name]));
     const outletNameById = new Map(outletDocs.map((o: any) => [String(o._id), o.name]));
     const promoTitleById = new Map(promoDocs.map((p: any) => [String(p._id), p.display_data?.banner_text || p.display_data?.link_url || 'Promotion']));
     const votedFoodNameById = new Map(votedFoodDocs.map((f: any) => [String(f._id), f.name]));
+    const offerTitleById = new Map(offerDocs.map((o: any) => [String(o._id), o.title]));
 
     const totalFoodViewsNow = foodAgg.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
     const totalFoodViewsPrev = foodAggPrev.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
@@ -313,6 +378,22 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
       }
       : null;
 
+    const totalOfferViewsNow = offersAgg.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
+    const totalOfferClicksNow = offersAgg.reduce((sum: number, d: any) => sum + (d.clicks || 0), 0);
+    const totalOfferCodeCopiesNow = offersAgg.reduce((sum: number, d: any) => sum + (d.code_copies || 0), 0);
+    const totalOfferViewsPrev = offersAggPrev.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
+    const totalOfferClicksPrev = offersAggPrev.reduce((sum: number, d: any) => sum + (d.clicks || 0), 0);
+
+    const topOffer = offersAgg[0]
+      ? {
+        id: String(offersAgg[0]._id),
+        title: offerTitleById.get(String(offersAgg[0]._id)) || 'Unknown',
+        views: offersAgg[0].views || 0,
+        clicks: offersAgg[0].clicks || 0,
+        codeCopies: offersAgg[0].code_copies || 0,
+      }
+      : null;
+
     const averageOutletViewsNow = outletAgg.length > 0 ? totalOutletViewsNow / outletAgg.length : 0;
 
     const engagementRateNow = totalViewsNow > 0 ? ((totalVotesNow + sharesNow) / totalViewsNow) * 100 : 0;
@@ -340,6 +421,13 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
           topPerforming: topPromotion,
           totalImpressions: totalPromoImpressionsNow,
           totalClicks: totalPromoClicksNow,
+        },
+        offers: {
+          activeCount: activeOffersCount,
+          topPerforming: topOffer,
+          totalViews: totalOfferViewsNow,
+          totalClicks: totalOfferClicksNow,
+          totalCodeCopies: totalOfferCodeCopiesNow,
         },
         users: {
           newUsers: usersNewNow,
@@ -981,5 +1069,92 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
   } catch (error: any) {
     console.error('Admin discovery analytics error:', error);
     return sendError(res, error.message || 'Failed to load discovery analytics');
+  }
+};
+export const getAdminOffersAnalytics = async (req: Request, res: Response) => {
+  try {
+    const window = resolveAnalyticsWindow({
+      range: req.query.range,
+      date_from: req.query.date_from,
+      date_to: req.query.date_to,
+    });
+
+    const [offersAgg, activeCount] = await Promise.all([
+      OfferEvent.aggregate([
+        { $match: { timestamp: { $gte: window.start, $lte: window.end } } },
+        {
+          $group: {
+            _id: '$offer_id',
+            views: {
+              $sum: { $cond: [{ $in: ['$event_type', ['impression', 'view']] }, 1, 0] },
+            },
+            clicks: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'click'] }, 1, 0] },
+            },
+            code_copies: {
+              $sum: { $cond: [{ $eq: ['$event_type', 'code_copy'] }, 1, 0] },
+            },
+          },
+        },
+        {
+          $addFields: {
+            score: { $add: ['$views', { $multiply: ['$clicks', 2] }, { $multiply: ['$code_copies', 3] }] },
+            ctrPct: {
+              $cond: [
+                { $gt: ['$views', 0] },
+                { $multiply: [{ $divide: ['$clicks', '$views'] }, 100] },
+                0,
+              ],
+            },
+          },
+        },
+        { $sort: { score: -1 } },
+        { $limit: 20 },
+      ]),
+      Offer.countDocuments({
+        is_active: true,
+        valid_from: { $lte: new Date() },
+        valid_till: { $gte: new Date() },
+      } as any),
+    ]);
+
+    const offerIds = offersAgg.map((d: any) => d._id);
+    const offerDocs = await Offer.find({ _id: { $in: offerIds } }, { title: 1 }).lean();
+    const offerTitleById = new Map(offerDocs.map((o: any) => [String(o._id), o.title]));
+
+    const totalViews = offersAgg.reduce((sum: number, d: any) => sum + (d.views || 0), 0);
+    const totalClicks = offersAgg.reduce((sum: number, d: any) => sum + (d.clicks || 0), 0);
+    const totalCodeCopies = offersAgg.reduce((sum: number, d: any) => sum + (d.code_copies || 0), 0);
+    const ctrPct = totalViews > 0 ? (totalClicks / totalViews) * 100 : 0;
+
+    return sendSuccess(
+      res,
+      {
+        window: {
+          range: window.range,
+          start: window.start,
+          end: window.end,
+        },
+        totals: {
+          activeOffers: activeCount,
+          totalViews,
+          totalClicks,
+          totalCodeCopies,
+          ctrPct,
+        },
+        topOffers: offersAgg.map((d: any) => ({
+          id: String(d._id),
+          title: offerTitleById.get(String(d._id)) || 'Unknown',
+          views: d.views || 0,
+          clicks: d.clicks || 0,
+          codeCopies: d.code_copies || 0,
+          ctrPct: d.ctrPct || 0,
+        })),
+      },
+      'Offers analytics'
+    );
+  } catch (error: any) {
+    console.error('Admin offers analytics error:', error);
+    return sendError(res, error.message || 'Failed to load offers analytics');
   }
 };
