@@ -151,7 +151,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       const grouped = menuItems.reduce((acc: any, item: any) => {
         const categoryId = item.category?._id?.toString() || 'uncategorized';
         const categoryName = item.category?.name || 'Other Items';
-        
+
         if (!acc[categoryId]) {
           acc[categoryId] = {
             category_id: item.category?._id,
@@ -161,7 +161,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
             items: []
           };
         }
-        
+
         acc[categoryId].items.push({
           _id: item._id,
           name: item.name,
@@ -194,9 +194,10 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           is_bestseller: item.is_bestseller,
           is_signature: item.is_signature,
           is_new: item.is_new,
-          addons: item.addons || []
+          addons: item.addons || [],
+          variants: item.variants || []
         });
-        
+
         return acc;
       }, {});
 
@@ -236,7 +237,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         is_bestseller: item.is_bestseller,
         is_signature: item.is_signature,
         is_new: item.is_new,
-        addons: item.addons || []
+        addons: item.addons || [],
+        variants: item.variants || []
       }));
     }
 
@@ -429,7 +431,7 @@ export const getOutletMenuCategories = async (req: Request, res: Response) => {
 
     // Group by category
     const categoriesMap = new Map();
-    
+
     menuItems.forEach((item: any) => {
       const category = item.food_item_id?.category_id;
       if (category) {
