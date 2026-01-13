@@ -36,6 +36,12 @@ import {
     trackOutletVisit
 } from '../controllers/outletAnalyticsController.js';
 
+import {
+    getOutletInsights,
+    triggerInsightsComputation,
+    getInsightsMetadata
+} from '../controllers/insightsController.js';
+
 const router = express.Router();
 
 // Public routes
@@ -73,6 +79,11 @@ router.get('/:outletId/profile/reviews', getProfileReviews);
 router.post('/:outletId/analytics/profile-view', trackOutletProfileView);
 router.post('/:outletId/analytics/menu-view', trackOutletMenuView);
 router.post('/:outletId/analytics/outlet-visit', trackOutletVisit);
+
+// Insights routes (protected)
+router.get('/:outletId/insights', protect, getOutletInsights);
+router.post('/:outletId/insights/compute', protect, triggerInsightsComputation);
+router.get('/:outletId/insights/meta', protect, getInsightsMetadata);
 
 
 export default router;
