@@ -72,6 +72,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         }
       },
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      // Filter by category active status (Public menu should only show active categories)
+      { $match: { 'category.is_active': { $ne: false } } },
       // Lookup addons
       {
         $lookup: {
@@ -157,6 +159,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
             category_id: item.category?._id,
             category_name: categoryName,
             category_slug: item.category?.slug,
+            category_image_url: item.category?.image_url,
             display_order: item.category?.display_order || 999,
             items: []
           };
