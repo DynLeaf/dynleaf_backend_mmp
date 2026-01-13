@@ -1118,3 +1118,61 @@ export const updateInstagramReel = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// Get menu settings for an outlet
+export const getMenuSettings = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Return default settings if not set
+        const settings = outlet.menu_settings || {
+            default_view_mode: 'grid',
+            show_item_images: true,
+            show_category_images: true
+        };
+
+        return sendSuccess(res, settings);
+    } catch (error: any) {
+        console.error('getMenuSettings error:', error);
+        return sendError(res, error.message);
+    }
+};
+
+// Update menu settings for an outlet
+export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { default_view_mode, show_item_images, show_category_images } = req.body;
+
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+
+        // Verify user has access to this outlet
+        if (outlet.created_by_user_id.toString() !== req.user.id) {
+            return sendError(res, 'Unauthorized', null, 403);
+        }
+
+        // Update settings
+        outlet.menu_settings = {
+            default_view_mode: default_view_mode || outlet.menu_settings?.default_view_mode || 'grid',
+            show_item_images: show_item_images !== undefined ? show_item_images : (outlet.menu_settings?.show_item_images ?? true),
+            show_category_images: show_category_images !== undefined ? show_category_images : (outlet.menu_settings?.show_category_images ?? true)
+        };
+
+        await outlet.save();
+
+        console.log(`⚙️ Updated menu settings for outlet ${outlet.name}`);
+
+        return sendSuccess(res, outlet.menu_settings, 'Menu settings updated successfully');
+    } catch (error: any) {
+        console.error('updateMenuSettings error:', error);
+        return sendError(res, error.message);
+    }
+};
+

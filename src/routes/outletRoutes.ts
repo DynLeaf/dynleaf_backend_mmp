@@ -19,7 +19,9 @@ import {
     addInstagramReel,
     deleteInstagramReel,
     reorderInstagramReels,
-    updateInstagramReel
+    updateInstagramReel,
+    getMenuSettings,
+    updateMenuSettings
 } from '../controllers/outletController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
@@ -84,6 +86,10 @@ router.post('/:outletId/analytics/outlet-visit', trackOutletVisit);
 router.get('/:outletId/insights', protect, getOutletInsights);
 router.post('/:outletId/insights/compute', protect, triggerInsightsComputation);
 router.get('/:outletId/insights/meta', protect, getInsightsMetadata);
+
+// Menu settings routes (protected)
+router.get('/:outletId/menu-settings', protect, getMenuSettings);
+router.put('/:outletId/menu-settings', protect, updateMenuSettings);
 
 
 export default router;

@@ -82,6 +82,11 @@ export interface IOutlet extends Document {
         order: number;
     }>;
     subscription_id?: mongoose.Types.ObjectId;
+    menu_settings?: {
+        default_view_mode: 'grid' | 'list';
+        show_item_images: boolean;
+        show_category_images: boolean;
+    };
 }
 
 const outletSchema = new Schema<IOutlet>({
@@ -124,7 +129,7 @@ const outletSchema = new Schema<IOutlet>({
             type: [Number],
             required: false,
             validate: {
-                validator: function(v: number[]) {
+                validator: function (v: number[]) {
                     return !v || (v.length === 2 && v[0] >= -180 && v[0] <= 180 && v[1] >= -90 && v[1] <= 90);
                 },
                 message: 'Coordinates must be [longitude, latitude] with valid ranges'
@@ -165,11 +170,11 @@ const outletSchema = new Schema<IOutlet>({
     },
     instagram_reels: [{
         id: { type: String, required: true },
-        url: { 
-            type: String, 
+        url: {
+            type: String,
             required: true,
             validate: {
-                validator: function(v: string) {
+                validator: function (v: string) {
                     // Validate Instagram Reel URL format
                     return /^https?:\/\/(www\.)?instagram\.com\/(reel|reels)\/[A-Za-z0-9_-]+\/?(\?.*)?$/.test(v);
                 },
@@ -182,7 +187,12 @@ const outletSchema = new Schema<IOutlet>({
         is_active: { type: Boolean, default: true },
         order: { type: Number, required: true }
     }],
-    subscription_id: { type: Schema.Types.ObjectId, ref: 'Subscription' }
+    subscription_id: { type: Schema.Types.ObjectId, ref: 'Subscription' },
+    menu_settings: {
+        default_view_mode: { type: String, enum: ['grid', 'list'], default: 'grid' },
+        show_item_images: { type: Boolean, default: true },
+        show_category_images: { type: Boolean, default: true }
+    }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Create indexes for queries
