@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/authMiddleware.js';
 import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import { notifyFollowersOfNewOffer } from '../services/notificationService.js';
 
 export const createOffer = async (req: AuthRequest, res: Response) => {
     try {
@@ -74,9 +75,14 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
             approval_status: 'approved'
         } as any);
 
+        const createdOffer = Array.isArray(offer) ? offer[0] : offer;
+
+        // Notify followers asynchronously (don't wait for it to finish to send response)
+        notifyFollowersOfNewOffer((createdOffer as any)._id as string, outletId);
+
         return sendSuccess(res, {
             message: 'Offer created successfully',
-            offer
+            offer: createdOffer
         }, null, 201);
     } catch (error: any) {
         console.error('Create offer error:', error);
@@ -274,10 +280,10 @@ export const getNearbyOffers = async (req: any, res: Response) => {
                     distanceField: 'distance',
                     maxDistance: radiusNum,
                     spherical: true,
-                    query: { 
+                    query: {
                         is_active: true,
                         valid_from: { $lte: now },
-                        valid_till: { $gte: now } 
+                        valid_till: { $gte: now }
                     }
                 }
             },
