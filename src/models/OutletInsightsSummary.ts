@@ -7,7 +7,7 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IOutletInsightsSummary extends Document {
     outlet_id: mongoose.Types.ObjectId;
-    time_range: '7d' | '30d' | '90d';
+    time_range: '7d' | '30d' | '90d' | 'today';
     computed_at: Date;
     period_start: Date;
     period_end: Date;
@@ -163,7 +163,7 @@ const OutletInsightsSummarySchema = new Schema<IOutletInsightsSummary>(
         },
         time_range: {
             type: String,
-            enum: ['7d', '30d', '90d'],
+            enum: ['7d', '30d', '90d', 'today'],
             required: true,
         },
         computed_at: {

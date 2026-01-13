@@ -12,10 +12,10 @@ import { OutletInsightsSummary, IOutletInsightsSummary } from '../models/OutletI
 /**
  * Service for computing outlet insights
  * Designed for cron job execution with batch processing
- * Supports: 7d, 30d, 90d (pre-computed) + today, custom (on-demand for premium)
+ * Supports: 7d, 30d, 90d (pre-computed) + today (on-demand for premium)
  */
 
-export type TimeRange = '7d' | '30d' | '90d' | 'today' | 'custom';
+export type TimeRange = '7d' | '30d' | '90d' | 'today';
 
 interface ComputationResult {
     success: boolean;
@@ -184,23 +184,6 @@ export class InsightsComputationService {
 
                 currentStart = new Date(todayStartIST.getTime() - IST_OFFSET_MS); // Convert back to UTC
                 currentEnd = nowUTC; // Current time in UTC
-                break;
-            }
-
-            case 'custom': {
-                // Custom range: use provided dates (assumed to be in IST)
-                if (!customStart || !customEnd) {
-                    throw new Error('Custom range requires start and end dates');
-                }
-
-                const startIST = new Date(customStart);
-                startIST.setHours(0, 0, 0, 0);
-
-                const endIST = new Date(customEnd);
-                endIST.setHours(23, 59, 59, 999);
-
-                currentStart = new Date(startIST.getTime() - IST_OFFSET_MS); // Convert to UTC
-                currentEnd = new Date(endIST.getTime() - IST_OFFSET_MS); // Convert to UTC
                 break;
             }
 
@@ -568,7 +551,7 @@ export class InsightsComputationService {
             if (offer) {
                 top_offer = {
                     id: topStat._id.toString(),
-                    title: offer.title,
+                    title: String(offer.title || 'Untitled Offer'),
                     views: topStat.views,
                     clicks: topStat.clicks,
                     code_copies: topStat.code_copies,

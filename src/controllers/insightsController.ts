@@ -22,7 +22,7 @@ import { normalizePlanToTier } from '../config/subscriptionPlans.js';
 export const getOutletInsights = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const range = (req.query.range as '7d' | '30d' | '90d' | 'today' | 'custom') || '7d';
+        const range = (req.query.range as '7d' | '30d' | '90d' | 'today') || '7d';
         const realtime = req.query.realtime === 'true';
         const customStart = req.query.start as string;
         const customEnd = req.query.end as string;
@@ -60,7 +60,7 @@ export const getOutletInsights = async (req: Request, res: Response) => {
         const isPremium = tier === 'premium' && ['active', 'trial'].includes(subscription.status);
 
         // Validate time range access - only 7d for free tier
-        const premiumRanges = ['30d', '90d', 'today', 'custom'];
+        const premiumRanges = ['30d', '90d', 'today'];
         if (!isPremium && premiumRanges.includes(range)) {
             return sendError(
                 res,
@@ -73,13 +73,6 @@ export const getOutletInsights = async (req: Request, res: Response) => {
                 },
                 403
             );
-        }
-
-        // Validate custom range parameters
-        if (range === 'custom' && (!customStart || !customEnd)) {
-            return sendError(res, 'Custom range requires start and end dates', {
-                required_params: ['start', 'end'],
-            });
         }
 
         // Get insights data
@@ -236,7 +229,7 @@ export const getOutletInsights = async (req: Request, res: Response) => {
 export const triggerInsightsComputation = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const range = (req.query.range as '7d' | '30d' | '90d' | 'today' | 'custom') || '7d';
+        const range = (req.query.range as '7d' | '30d' | '90d' | 'today') || '7d';
         const customStart = req.query.start as string;
         const customEnd = req.query.end as string;
 
