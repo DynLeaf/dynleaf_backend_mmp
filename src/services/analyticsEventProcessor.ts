@@ -91,6 +91,10 @@ export class AnalyticsEventProcessor {
                 case 'offer':
                     return await this.processOfferEvent(event);
 
+                case 'session_lifecycle':
+                    // These events are just for heartbeats/sessions, no DB storage needed for now
+                    return true;
+
                 default:
                     // Unknown event types go to a generic log
                     console.log('[EventProcessor] Unknown event type:', event.type);
