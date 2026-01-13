@@ -246,7 +246,7 @@ export class AnalyticsEventProcessor {
                 : undefined;
 
             if (!offerObjectId) {
-                console.warn('[EventProcessor] Invalid offer ID');
+                console.warn(`[EventProcessor] Invalid offer ID: "${payload.offerId}" for event type ${event.type}`);
                 return true;
             }
 

@@ -12,7 +12,10 @@ export const sendPushNotificationToUsers = async (
         const users = await User.find({ _id: { $in: userIds } }).select('fcm_tokens');
         const allTokens = users.flatMap(user => user.fcm_tokens || []);
 
-        if (allTokens.length === 0) return;
+        if (allTokens.length === 0) {
+            console.log(`FCM: No tokens found for any of the ${userIds.length} users. userIds: ${userIds.join(', ')}`);
+            return;
+        }
 
         // Batch send (FCM supports up to 500 tokens per call)
         const batches = [];
