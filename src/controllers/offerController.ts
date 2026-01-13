@@ -78,7 +78,8 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
         const createdOffer = Array.isArray(offer) ? offer[0] : offer;
 
         // Notify followers asynchronously (don't wait for it to finish to send response)
-        notifyFollowersOfNewOffer((createdOffer as any)._id as string, outletId);
+        notifyFollowersOfNewOffer((createdOffer as any)._id as string, outletId)
+            .catch(err => console.error('[OfferController] Notification error:', err));
 
         return sendSuccess(res, {
             message: 'Offer created successfully',

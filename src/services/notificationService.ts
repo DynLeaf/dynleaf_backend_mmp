@@ -6,6 +6,7 @@ import { User } from '../models/User.js';
 import { sendPushNotificationToUsers } from './pushNotificationService.js';
 
 export const notifyFollowersOfNewOffer = async (offerId: string, outletId: string) => {
+    console.log(`[NotifyFollowers] Starting notification process for offer ${offerId} at outlet ${outletId}`);
     try {
         const [offer, outlet] = await Promise.all([
             Offer.findById(offerId),
@@ -45,8 +46,8 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
             notificationBody,
             {
                 type: 'OFFER',
-                offerId: offerId,
-                outletId: outletId
+                offerId: offerId.toString(),
+                outletId: outletId.toString()
             }
         );
 
