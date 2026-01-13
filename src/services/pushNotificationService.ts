@@ -29,33 +29,43 @@ export const sendPushNotificationToUsers = async (
                 tokens: batch,
             };
 
+            console.log(`FCM: Attempting to send push to ${batch.length} tokens...`);
             const response = await admin.messaging().sendEachForMulticast(message);
+
             stats.success += response.successCount;
             stats.failure += response.failureCount;
 
-            // Handle invalid tokens (cleanup)
             if (response.failureCount > 0) {
+                console.warn(`FCM: ${response.failureCount} tokens failed in this batch.`);
                 const tokensToRemove: string[] = [];
                 response.responses.forEach((resp, idx) => {
                     if (!resp.success) {
                         const error = resp.error?.code;
+                        const errorMsg = resp.error?.message;
+                        console.error(`FCM: Token failure [${idx}]: ${error} - ${errorMsg}`);
+
                         if (error === 'messaging/invalid-registration-token' ||
                             error === 'messaging/registration-token-not-registered') {
                             tokensToRemove.push(batch[idx]);
                         }
+                    } else {
+                        console.log(`FCM: Token success [${idx}]`);
                     }
                 });
 
                 if (tokensToRemove.length > 0) {
+                    console.log(`FCM: Removing ${tokensToRemove.length} stale/invalid tokens from DB.`);
                     await User.updateMany(
                         { fcm_tokens: { $in: tokensToRemove } },
                         { $pull: { fcm_tokens: { $in: tokensToRemove } } }
                     );
                 }
+            } else {
+                console.log(`FCM: All ${batch.length} tokens in this batch were successfully accepted by Firebase.`);
             }
         }
 
-        console.log(`Push stats: ${stats.success} successes, ${stats.failure} failures`);
+        console.log(`FCM: Push summary -> Successes: ${stats.success}, Failures: ${stats.failure}`);
     } catch (error) {
         console.error('Error sending push notifications:', error);
     }
