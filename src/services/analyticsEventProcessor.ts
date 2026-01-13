@@ -353,7 +353,7 @@ export class AnalyticsEventProcessor {
             return 'offer';
         }
 
-        if (type === 'session_start' || type === 'session_end' || type === 'heartbeat') {
+        if (type === 'session_start' || type === 'session_end' || type === 'heartbeat' || type === 'navigation') {
             return 'session_lifecycle';
         }
 
