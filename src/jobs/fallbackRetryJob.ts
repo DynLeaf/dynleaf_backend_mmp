@@ -89,11 +89,15 @@ export class FallbackRetryJob {
                     // Try to process the event
                     const result = await eventProcessor.processEvents([event]);
 
-                    if (result.success > 0) {
-                        // Success! Mark as processed
+                    if (result.success > 0 || result.duplicates > 0) {
+                        // Successfully handled (or already handled)! Mark as processed
                         await fallbackStorage.markProcessed(filepath);
                         successCount++;
-                        console.log('[FallbackRetryJob] Event processed successfully:', event.event_hash);
+                        if (result.duplicates > 0) {
+                            console.log('[FallbackRetryJob] Event was already processed (duplicate), marking as success:', event.event_hash);
+                        } else {
+                            console.log('[FallbackRetryJob] Event processed successfully:', event.event_hash);
+                        }
                     } else {
                         // Failed, will retry next time
                         failedCount++;

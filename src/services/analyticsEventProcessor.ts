@@ -349,6 +349,10 @@ export class AnalyticsEventProcessor {
             return 'offer';
         }
 
+        if (type === 'session_start' || type === 'session_end' || type === 'heartbeat') {
+            return 'session_lifecycle';
+        }
+
         return 'unknown';
     }
 

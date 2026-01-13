@@ -243,8 +243,8 @@ export const retryFallbackEvents = async (req: Request, res: Response) => {
                 // Try to process the event
                 const result = await eventProcessor.processEvents([event]);
 
-                if (result.success > 0) {
-                    // Mark as processed
+                if (result.success > 0 || result.duplicates > 0) {
+                    // Mark as processed (success or already processed)
                     await fallbackStorage.markProcessed(filepath);
                     successCount++;
                 } else {
