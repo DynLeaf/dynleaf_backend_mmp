@@ -3,6 +3,7 @@ import { User } from "../models/User.js";
 import { Brand } from "../models/Brand.js";
 import { Outlet } from "../models/Outlet.js";
 import { Session } from "../models/Session.js";
+import { Follow } from "../models/Follow.js";
 import * as otpService from "../services/otpService.js";
 import * as tokenService from "../services/tokenService.js";
 import * as sessionService from "../services/sessionService.js";
@@ -294,6 +295,9 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Get following count
+    const followingCount = await Follow.countDocuments({ user: user._id });
+
     return sendSuccess(res, {
       user: {
         id: user._id,
@@ -324,6 +328,7 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
         is_verified: user.is_verified,
         is_active: user.is_active,
         last_login_at: user.last_login_at,
+        following_count: followingCount,
       },
     });
   } catch (error: any) {

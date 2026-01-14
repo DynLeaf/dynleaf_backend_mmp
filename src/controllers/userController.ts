@@ -1,12 +1,13 @@
 import { Response } from 'express';
 import { User } from '../models/User.js';
+import { Follow } from '../models/Follow.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 export const getUserProfile = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user?.id;
-        
+
         if (!userId) {
             return res.status(401).json({
                 status: false,
@@ -17,7 +18,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
         }
 
         const user = await User.findById(userId).select('-password_hash');
-        
+
         if (!user) {
             return res.status(404).json({
                 status: false,
@@ -27,9 +28,15 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Get following count
+        const followingCount = await Follow.countDocuments({ user: userId });
+
         res.json({
             status: true,
-            data: user,
+            data: {
+                ...user.toObject(),
+                following_count: followingCount
+            },
             message: 'User profile retrieved successfully',
             error: null
         });
@@ -47,7 +54,7 @@ export const getUserProfile = async (req: AuthRequest, res: Response) => {
 export const updateUserProfile = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user?.id;
-        
+
         if (!userId) {
             return res.status(401).json({
                 status: false,
@@ -65,7 +72,7 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             (req.body?.url as unknown);
 
         const updateData: any = {};
-        
+
         if (full_name !== undefined) updateData.full_name = full_name;
         if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
@@ -139,7 +146,7 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
 export const uploadAvatar = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user?.id;
-        
+
         if (!userId) {
             return res.status(401).json({
                 status: false,

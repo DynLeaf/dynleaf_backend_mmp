@@ -3,6 +3,7 @@ import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
 import { OperatingHours } from '../models/OperatingHours.js';
+import { Follow } from '../models/Follow.js';
 import mongoose from 'mongoose';
 
 /**
@@ -414,12 +415,16 @@ export const getOutletDetail = async (req: Request, res: Response) => {
       { $sort: { name: 1 } }
     ]);
 
+    // Get followers count
+    const followersCount = await Follow.countDocuments({ outlet: outletId });
+
     res.json({
       status: true,
       data: {
         outlet: {
           ...outlet,
           available_items_count: itemsCount,
+          followers_count: followersCount,
           opening_hours: formattedHours,
           // Ensure outlet-centric fields are explicitly included
           order_phone: outlet.order_phone,

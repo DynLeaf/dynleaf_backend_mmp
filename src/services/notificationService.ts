@@ -26,7 +26,9 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
             message: `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`,
             type: 'OFFER',
             reference_id: offer._id,
-            reference_model: 'Offer'
+            reference_model: 'Offer',
+            link: `/restaurant/${outletId}/menu`, // Link to outlet menu page
+            image: offer.banner_image_url || offer.background_image_url // Offer image
         }));
 
         // Bulk insert for efficiency
@@ -62,13 +64,40 @@ export const getUserNotifications = async (userId: string, page = 1, limit = 20)
         Notification.find({ user: userId })
             .sort({ created_at: -1 })
             .skip(skip)
-            .limit(limit),
+            .limit(limit)
+            .lean(), // Use lean() to get plain objects for easier transformation
         Notification.countDocuments({ user: userId }),
         Notification.countDocuments({ user: userId, is_read: false })
     ]);
 
+    // Transform notifications to ensure they have proper links
+    // This handles old notifications created before link field was added
+    const transformedNotifications = await Promise.all(notifications.map(async (n: any) => {
+        // If notification already has a link, use it
+        if (n.link) return n;
+
+        // For OFFER type notifications without a link, generate one from the offer
+        if (n.type === 'OFFER' && n.reference_id && n.reference_model === 'Offer') {
+            try {
+                const offer = await Offer.findById(n.reference_id).select('outlet_ids banner_image_url background_image_url').lean();
+                if (offer && offer.outlet_ids && offer.outlet_ids.length > 0) {
+                    // Use the first outlet ID to generate the link
+                    n.link = `/restaurant/${offer.outlet_ids[0]}/menu`;
+                    // Also add image if not present
+                    if (!n.image) {
+                        n.image = offer.banner_image_url || offer.background_image_url;
+                    }
+                }
+            } catch (error) {
+                console.error('Error generating link for notification:', error);
+            }
+        }
+
+        return n;
+    }));
+
     return {
-        notifications,
+        notifications: transformedNotifications,
         pagination: {
             total,
             page,

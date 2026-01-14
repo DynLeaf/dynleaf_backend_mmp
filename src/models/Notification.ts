@@ -7,6 +7,8 @@ export interface INotification extends Document {
     type: 'OFFER' | 'SYSTEM' | 'PROMOTION';
     reference_id?: mongoose.Types.ObjectId;
     reference_model?: string;
+    link?: string;
+    image?: string;
     is_read: boolean;
     created_at: Date;
 }
@@ -18,6 +20,8 @@ const notificationSchema = new Schema<INotification>({
     type: { type: String, enum: ['OFFER', 'SYSTEM', 'PROMOTION'], default: 'OFFER' },
     reference_id: { type: Schema.Types.ObjectId },
     reference_model: { type: String },
+    link: { type: String },
+    image: { type: String },
     is_read: { type: Boolean, default: false },
     created_at: { type: Date, default: Date.now }
 });

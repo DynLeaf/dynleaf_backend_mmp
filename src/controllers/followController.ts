@@ -46,14 +46,36 @@ export const unfollowOutlet = async (req: AuthRequest, res: Response) => {
 export const getFollowedOutlets = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const follows = await Follow.find({ user: userId })
-            .populate({
-                path: 'outlet',
-                select: 'name banner_image_url brand_id location address'
-            })
-            .sort({ created_at: -1 });
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const skip = (page - 1) * limit;
 
-        return sendSuccess(res, { follows });
+        const [follows, total] = await Promise.all([
+            Follow.find({ user: userId })
+                .populate({
+                    path: 'outlet',
+                    select: 'name banner_image_url cover_image_url brand_id location address',
+                    populate: {
+                        path: 'brand_id',
+                        select: 'logo_url name cuisines'
+                    }
+                })
+                .sort({ created_at: -1 })
+                .skip(skip)
+                .limit(limit),
+            Follow.countDocuments({ user: userId })
+        ]);
+
+        return sendSuccess(res, {
+            follows,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+                hasMore: page * limit < total
+            }
+        });
     } catch (error: any) {
         console.error('Get followed outlets error:', error);
         return sendError(res, error.message);
