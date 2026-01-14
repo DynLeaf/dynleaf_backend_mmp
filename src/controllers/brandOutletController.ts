@@ -217,6 +217,37 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
       }
     ];
 
+    // Check if user follows the outlet (Server-Side Join)
+    if ((req as any).user?.id) {
+      const userId = new mongoose.Types.ObjectId((req as any).user.id);
+      pipeline.push({
+        $lookup: {
+          from: 'follows',
+          let: { outletId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$outlet', '$$outletId'] },
+                    { $eq: ['$user', userId] }
+                  ]
+                }
+              }
+            },
+            { $limit: 1 }
+          ],
+          as: 'user_follow'
+        }
+      });
+
+      pipeline.push({
+        $addFields: {
+          is_following: { $gt: [{ $size: '$user_follow' }, 0] }
+        }
+      });
+    }
+
     // Filter by cuisines
     if (cuisines) {
       const cuisineArray = (cuisines as string).split(',').map(c => c.trim());
@@ -294,6 +325,7 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
         contact: 1,
         flags: 1,
         available_items_count: 1,
+        is_following: 1,
         brand: {
           _id: '$brand._id',
           name: '$brand.name',
@@ -418,6 +450,14 @@ export const getOutletDetail = async (req: Request, res: Response) => {
     // Get followers count
     const followersCount = await Follow.countDocuments({ outlet: outletId });
 
+    // Check if user follows the outlet
+    let isFollowing = false;
+    if ((req as any).user?.id) {
+      const userId = (req as any).user.id;
+      const follow = await Follow.findOne({ user: userId, outlet: outletId });
+      isFollowing = !!follow;
+    }
+
     res.json({
       status: true,
       data: {
@@ -425,6 +465,7 @@ export const getOutletDetail = async (req: Request, res: Response) => {
           ...outlet,
           available_items_count: itemsCount,
           followers_count: followersCount,
+          is_following: isFollowing,
           opening_hours: formattedHours,
           // Ensure outlet-centric fields are explicitly included
           order_phone: outlet.order_phone,

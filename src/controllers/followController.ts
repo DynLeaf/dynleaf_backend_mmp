@@ -105,3 +105,16 @@ export const checkFollowStatus = async (req: AuthRequest, res: Response) => {
         return sendError(res, error.message);
     }
 };
+
+export const getFollowedOutletIds = async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user.id;
+        // Fetch all follows for the user, selecting only the outlet ID
+        const follows = await Follow.find({ user: userId }).select('outlet');
+        const outletIds = follows.map(f => f.outlet);
+        return sendSuccess(res, { outletIds });
+    } catch (error: any) {
+        console.error('Get followed outlet IDs error:', error);
+        return sendError(res, error.message);
+    }
+};

@@ -6,6 +6,7 @@ import { Brand } from '../models/Brand.js';
 import { Compliance } from '../models/Compliance.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { User } from '../models/User.js';
+import { Follow } from '../models/Follow.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as outletService from '../services/outletService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
@@ -174,6 +175,13 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
             outletPayload.subscription = summary.subscription;
             outletPayload.free_tier = summary.free_tier;
             outletPayload.had_paid_plan_before = summary.had_paid_plan_before;
+        }
+
+        // Check if user follows the outlet
+        if ((req as any).user?.id) {
+            const userId = (req as any).user.id;
+            const follow = await Follow.findOne({ user: userId, outlet: outletId });
+            outletPayload.is_following = !!follow;
         }
 
         return sendSuccess(res, {
@@ -637,6 +645,37 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
             }
         ];
 
+        // Check if user follows the outlet (Server-Side Join)
+        if ((req as any).user?.id) {
+            const userId = new mongoose.Types.ObjectId((req as any).user.id);
+            pipeline.push({
+                $lookup: {
+                    from: 'follows',
+                    let: { outletId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$outlet', '$$outletId'] },
+                                        { $eq: ['$user', userId] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $limit: 1 }
+                    ],
+                    as: 'user_follow'
+                }
+            });
+
+            pipeline.push({
+                $addFields: {
+                    is_following: { $gt: [{ $size: '$user_follow' }, 0] }
+                }
+            });
+        }
+
         // Add cuisine filter if provided
         if (cuisines) {
             const cuisineArray = (cuisines as string).split(',');
@@ -684,6 +723,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
                 order_link: 1,
                 flags: 1,
                 social_media: 1,
+                is_following: 1, // Include computed field
                 brand: {
                     _id: '$brand._id',
                     name: '$brand.name',
@@ -809,6 +849,19 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
             .sort((a: any, b: any) => a.distance - b.distance)
             .slice(0, limitNum);
 
+        // Populate is_following if user is logged in
+        let followedOutletIds = new Set<string>();
+        if ((req as any).user?.id) {
+            try {
+                const userId = (req as any).user.id;
+                const outletIds = validOutlets.map((o: any) => o._id);
+                const follows = await Follow.find({ user: userId, outlet: { $in: outletIds } }).select('outlet');
+                followedOutletIds = new Set(follows.map(f => f.outlet.toString()));
+            } catch (err) {
+                console.error('Error fetching follow status for featured outlets:', err);
+            }
+        }
+
         console.log(`✅ Returning ${validOutlets.length} featured outlets`);
 
         const formattedOutlets = validOutlets.map(outlet => {
@@ -816,6 +869,7 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
             return {
                 _id: outlet._id,
                 name: outlet.name,
+                is_following: followedOutletIds.has(outlet._id.toString()),
                 slug: outlet.slug,
                 address: outlet.address,
                 distance: Math.round(outlet.distance),

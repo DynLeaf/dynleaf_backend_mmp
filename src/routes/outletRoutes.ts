@@ -23,7 +23,7 @@ import {
     getMenuSettings,
     updateMenuSettings
 } from '../controllers/outletController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
 import {
     updateSocialLinks,
@@ -46,10 +46,10 @@ import {
 
 const router = express.Router();
 
-// Public routes
-router.get('/nearby', getNearbyOutlets);
-router.get('/featured', getFeaturedOutlets);
-router.get('/brand/:brandId/outlets', getBrandOutlets);
+// Public routes (with optional auth for personalized data like 'is_following')
+router.get('/nearby', optionalAuth, getNearbyOutlets);
+router.get('/featured', optionalAuth, getFeaturedOutlets);
+router.get('/brand/:brandId/outlets', optionalAuth, getBrandOutlets);
 
 // Protected routes
 router.post('/', protect, createOutlet);
