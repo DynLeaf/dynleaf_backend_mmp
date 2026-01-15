@@ -4,13 +4,15 @@ import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { User } from '../models/User.js';
 import { sendPushNotificationToUsers } from './pushNotificationService.js';
+import { Brand } from '../models/Brand.js';
 
 export const notifyFollowersOfNewOffer = async (offerId: string, outletId: string) => {
     console.log(`[NotifyFollowers] Starting notification process for offer ${offerId} at outlet ${outletId}`);
     try {
-        const [offer, outlet] = await Promise.all([
+        const [offer, outlet, brand] = await Promise.all([
             Offer.findById(offerId),
-            Outlet.findById(outletId)
+            Outlet.findById(outletId),
+            Brand.findById(outletId)
         ]);
 
         if (!offer || !outlet) return;
@@ -41,7 +43,8 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         const userIds = followers.map(f => f.user.toString());
         const notificationTitle = `New Offer from ${outlet.name}`;
         const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-
+        const restaurantLogo = brand?.logo_url || undefined;
+        
         await sendPushNotificationToUsers(
             userIds,
             notificationTitle,
@@ -50,7 +53,8 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
                 type: 'OFFER',
                 offerId: offerId.toString(),
                 outletId: outletId.toString()
-            }
+            },
+            restaurantLogo
         );
 
     } catch (error) {

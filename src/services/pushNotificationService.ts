@@ -5,7 +5,8 @@ export const sendPushNotificationToUsers = async (
     userIds: string[],
     title: string,
     body: string,
-    data: Record<string, string> = {}
+    data: Record<string, string> = {},
+    image?: string
 ) => {
     try {
         // Find all users and their tokens
@@ -27,7 +28,7 @@ export const sendPushNotificationToUsers = async (
 
         for (const batch of batches) {
             const message = {
-                notification: { title, body },
+                notification: { title, body, ...(image ? { image } : {}) },
                 data: data,
                 tokens: batch,
             };
