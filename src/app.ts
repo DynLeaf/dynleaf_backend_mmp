@@ -24,6 +24,7 @@ import analyticsBatchRoutes from './routes/analyticsBatchRoutes.js';
 import geminiRoutes from './routes/geminiRoutes.js';
 import followRoutes from './routes/followRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
+import socialShareRoutes from './routes/socialShareRoutes.js';
 import './config/firebaseAdmin.js';
 import logger from './middleware/logger.js';
 import * as promotionController from './controllers/promotionController.js';
@@ -92,6 +93,9 @@ app.use('/v1/analytics', analyticsBatchRoutes);
 
 // AI-powered features (Gemini)
 app.use('/v1/gemini', geminiRoutes);
+
+// Public social share meta proxy
+app.use('/v1/social-share', socialShareRoutes);
 
 // Public promotion routes
 app.get('/v1/promotions/featured', promotionController.getFeaturedPromotions);
