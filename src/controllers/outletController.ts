@@ -184,6 +184,10 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
             outletPayload.is_following = !!follow;
         }
 
+        // Get total follower count
+        const followersCount = await Follow.countDocuments({ outlet: outletId });
+        outletPayload.followers_count = followersCount;
+
         return sendSuccess(res, {
             outlet: outletPayload
         });
