@@ -9,6 +9,7 @@ import * as tokenService from "../services/tokenService.js";
 import * as sessionService from "../services/sessionService.js";
 import * as outletService from "../services/outletService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import { Admin } from "../models/Admin.js";
 import jwt from "jsonwebtoken";
 
 interface AuthRequest extends Request {
@@ -439,25 +440,81 @@ export const adminLogin = async (req: Request, res: Response) => {
       return sendError(res, "Email and password are required", null, 400);
     }
 
-    // Hardcoded admin credentials
-    const ADMIN_EMAIL = "admin@gmail.com";
-    const ADMIN_PASSWORD = "pass@123";
+    console.log('[AdminLogin] Attempting login for:', email);
 
-    if (email !== ADMIN_EMAIL || password !== ADMIN_PASSWORD) {
+    // Find admin by email
+    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
+
+    console.log('[AdminLogin] Admin found:', !!admin);
+
+    if (!admin) {
       return sendError(res, "Invalid credentials", null, 401);
     }
 
+    // Check if account is locked
+    if (admin.locked_until && admin.locked_until > new Date()) {
+      const minutesLeft = Math.ceil((admin.locked_until.getTime() - Date.now()) / 60000);
+      return sendError(
+        res,
+        `Account temporarily locked. Try again in ${minutesLeft} minutes`,
+        { locked_until: admin.locked_until },
+        403
+      );
+    }
+
+    // Check if account is active
+    if (!admin.is_active) {
+      return sendError(res, "Account is deactivated", null, 403);
+    }
+
+    // Verify password
+    const isPasswordValid = await admin.comparePassword(password);
+
+    if (!isPasswordValid) {
+      // Increment failed login attempts
+      admin.failed_login_attempts += 1;
+
+      // Lock account after 5 failed attempts for 30 minutes
+      if (admin.failed_login_attempts >= 5) {
+        admin.locked_until = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+        await admin.save();
+        return sendError(
+          res,
+          "Too many failed login attempts. Account locked for 30 minutes",
+          null,
+          403
+        );
+      }
+
+      await admin.save();
+      return sendError(res, "Invalid credentials", null, 401);
+    }
+
+    // Reset failed login attempts on successful login
+    admin.failed_login_attempts = 0;
+    admin.locked_until = undefined;
+    admin.last_login_at = new Date();
+    admin.last_login_ip = req.ip || req.socket.remoteAddress;
+    admin.last_login_device = req.headers['user-agent'];
+    await admin.save();
+
     // Create admin user object
     const adminUser = {
-      id: "admin",
-      email: ADMIN_EMAIL,
-      name: "Admin",
-      role: "admin",
+      id: admin._id.toString(),
+      email: admin.email,
+      name: admin.full_name,
+      role: admin.role,
+      permissions: admin.permissions,
     };
 
-    // Generate simple JWT token for admin
+    // Generate JWT token for admin
     const token = jwt.sign(
-      { userId: "admin", email: ADMIN_EMAIL, role: "admin" },
+      {
+        userId: admin._id.toString(),
+        email: admin.email,
+        role: admin.role,
+        permissions: admin.permissions
+      },
       process.env.JWT_SECRET || "secret",
       { expiresIn: "7d" }
     );
