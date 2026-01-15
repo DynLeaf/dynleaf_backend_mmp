@@ -175,6 +175,8 @@ export class InsightsComputationService {
 
         let currentStart: Date;
         let currentEnd: Date;
+        let previousStart: Date;
+        let previousEnd: Date;
 
         switch (timeRange) {
             case 'today': {
@@ -184,6 +186,17 @@ export class InsightsComputationService {
 
                 currentStart = new Date(todayStartIST.getTime() - IST_OFFSET_MS); // Convert back to UTC
                 currentEnd = nowUTC; // Current time in UTC
+
+                // Previous period: Yesterday from 00:00 to the same time as now
+                // This ensures fair comparison (e.g., if it's 8:30 PM today, compare with yesterday 00:00 to 8:30 PM)
+                const yesterdayStartIST = new Date(todayStartIST);
+                yesterdayStartIST.setDate(yesterdayStartIST.getDate() - 1);
+
+                const yesterdayEndIST = new Date(nowIST);
+                yesterdayEndIST.setDate(yesterdayEndIST.getDate() - 1);
+
+                previousStart = new Date(yesterdayStartIST.getTime() - IST_OFFSET_MS); // Convert to UTC
+                previousEnd = new Date(yesterdayEndIST.getTime() - IST_OFFSET_MS); // Convert to UTC
                 break;
             }
 
@@ -191,23 +204,30 @@ export class InsightsComputationService {
             case '30d':
             case '90d':
             default: {
-                // Standard ranges: last N days in IST
+                // Standard ranges: last N days in IST, ending at current time
                 const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : 90;
 
-                const endIST = new Date(nowIST);
-                const startIST = new Date(nowIST);
-                startIST.setDate(startIST.getDate() - days);
+                // Current period: N days ago to now (same time of day)
+                const currentEndIST = new Date(nowIST);
+                const currentStartIST = new Date(nowIST);
+                currentStartIST.setDate(currentStartIST.getDate() - days);
 
-                currentStart = new Date(startIST.getTime() - IST_OFFSET_MS); // Convert to UTC
-                currentEnd = new Date(endIST.getTime() - IST_OFFSET_MS); // Convert to UTC
+                currentStart = new Date(currentStartIST.getTime() - IST_OFFSET_MS); // Convert to UTC
+                currentEnd = new Date(currentEndIST.getTime() - IST_OFFSET_MS); // Convert to UTC
+
+                // Previous period: Same N-day window, but shifted back by N days
+                // Example for 7d at 8:30 PM:
+                // - Current: 7 days ago at 8:30 PM to now (8:30 PM)
+                // - Previous: 14 days ago at 8:30 PM to 7 days ago at 8:30 PM
+                const previousEndIST = new Date(currentStartIST); // End at the start of current period
+                const previousStartIST = new Date(currentStartIST);
+                previousStartIST.setDate(previousStartIST.getDate() - days);
+
+                previousStart = new Date(previousStartIST.getTime() - IST_OFFSET_MS); // Convert to UTC
+                previousEnd = new Date(previousEndIST.getTime() - IST_OFFSET_MS); // Convert to UTC
                 break;
             }
         }
-
-        // Calculate previous period (for trends comparison)
-        const periodDuration = currentEnd.getTime() - currentStart.getTime();
-        const previousEnd = new Date(currentStart);
-        const previousStart = new Date(currentStart.getTime() - periodDuration);
 
         return {
             currentPeriod: { start: currentStart, end: currentEnd },
