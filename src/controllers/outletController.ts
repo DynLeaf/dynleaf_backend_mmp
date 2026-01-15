@@ -497,6 +497,12 @@ export const getProfileAbout = async (req: Request, res: Response) => {
 export const getBrandOutlets = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
+        const {
+            latitude,
+            longitude,
+            limit,
+            excludeOutletId
+        } = req.query;
 
         // Validate brandId
         if (!mongoose.Types.ObjectId.isValid(brandId)) {
@@ -506,40 +512,102 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
             });
         }
 
-        // Find all active and approved outlets for this brand
-        const outlets = await Outlet.find({
+        const hasLocation = latitude && longitude;
+        const lat = hasLocation ? parseFloat(latitude as string) : null;
+        const lng = hasLocation ? parseFloat(longitude as string) : null;
+        const limitNum = limit ? parseInt(limit as string) : undefined;
+
+        // Build query for outlets
+        const query: any = {
             brand_id: brandId,
             status: 'ACTIVE',
             approval_status: 'APPROVED'
-        })
+        };
+
+        // Exclude specific outlet if provided
+        if (excludeOutletId && mongoose.Types.ObjectId.isValid(excludeOutletId as string)) {
+            query._id = { $ne: new mongoose.Types.ObjectId(excludeOutletId as string) };
+        }
+
+        // Fetch outlets
+        const outlets = await Outlet.find(query)
             .select('name slug address location contact media restaurant_type vendor_types social_media avg_rating total_reviews')
             .lean();
 
-        const formattedOutlets = outlets.map(outlet => ({
-            id: outlet._id,
-            name: outlet.name,
-            slug: outlet.slug,
-            address: {
-                full_address: outlet.address?.full || `${outlet.address?.city || ''}, ${outlet.address?.state || ''}`.trim(),
-                city: outlet.address?.city,
-                state: outlet.address?.state,
-                country: outlet.address?.country,
-                pincode: outlet.address?.pincode
-            },
-            location: outlet.location,
-            contact: outlet.contact,
-            coverImage: outlet.media?.cover_image_url,
-            restaurant_type: outlet.restaurant_type,
-            vendor_types: outlet.vendor_types,
-            social_media: outlet.social_media,
-            rating: outlet.avg_rating || 0,
-            total_reviews: outlet.total_reviews || 0
-        }));
+        // Helper function to calculate distance
+        const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+            const R = 6371; // Radius of the earth in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c; // Distance in km
+        };
+
+        // Format outlets and calculate distance if location provided
+        let formattedOutlets = outlets.map((outlet: any) => {
+            const formatted: any = {
+                id: outlet._id,
+                name: outlet.name,
+                slug: outlet.slug,
+                address: {
+                    full_address: outlet.address?.full || `${outlet.address?.city || ''}, ${outlet.address?.state || ''}`.trim(),
+                    city: outlet.address?.city,
+                    state: outlet.address?.state,
+                    country: outlet.address?.country,
+                    pincode: outlet.address?.pincode
+                },
+                location: outlet.location,
+                contact: outlet.contact,
+                coverImage: outlet.media?.cover_image_url,
+                restaurant_type: outlet.restaurant_type,
+                vendor_types: outlet.vendor_types,
+                social_media: outlet.social_media,
+                rating: outlet.avg_rating || 0,
+                total_reviews: outlet.total_reviews || 0
+            };
+
+            // Calculate distance if user location is provided
+            if (hasLocation && lat !== null && lng !== null && outlet.location?.coordinates) {
+                const [outletLng, outletLat] = outlet.location.coordinates;
+                const distance = calculateDistance(lat, lng, outletLat, outletLng);
+                formatted.distance = distance.toFixed(1);
+                formatted._distanceValue = distance; // For sorting
+            }
+
+            return formatted;
+        });
+
+        // Sort by distance if location was provided
+        if (hasLocation && lat !== null && lng !== null) {
+            formattedOutlets.sort((a: any, b: any) => {
+                const distA = a._distanceValue || Infinity;
+                const distB = b._distanceValue || Infinity;
+                return distA - distB;
+            });
+
+            // Remove the temporary sorting field
+            formattedOutlets = formattedOutlets.map((outlet: any) => {
+                const { _distanceValue, ...rest } = outlet;
+                return rest;
+            });
+        }
+
+        const total = formattedOutlets.length;
+        const limitedOutlets = limitNum ? formattedOutlets.slice(0, limitNum) : formattedOutlets;
 
         return res.json({
             status: true,
-            data: { outlets: formattedOutlets },
-            message: `Found ${formattedOutlets.length} outlet(s) for this brand`
+            data: {
+                outlets: limitedOutlets,
+                total: total,
+                showing: limitedOutlets.length,
+                hasMore: total > limitedOutlets.length
+            },
+            message: `Found ${total} outlet(s) for this brand`
         });
     } catch (error: any) {
         console.error('getBrandOutlets error:', error);
@@ -835,7 +903,6 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
             .populate('brand_id', 'name slug logo_url cuisines verification_status is_active is_featured')
             .lean();
 
-        console.log(`🌟 Found ${featuredOutlets.length} featured outlets`);
 
         // Step 2: Filter by approved brands and calculate distance
         const validOutlets = featuredOutlets
@@ -881,7 +948,6 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
             }
         }
 
-        console.log(`✅ Returning ${validOutlets.length} featured outlets`);
 
         const formattedOutlets = validOutlets.map(outlet => {
             if (!outlet) return null;
@@ -954,7 +1020,6 @@ export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
 
         await outlet.save();
 
-        console.log(`🌟 Outlet ${outlet.name} featured status set to: ${is_featured}`);
 
         return sendSuccess(res, {
             outlet: {
@@ -1014,7 +1079,7 @@ export const addInstagramReel = async (req: AuthRequest, res: Response) => {
 
                 if (reelShortcode) {
                     thumbnailUrl = `https://www.instagram.com/p/${reelShortcode}/media/?size=l`;
-                    console.log('📸 Using Instagram media URL as thumbnail');
+
                 }
             } catch (error) {
                 console.warn('⚠️ Could not generate thumbnail URL');
