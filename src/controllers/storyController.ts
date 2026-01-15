@@ -7,12 +7,13 @@ import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
+import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
 
 // --- Helpers ---
 
 const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> => {
     if (user.activeRole?.role === 'admin') return true;
-    
+
     // Check if user has access to this outlet in their roles
     const hasAccess = user.roles.some((r: any) => {
         if (r.role === 'admin') return true;
@@ -21,11 +22,11 @@ const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> 
         // Ideally we fetch outlet and check brand ownership too if scope is brand
         return false;
     });
-    
+
     // Also check if they are the owner of the outlet (created_by) or in managers list
     if (!hasAccess) {
         const outlet = await Outlet.findById(outletId);
-        if (outlet && (outlet.created_by_user_id.toString() === user.id || 
+        if (outlet && (outlet.created_by_user_id.toString() === user.id ||
             outlet.managers?.some(m => m.user_id.toString() === user.id))) {
             return true;
         }
@@ -83,7 +84,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             const imagePositionPct = normalizePoint(slide.imagePositionPct);
             const captionPosition = normalizePoint(slide.captionPosition);
             const captionPositionPct = normalizePoint(slide.captionPositionPct);
-            
+
             return {
                 mediaUrl,
                 mediaType: slide.mediaType || 'image',
@@ -150,7 +151,7 @@ export const getStoryFeed = async (req: Request, res: Response) => {
             status: 'ACTIVE',
             approval_status: 'APPROVED'
         };
-        
+
         if (latitude && longitude) {
             outletQuery.location = {
                 $near: {
@@ -180,15 +181,15 @@ export const getStoryFeed = async (req: Request, res: Response) => {
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
         })
-        .populate({
-            path: 'outletId',
-            select: 'name slug media.cover_image_url location address status approval_status brand_id',
-            populate: {
-                path: 'brand_id',
-                select: 'name verification_status'
-            }
-        })
-        .sort({ created_at: -1 });
+            .populate({
+                path: 'outletId',
+                select: 'name slug media.cover_image_url location address status approval_status brand_id',
+                populate: {
+                    path: 'brand_id',
+                    select: 'name verification_status'
+                }
+            })
+            .sort({ created_at: -1 });
 
         // 3. Get user's viewed stories if userId provided
         let viewedStoryIds = new Set<string>();
@@ -203,7 +204,7 @@ export const getStoryFeed = async (req: Request, res: Response) => {
             const outletIdStr = (story.outletId as any)._id.toString();
             const storyIdStr = story._id.toString();
             const isSeen = viewedStoryIds.has(storyIdStr);
-            
+
             if (!feedMap.has(outletIdStr)) {
                 feedMap.set(outletIdStr, {
                     outlet: story.outletId,
@@ -212,9 +213,9 @@ export const getStoryFeed = async (req: Request, res: Response) => {
                     hasUnseen: false
                 });
             }
-            
+
             feedMap.get(outletIdStr)!.stories.push(story);
-            
+
             // If any story is unseen, mark outlet as having unseen content
             if (!isSeen) {
                 feedMap.get(outletIdStr)!.hasUnseen = true;
@@ -239,15 +240,15 @@ export const getOutletStories = async (req: Request, res: Response) => {
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
         })
-        .populate({
-            path: 'outletId',
-            select: 'name slug media.cover_image_url location address status approval_status brand_id',
-            populate: {
-                path: 'brand_id',
-                select: 'name verification_status'
-            }
-        })
-        .sort({ created_at: 1 }); // Oldest first (chronological order usually)
+            .populate({
+                path: 'outletId',
+                select: 'name slug media.cover_image_url location address status approval_status brand_id',
+                populate: {
+                    path: 'brand_id',
+                    select: 'name verification_status'
+                }
+            })
+            .sort({ created_at: 1 }); // Oldest first (chronological order usually)
 
         return sendSuccess(res, stories);
     } catch (error: any) {
@@ -281,7 +282,7 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
 export const deleteStory = async (req: AuthRequest, res: Response) => {
     try {
         const { storyId } = req.params;
-        
+
         const story = await Story.findById(storyId);
         if (!story) return sendError(res, 'Story not found', 404);
 
@@ -294,8 +295,27 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
         // User asked for "status states: draft -> scheduled -> live -> expired -> archived"
         // And "outlet deleted -> archive stories".
         // Explicit delete usually means remove.
+
+        // Extract all media URLs from slides to delete from Cloudinary
+        const mediaUrls = story.slides
+            .map(slide => slide.mediaUrl)
+            .filter((url): url is string => Boolean(url) && url.includes('cloudinary.com'));
+
         await Story.deleteOne({ _id: storyId });
         await StoryMetrics.deleteOne({ storyId: storyId });
+
+        // Delete media from Cloudinary (both images and videos)
+        if (mediaUrls.length > 0) {
+            // Stories can contain both images and videos, try deleting as both types
+            for (const url of mediaUrls) {
+                // Determine if it's a video or image based on URL pattern
+                const isVideo = url.includes('/video/upload/');
+                const resourceType = isVideo ? 'video' : 'image';
+
+                const { deleteFromCloudinary } = await import('../services/cloudinaryService.js');
+                await deleteFromCloudinary(url, resourceType);
+            }
+        }
 
         return sendSuccess(res, null, 'Story deleted');
     } catch (error: any) {
@@ -325,7 +345,7 @@ export const recordView = async (req: Request, res: Response) => {
         // Create or update user's view record
         await StoryView.findOneAndUpdate(
             { userId, storyId },
-            { 
+            {
                 outletId: story.outletId,
                 viewedAt: new Date(),
                 completedAllSlides: completedAllSlides || false
@@ -355,14 +375,14 @@ export const recordView = async (req: Request, res: Response) => {
 export const getSeenStatus = async (req: Request, res: Response) => {
     try {
         const { userId } = req.query;
-        
+
         if (!userId) {
             return sendError(res, 'userId is required', 400);
         }
 
         // Get all story IDs the user has viewed
         const viewedStories = await StoryView.find({ userId }).select('storyId outletId viewedAt');
-        
+
         return sendSuccess(res, viewedStories);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -372,13 +392,13 @@ export const getSeenStatus = async (req: Request, res: Response) => {
 export const getStoryAnalytics = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        
+
         if (!req.user || !await checkOutletAccess(req.user, outletId)) {
             return sendError(res, 'Unauthorized', 403);
         }
 
         const metrics = await StoryMetrics.find({ outletId }).populate('storyId', 'slides category created_at status');
-        
+
         return sendSuccess(res, metrics);
     } catch (error: any) {
         return sendError(res, error.message);

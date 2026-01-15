@@ -7,6 +7,7 @@ import * as brandService from '../services/brandService.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
+import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -210,6 +211,11 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
 
         // If not approved yet, update directly
         const updatedBrand = await brandService.updateBrand(brandId, req.user.id, updateData);
+
+        // Delete old logo from Cloudinary if logo was updated
+        if (logoUrl && brand.logo_url) {
+            await safeDeleteFromCloudinary(brand.logo_url, logoUrl);
+        }
 
         return sendSuccess(res, {
             id: updatedBrand!._id,

@@ -3,6 +3,7 @@ import { User } from '../models/User.js';
 import { Follow } from '../models/Follow.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
+import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
 
 export const getUserProfile = async (req: AuthRequest, res: Response) => {
     try {
@@ -111,6 +112,10 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Get existing user to check for old avatar
+        const existingUser = await User.findById(userId).select('avatar_url');
+        const oldAvatarUrl = existingUser?.avatar_url;
+
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             { $set: updateData },
@@ -124,6 +129,11 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
                 message: 'User not found',
                 error: null
             });
+        }
+
+        // Delete old avatar from Cloudinary if avatar was updated
+        if (updateData.avatar_url && oldAvatarUrl) {
+            await safeDeleteFromCloudinary(oldAvatarUrl, updateData.avatar_url);
         }
 
         res.json({
@@ -183,11 +193,20 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
             });
         }
 
+        // Get existing user to check for old avatar
+        const existingUser = await User.findById(userId).select('avatar_url');
+        const oldAvatarUrl = existingUser?.avatar_url;
+
         const updatedUser = await User.findByIdAndUpdate(
             userId,
             { $set: { avatar_url: avatarUrl } },
             { new: true }
         ).select('-password_hash');
+
+        // Delete old avatar from Cloudinary if it was updated
+        if (oldAvatarUrl) {
+            await safeDeleteFromCloudinary(oldAvatarUrl, avatarUrl);
+        }
 
         res.json({
             status: true,

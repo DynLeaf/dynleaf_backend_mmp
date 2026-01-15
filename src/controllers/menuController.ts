@@ -6,6 +6,7 @@ import { AddOn } from '../models/AddOn.js';
 import { Combo } from '../models/Combo.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import { safeDeleteFromCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
 
 const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: number }>, discountPercentage: number) => {
     const foodItemIds = items.map(i => i.foodItemId);
@@ -78,7 +79,18 @@ export const listCategories = async (req: Request, res: Response) => {
 export const updateCategory = async (req: Request, res: Response) => {
     try {
         const { categoryId } = req.params;
+        const { imageUrl } = req.body;
+
+        // Get existing category to check for old image
+        const existing = await Category.findById(categoryId);
+
         const category = await Category.findByIdAndUpdate(categoryId, req.body, { new: true });
+
+        // Delete old image from Cloudinary if image was updated
+        if (existing?.image_url) {
+            await safeDeleteFromCloudinary(existing.image_url, imageUrl);
+        }
+
         return sendSuccess(res, { id: category?._id, name: category?.name, isActive: category?.is_active });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -219,7 +231,18 @@ export const listFoodItems = async (req: Request, res: Response) => {
 export const updateFoodItem = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
+        const { image_url } = req.body;
+
+        // Get existing food item to check for old image
+        const existing = await FoodItem.findById(foodItemId);
+
         const item = await FoodItem.findByIdAndUpdate(foodItemId, req.body, { new: true });
+
+        // Delete old image from Cloudinary if image was updated
+        if (existing?.image_url) {
+            await safeDeleteFromCloudinary(existing.image_url, image_url);
+        }
+
         return sendSuccess(res, { id: item?._id, name: item?.name, isVeg: item?.is_veg, basePrice: item?.price, isActive: item?.is_active });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -250,7 +273,17 @@ export const updateVariant = async (req: Request, res: Response) => {
 export const deleteFoodItem = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
+
+        // Get the food item to delete its image from Cloudinary
+        const foodItem = await FoodItem.findById(foodItemId);
+
         await FoodItem.findByIdAndDelete(foodItemId);
+
+        // Delete image from Cloudinary
+        if (foodItem?.image_url) {
+            await deleteFromCloudinary(foodItem.image_url);
+        }
+
         return sendSuccess(res, null, 'Food item deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
@@ -260,7 +293,17 @@ export const deleteFoodItem = async (req: Request, res: Response) => {
 export const deleteCategory = async (req: Request, res: Response) => {
     try {
         const { categoryId } = req.params;
+
+        // Get the category to delete its image from Cloudinary
+        const category = await Category.findById(categoryId);
+
         await Category.findByIdAndDelete(categoryId);
+
+        // Delete image from Cloudinary
+        if (category?.image_url) {
+            await deleteFromCloudinary(category.image_url);
+        }
+
         return sendSuccess(res, null, 'Category deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);
@@ -346,7 +389,17 @@ export const bulkDeleteFoodItems = async (req: Request, res: Response) => {
             return sendError(res, 'Item IDs are required', 400);
         }
 
+        // Get all food items to delete their images from Cloudinary
+        const foodItems = await FoodItem.find({ _id: { $in: itemIds } });
+        const imageUrls = foodItems.map(item => item.image_url).filter((url): url is string => Boolean(url));
+
         await FoodItem.deleteMany({ _id: { $in: itemIds } });
+
+        // Delete images from Cloudinary
+        if (imageUrls.length > 0) {
+            const { bulkDeleteFromCloudinary } = await import('../services/cloudinaryService.js');
+            await bulkDeleteFromCloudinary(imageUrls);
+        }
 
         return sendSuccess(res, null, `${itemIds.length} items deleted successfully`);
     } catch (error: any) {
@@ -615,6 +668,11 @@ export const updateCombo = async (req: Request, res: Response) => {
 
         const combo = await Combo.findByIdAndUpdate(comboId, updates, { new: true });
 
+        // Delete old image from Cloudinary if image was updated
+        if (existing?.image_url) {
+            await safeDeleteFromCloudinary(existing.image_url, imageUrl);
+        }
+
         return sendSuccess(res, {
             id: combo?._id,
             name: combo?.name,
@@ -635,7 +693,17 @@ export const updateCombo = async (req: Request, res: Response) => {
 export const deleteCombo = async (req: Request, res: Response) => {
     try {
         const { comboId } = req.params;
+
+        // Get the combo to delete its image from Cloudinary
+        const combo = await Combo.findById(comboId);
+
         await Combo.findByIdAndDelete(comboId);
+
+        // Delete image from Cloudinary
+        if (combo?.image_url) {
+            await deleteFromCloudinary(combo.image_url);
+        }
+
         return sendSuccess(res, null, 'Combo deleted successfully');
     } catch (error: any) {
         return sendError(res, error.message);

@@ -13,6 +13,7 @@ import { saveBase64Image } from '../utils/fileUpload.js';
 import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
 import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
+import { safeDeleteFromCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -239,8 +240,17 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
                 return sendError(res, 'Invalid cover image URL', 400);
             }
 
+            // Get existing outlet to check for old cover image
+            const existingOutlet = await Outlet.findById(outletId);
+            const oldCoverImage = existingOutlet?.media?.cover_image_url;
+
             updateData.media = { ...(updateData.media || {}), cover_image_url: coverImageUrl };
             delete updateData.coverImage;
+
+            // Delete old cover image from Cloudinary if it was updated
+            if (oldCoverImage) {
+                await safeDeleteFromCloudinary(oldCoverImage, coverImageUrl);
+            }
         }
 
         // Handle operating hours - save to OperatingHours collection
@@ -396,6 +406,11 @@ export const deletePhotoGallery = async (req: AuthRequest, res: Response) => {
         }
 
         await outlet.save();
+
+        // Delete photo from Cloudinary
+        if (photoUrl) {
+            await deleteFromCloudinary(photoUrl);
+        }
 
         return sendSuccess(res, null, 'Photo deleted successfully');
     } catch (error: any) {
@@ -1058,6 +1073,9 @@ export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Reel not found', null, 404);
         }
 
+        // Get the reel to delete its thumbnail from Cloudinary
+        const reelToDelete = currentReels[reelIndex];
+
         // Remove the reel
         currentReels.splice(reelIndex, 1);
 
@@ -1068,6 +1086,11 @@ export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
 
         outlet.instagram_reels = currentReels;
         await outlet.save();
+
+        // Delete thumbnail from Cloudinary
+        if (reelToDelete?.thumbnail) {
+            await deleteFromCloudinary(reelToDelete.thumbnail);
+        }
 
         console.log(`🗑️ Deleted Instagram Reel from outlet ${outlet.name}`);
 
