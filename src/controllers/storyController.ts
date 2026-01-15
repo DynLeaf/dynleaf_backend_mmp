@@ -4,10 +4,12 @@ import { Story, IStory } from '../models/Story.js';
 import { StoryMetrics } from '../models/StoryMetrics.js';
 import { StoryView } from '../models/StoryView.js';
 import { Outlet } from '../models/Outlet.js';
+import { Subscription } from '../models/Subscription.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
+import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
 
 // --- Helpers ---
 
@@ -111,6 +113,34 @@ export const createStory = async (req: AuthRequest, res: Response) => {
                 captionPositionPct
             };
         }));
+
+        // 3.5. Check subscription for pinning feature
+        if (pinned) {
+            const outlet = await Outlet.findById(outletId);
+            if (!outlet?.subscription_id) {
+                return sendError(res, 'Story pinning requires an active subscription', 403);
+            }
+
+            const subscription = await Subscription.findById(outlet.subscription_id);
+            if (!subscription) {
+                return sendError(res, 'Subscription not found', 403);
+            }
+
+            if (subscription.status !== 'active' && subscription.status !== 'trial') {
+                return sendError(res, `Subscription is ${subscription.status}. Story pinning requires an active subscription.`, 403);
+            }
+
+            // Check if the subscription plan includes story pinning feature
+            if (!hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.STORY_PINNING)) {
+                return sendError(res, 'Story pinning is a premium feature. Upgrade your subscription to pin stories.', 403);
+            }
+
+            // If pinning this story, unpin all other stories for this outlet
+            await Story.updateMany(
+                { outletId, _id: { $ne: null } },
+                { $set: { pinned: false } }
+            );
+        }
 
         // 4. Create Story
         // Default visibility: Start now, End in 24h if not specified
@@ -270,7 +300,37 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
         }
 
         if (status) story.status = status;
-        if (typeof pinned === 'boolean') story.pinned = pinned;
+
+        // Check subscription for pinning feature
+        if (typeof pinned === 'boolean' && pinned) {
+            const outlet = await Outlet.findById(story.outletId);
+            if (!outlet?.subscription_id) {
+                return sendError(res, 'Story pinning requires an active subscription', 403);
+            }
+
+            const subscription = await Subscription.findById(outlet.subscription_id);
+            if (!subscription) {
+                return sendError(res, 'Subscription not found', 403);
+            }
+
+            if (subscription.status !== 'active' && subscription.status !== 'trial') {
+                return sendError(res, `Subscription is ${subscription.status}. Story pinning requires an active subscription.`, 403);
+            }
+
+            // Check if the subscription plan includes story pinning feature
+            if (!hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.STORY_PINNING)) {
+                return sendError(res, 'Story pinning is a premium feature. Upgrade your subscription to pin stories.', 403);
+            }
+
+            // If pinning this story, unpin all other stories for this outlet
+            await Story.updateMany(
+                { outletId: story.outletId, _id: { $ne: story._id } },
+                { $set: { pinned: false } }
+            );
+            story.pinned = true;
+        } else if (typeof pinned === 'boolean') {
+            story.pinned = pinned;
+        }
 
         await story.save();
         return sendSuccess(res, story, 'Story updated');
