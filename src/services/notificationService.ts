@@ -9,14 +9,17 @@ import { Brand } from '../models/Brand.js';
 export const notifyFollowersOfNewOffer = async (offerId: string, outletId: string) => {
     console.log(`[NotifyFollowers] Starting notification process for offer ${offerId} at outlet ${outletId}`);
     try {
-        const [offer, outlet, brand] = await Promise.all([
+        const [offer, outlet] = await Promise.all([
             Offer.findById(offerId),
             Outlet.findById(outletId),
-            Brand.findById(outletId)
         ]);
 
         if (!offer || !outlet) return;
 
+        const brand = outlet.brand_id
+            ? await Brand.findById(outlet.brand_id)
+            : null;
+            
         // Find all followers
         const followers = await Follow.find({ outlet: outletId }).select('user');
 
