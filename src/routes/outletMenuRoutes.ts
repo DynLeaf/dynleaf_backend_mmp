@@ -6,7 +6,7 @@ import {
   getOutletMenuCategories,
   toggleMenuItemAvailability
 } from '../controllers/outletMenuController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -15,8 +15,8 @@ const router = express.Router();
  * Base: /api/v1/outlets/:outletId/menu
  */
 
-// Public routes
-router.get('/:outletId/menu', getOutletMenu);
+// Public routes (with optional auth for personalized data like 'is_following')
+router.get('/:outletId/menu', optionalAuth, getOutletMenu);
 router.get('/:outletId/menu/categories', getOutletMenuCategories);
 
 // Protected routes (require authentication)

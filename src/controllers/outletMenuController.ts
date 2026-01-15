@@ -5,6 +5,7 @@ import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
 import { Combo } from '../models/Combo.js';
 import { OutletMenuItem } from '../models/OutletMenuItem.js';
+import { Follow } from '../models/Follow.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 /**
@@ -247,6 +248,17 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       }));
     }
 
+    // Check if user follows the outlet
+    let isFollowing = false;
+    if ((req as any).user?.id) {
+      const userId = (req as any).user.id;
+      const follow = await Follow.findOne({ user: userId, outlet: outletId });
+      isFollowing = !!follow;
+    }
+
+    // Get total follower count
+    const followersCount = await Follow.countDocuments({ outlet: outletId });
+
     res.json({
       status: true,
       data: {
@@ -255,7 +267,9 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           name: outlet.name,
           brand: outlet.brand_id,
           address: outlet.address,
-          contact: outlet.contact
+          contact: outlet.contact,
+          is_following: isFollowing,
+          followers_count: followersCount
         },
         menu: formattedMenu,
         combos: formattedCombos,
