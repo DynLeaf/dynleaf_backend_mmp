@@ -464,7 +464,7 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
     console.log(`   • Failed: ${result.failure}`);
 
     // Fetch updated notification
-    const updatedNotification = await PushNotification.findById(id);
+    const updatedNotification = (await PushNotification.findById(id)) as PushNotificationDocWithMethods | null;
 
     // Prepare user details list for response
     const sentUserDetails = usersWithTokens.map((user: any) => ({
@@ -489,13 +489,15 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
     );
 
     // Add sent event
-    await updatedNotification?.addEvent("sent", {
-      total_recipients: targetUsers.length,
-      users_sent: result.success,
-      users_failed: result.failure,
-      sent_by: req.user.id,
-      timestamp: new Date(),
-    });
+    if (updatedNotification) {
+      await updatedNotification.addEvent("sent", {
+        total_recipients: targetUsers.length,
+        users_sent: result.success,
+        users_failed: result.failure,
+        sent_by: req.user.id,
+        timestamp: new Date(),
+      });
+    }
 
     return sendSuccess(
       res,
@@ -598,7 +600,7 @@ export const getPushNotificationAnalytics = async (
       notification.delivery_metrics.sent === 0
         ? 0
         : (notification.analytics.clicks / notification.delivery_metrics.sent) *
-          100;
+        100;
 
     return sendSuccess(res, {
       _id: notification._id,
