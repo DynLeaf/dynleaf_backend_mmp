@@ -24,8 +24,8 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
             brandName = user.full_name || 'Food Explorer';
             brandLogo = user.avatar_url || '/user-profile-icon.avif';
-            title = `${brandName} on DynLeaf`;
-            description = `Join ${brandName} on DynLeaf and discover exceptional dining together!`;
+            title = `${brandName}`;
+            description = `Join ${brandName} and discover exceptional dining together!`;
             pageUrlPath = `/u/${outletId}`;
         } else {
             const outlet = await Outlet.findById(outletId).populate('brand_id');
@@ -36,12 +36,12 @@ export const getSocialMeta = async (req: Request, res: Response) => {
             brandLogo = brand?.logo_url || '/dynleaf-logo.svg';
 
             title = type === 'menu'
-                ? `${brandName} Menu - DynLeaf`
-                : `${brandName} - DynLeaf`;
+                ? `${brandName} Menu`
+                : `${brandName}`;
 
             description = type === 'menu'
-                ? `View the menu for ${brandName} on DynLeaf. Explore trending dishes and get the best offers.`
-                : `Check out ${brandName} on DynLeaf! Explore menus, discover trending dishes, and get the best offers from top restaurants.`;
+                ? `View the menu for ${brandName}! Discover our delicious offerings.`
+                : `Check out ${brandName}! Scan the QR code or visit the link to explore.`;
 
             pageUrlPath = `/restaurant/${outletId}${type === 'menu' ? '/menu' : ''}`;
         }
