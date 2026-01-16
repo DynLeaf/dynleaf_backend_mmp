@@ -84,6 +84,20 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
         const pageUrl = `${frontendBaseUrl}${pageUrlPath}`;
 
+        // Sanitize strings for HTML output to prevent XSS
+        const escapeHtml = (str: string) => {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+
+        const safeTitle = escapeHtml(title);
+        const safeDescription = escapeHtml(description);
+        const safeBrandName = escapeHtml(brandName);
+
         // Minimal HTML template with meta tags
         // This is optimized for bots (WhatsApp, Facebook, Twitter, etc.)
         const html = `<!DOCTYPE html>
