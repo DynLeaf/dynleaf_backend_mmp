@@ -9,7 +9,19 @@ import { sendError } from '../utils/response.js';
 export const getSocialMeta = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params; // This will be userId if type is 'user'
-        const { type } = req.query; // 'profile', 'menu', or 'user'
+        let { type } = req.query; // 'profile', 'menu', or 'user'
+
+        // Auto-detect type from URL path if not provided
+        if (!type) {
+            const path = req.path || req.url;
+            if (path.includes('/menu')) {
+                type = 'menu';
+            } else if (path.includes('/u/')) {
+                type = 'user';
+            } else {
+                type = 'profile';
+            }
+        }
 
         let title = '';
         let description = '';
@@ -58,6 +70,20 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
         const pageUrl = `${baseUrl}${pageUrlPath}`;
 
+        // Escape HTML special characters to prevent XSS
+        const escapeHtml = (str: string) => {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
+
+        const safeTitle = escapeHtml(title);
+        const safeDescription = escapeHtml(description);
+        const safeBrandName = escapeHtml(brandName);
+
         // Minimal HTML template with meta tags
         // This is optimized for bots (WhatsApp, Facebook, Twitter, etc.)
         const html = `<!DOCTYPE html>
@@ -67,44 +93,50 @@ export const getSocialMeta = async (req: Request, res: Response) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
     <!-- Primary Meta Tags -->
-    <title>${title}</title>
-    <meta name="title" content="${title}">
-    <meta name="description" content="${description}">
+    <title>${safeTitle}</title>
+    <meta name="title" content="${safeTitle}">
+    <meta name="description" content="${safeDescription}">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="${pageUrl}">
-    <meta property="og:title" content="${title}">
-    <meta property="og:description" content="${description}">
+    <meta property="og:title" content="${safeTitle}">
+    <meta property="og:description" content="${safeDescription}">
     <meta property="og:image" content="${imageUrl}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:site_name" content="${safeBrandName}">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="${pageUrl}">
-    <meta property="twitter:title" content="${title}">
-    <meta property="twitter:description" content="${description}">
+    <meta property="twitter:title" content="${safeTitle}">
+    <meta property="twitter:description" content="${safeDescription}">
     <meta property="twitter:image" content="${imageUrl}">
 
     <!-- Favicon -->
     <link rel="icon" href="${imageUrl}">
 
     <!-- Redirect to the real app for actual users -->
+    <meta http-equiv="refresh" content="0;url=${pageUrl}">
     <script>
         window.location.href = "${pageUrl}";
     </script>
 </head>
 <body>
-    <div style="font-family: sans-serif; text-align: center; padding: 50px;">
-        <img src="${imageUrl}" alt="${brandName}" style="width: 120px; height: 120px; border-radius: 20px;">
-        <h1>${title}</h1>
-        <p>${description}</p>
-        <p>Redirecting you to the app...</p>
-        <a href="${pageUrl}">Click here if you are not redirected</a>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 50px; max-width: 600px; margin: 0 auto;">
+        <img src="${imageUrl}" alt="${safeBrandName}" style="width: 120px; height: 120px; border-radius: 20px; object-fit: cover; margin-bottom: 20px;">
+        <h1 style="color: #1a1a1a; font-size: 28px; margin-bottom: 10px;">${safeTitle}</h1>
+        <p style="color: #666; font-size: 16px; line-height: 1.5; margin-bottom: 20px;">${safeDescription}</p>
+        <p style="color: #999; font-size: 14px;">Redirecting you to the app...</p>
+        <a href="${pageUrl}" style="display: inline-block; margin-top: 20px; padding: 12px 24px; background: #38ad00; color: white; text-decoration: none; border-radius: 8px; font-weight: 600;">Click here if you are not redirected</a>
     </div>
 </body>
 </html>`.trim();
 
-        res.setHeader('Content-Type', 'text/html');
+        // Set cache headers for better performance
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600'); // Cache for 5-10 minutes
         return res.send(html);
     } catch (error: any) {
         console.error('Social share meta error:', error);

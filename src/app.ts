@@ -67,7 +67,9 @@ app.get('/v1', (req, res) => {
 });
 
 // Social share routes (must be before SPA routes to intercept /restaurant/:id)
+console.log('🔗 Registering restaurant share routes...');
 app.use('/', restaurantShareRouter);
+console.log('✅ Restaurant share routes registered');
 
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', userRoutes);
