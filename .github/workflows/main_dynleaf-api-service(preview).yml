@@ -6,7 +6,7 @@ name: Build and deploy Node.js app to Azure Web App - dynleaf-api-service
 on:
   push:
     branches:
-      - release
+      - main
   workflow_dispatch:
 
 jobs:
@@ -50,15 +50,14 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_974F80269C064FB4B6CE677886C611BF }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_611B46415FED420C9E8716A67F1D993A }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A22E425405EA4B7BB408690CD280D5DC }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_636A7C48F7F24BB39E740D727654A584 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_4957840FC54347208E205C5E4EBD7AF7 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_6E29087A216D4785A8F6EC379BC0F16C }}
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'dynleaf-api-service'
-          slot-name: 'Production'
+          slot-name: 'preview'
           package: .
-          

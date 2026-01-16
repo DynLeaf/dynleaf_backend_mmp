@@ -14,6 +14,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
+import * as pushNotificationController from "../controllers/pushNotificationController.js";
 
 const router = express.Router();
 
@@ -1209,5 +1210,39 @@ router.get('/analytics/users', adminAuth, adminAnalyticsController.getAdminUsers
 router.get('/analytics/growth', adminAuth, adminAnalyticsController.getAdminGrowthAnalytics);
 router.get('/analytics/engagement', adminAuth, adminAnalyticsController.getAdminEngagementAnalytics);
 router.get('/analytics/discovery', adminAnalyticsController.getAdminDiscoveryAnalytics);
+
+// ============================================
+// Push Notification Management Routes
+// ============================================
+
+// Create push notification
+router.post('/notifications', adminAuth, pushNotificationController.createPushNotification);
+
+// Get all push notifications with filters
+router.get('/notifications', adminAuth, pushNotificationController.getPushNotifications);
+
+// Get push notification detail
+router.get('/notifications/:id', adminAuth, pushNotificationController.getPushNotificationDetail);
+
+// Update push notification
+router.patch('/notifications/:id', adminAuth, pushNotificationController.updatePushNotification);
+
+// Send push notification
+router.post('/notifications/:id/send', adminAuth, pushNotificationController.sendPushNotification);
+
+// Delete push notification
+router.delete('/notifications/:id', adminAuth, pushNotificationController.deletePushNotification);
+
+// Get push notification analytics
+router.get('/notifications/:id/analytics', adminAuth, pushNotificationController.getPushNotificationAnalytics);
+
+// Get Cloudinary signature for image upload
+router.post('/notifications/upload-signature', adminAuth, pushNotificationController.getCloudinarySignatureForNotification);
+
+// Record notification event (click, dismiss, etc.)
+router.post('/notifications/:notificationId/event', pushNotificationController.recordNotificationEvent);
+
+// Get push notifications dashboard stats
+router.get('/notifications-stats', adminAuth, pushNotificationController.getPushNotificationStats);
 
 export default router;

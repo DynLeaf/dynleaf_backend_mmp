@@ -24,7 +24,7 @@ import analyticsBatchRoutes from './routes/analyticsBatchRoutes.js';
 import geminiRoutes from './routes/geminiRoutes.js';
 import followRoutes from './routes/followRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
-import socialShareRoutes from './routes/socialShareRoutes.js';
+import socialShareRoutes, { restaurantShareRouter } from './routes/socialShareRoutes.js';
 import './config/firebaseAdmin.js';
 import logger from './middleware/logger.js';
 import * as promotionController from './controllers/promotionController.js';
@@ -65,6 +65,11 @@ app.use(logger);
 app.get('/v1', (req, res) => {
     res.json({ message: 'Welcome to Dynleaf API' });
 });
+
+// Social share routes (must be before SPA routes to intercept /restaurant/:id)
+console.log('🔗 Registering restaurant share routes...');
+app.use('/', restaurantShareRouter);
+console.log('✅ Restaurant share routes registered');
 
 app.use('/v1/auth', authRoutes);
 app.use('/v1/user', userRoutes);
