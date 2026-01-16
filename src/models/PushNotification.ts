@@ -229,7 +229,7 @@ const pushNotificationSchema = new Schema<IPushNotificationDocument>(
     created_by: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false,
       index: true,
     },
     campaign_id: { type: String, sparse: true },

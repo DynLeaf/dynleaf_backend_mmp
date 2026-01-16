@@ -11,6 +11,7 @@ import { User } from "../models/User.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { v2 as cloudinary } from "cloudinary";
 import mongoose from "mongoose";
+import { sendPushNotificationCampaign } from "../services/pushNotificationService.js";
 
 type PushNotificationDocWithMethods = IPushNotificationDocument & {
   addEvent: (
@@ -96,19 +97,29 @@ export const createPushNotification = async (
     // Handle user ID - if not a valid ObjectId, find the user safely
     let userId: any = req.user.id;
 
-    // If system/admin user, allow without DB lookup
-    if (userId === "admin") {
-      userId = undefined; // or null OR a fixed system ObjectId
-    } else if (!mongoose.Types.ObjectId.isValid(userId)) {
-      const user = await User.findOne({
-        $or: [{ username: userId }, { email: userId }],
-      }).select("_id");
+    // Check if it's a valid ObjectId first
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      // If system/admin user or invalid string, find user by username or email
+      if (userId === "admin" || typeof userId === "string") {
+        const user = await User.findOne({
+          $or: [
+            { username: userId },
+            { email: userId }
+          ],
+        }).select("_id");
 
-      if (!user) {
-        return sendError(res, "User not found or invalid authentication", 401);
+        if (user) {
+          userId = user._id;
+        } else {
+          // If user not found and is "admin", create a placeholder or use system user
+          // For now, we'll reject if user is not found
+          return sendError(
+            res,
+            "Admin user not found. Ensure admin is properly configured.",
+            401
+          );
+        }
       }
-
-      userId = user._id;
     }
 
     // Create notification
@@ -372,56 +383,134 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
     // Mark as queued/sending
     notification.status = DeliveryStatus.SENDING;
     notification.sent_at = new Date();
+    await notification.save();
 
-    // Calculate total recipients
-    let recipientCount = 0;
+    // Determine target users based on audience type
+    let targetUsers: any[] = [];
 
     if (notification.target_audience.type === TargetAudienceType.ALL_USERS) {
-      // Get all users count
-      recipientCount = await User.countDocuments();
+      // Get all users
+      targetUsers = await User.find()
+        .select("_id username email phone fcm_tokens")
+        .lean();
+      console.log(`[DEBUG] ALL_USERS: Found ${targetUsers.length} users`);
+      if (targetUsers.length > 0) {
+        console.log(`[DEBUG] First user:`, JSON.stringify(targetUsers[0], null, 2));
+      }
     } else if (
       notification.target_audience.type === TargetAudienceType.SELECTED_USERS
     ) {
-      recipientCount = notification.target_audience.user_ids?.length || 0;
+      // Get selected users
+      const userIds = notification.target_audience.user_ids || [];
+      targetUsers = await User.find({ _id: { $in: userIds } })
+        .select("_id username email phone fcm_tokens")
+        .lean();
     } else if (
       notification.target_audience.type === TargetAudienceType.USER_ROLE
     ) {
-      // Count users with specific roles - this would depend on your User schema
-      // For now, we'll estimate based on roles
+      // Get users with specific roles
       const roles = notification.target_audience.roles || [];
-      // You can implement role-based counting based on your User schema
-      recipientCount = await User.countDocuments({
+      targetUsers = await User.find({
         "roles.role": { $in: roles },
-      });
+      })
+        .select("_id username email phone fcm_tokens")
+        .lean();
     }
 
-    // Update delivery metrics
-    notification.delivery_metrics.total_recipients = recipientCount;
-    notification.delivery_metrics.pending = recipientCount;
+    console.log(`\n📱 Sending notification to ${targetUsers.length} users...`);
+    console.log(
+      `═══════════════════════════════════════════════════════════════`
+    );
+    console.log(`[DEBUG] Total target users found: ${targetUsers.length}`);
+    if (targetUsers.length > 0) {
+      console.log(`[DEBUG] Sample user:`, JSON.stringify(targetUsers[0]));
+    }
+
+    // Filter users with FCM tokens
+    const usersWithTokens = targetUsers.filter(
+      (user: any) => user.fcm_tokens && user.fcm_tokens.length > 0
+    );
+    const usersWithoutTokens = targetUsers.filter(
+      (user: any) => !user.fcm_tokens || user.fcm_tokens.length === 0
+    );
+
+    console.log(`[DEBUG] Users with tokens: ${usersWithTokens.length}`);
+    console.log(`[DEBUG] Users without tokens: ${usersWithoutTokens.length}`);
+    console.log(`✅ Users with FCM tokens: ${usersWithTokens.length}`);
+    console.log(`⚠️  Users without FCM tokens: ${usersWithoutTokens.length}`);
+
+    if (usersWithTokens.length === 0) {
+      notification.status = DeliveryStatus.FAILED;
+      notification.delivery_metrics.total_recipients = targetUsers.length;
+      notification.delivery_metrics.failed = targetUsers.length;
+      notification.retry_policy.failed_delivery_reason?.push(
+        "No users with FCM tokens found"
+      );
+      await notification.save();
+
+      return sendError(
+        res,
+        "No users with FCM tokens to send notification to",
+        400
+      );
+    }
+
+    // Send via FCM using the service
+    console.log(`\n🔄 Sending push notifications via Firebase...`);
+    const result = await sendPushNotificationCampaign(id);
+
+    console.log(`\n✅ Push notification results:`);
+    console.log(`   • Successfully sent: ${result.success}`);
+    console.log(`   • Failed: ${result.failure}`);
+
+    // Fetch updated notification
+    const updatedNotification = await PushNotification.findById(id);
+
+    // Prepare user details list for response
+    const sentUserDetails = usersWithTokens.map((user: any) => ({
+      _id: user._id.toString(),
+      name: user.username,
+      phone: user.phone || "N/A",
+      email: user.email,
+      tokens_count: user.fcm_tokens?.length || 0,
+    }));
+
+    console.log(`\n📋 Users who received the notification:`);
+    console.log(
+      `═══════════════════════════════════════════════════════════════`
+    );
+    sentUserDetails.forEach((user, index) => {
+      console.log(
+        `${index + 1}. ${user.name} | Phone: ${user.phone} | Email: ${user.email}`
+      );
+    });
+    console.log(
+      `═══════════════════════════════════════════════════════════════\n`
+    );
 
     // Add sent event
-    await notification.addEvent("sent", {
-      total_recipients: recipientCount,
+    await updatedNotification?.addEvent("sent", {
+      total_recipients: targetUsers.length,
+      users_sent: result.success,
+      users_failed: result.failure,
       sent_by: req.user.id,
       timestamp: new Date(),
     });
 
-    // For now, mark as sent (in production, implement actual push notification sending)
-    // This would integrate with Firebase Cloud Messaging, OneSignal, etc.
-    notification.status = DeliveryStatus.SENT;
-    notification.delivery_metrics.sent = recipientCount;
-    notification.delivery_metrics.pending = 0;
-
-    await notification.save();
-
     return sendSuccess(
       res,
       {
-        _id: notification._id,
-        status: notification.status,
-        sent_count: notification.delivery_metrics.sent,
+        _id: updatedNotification?._id,
+        status: updatedNotification?.status,
+        total_targeted: targetUsers.length,
+        successfully_sent: result.success,
+        failed: result.failure,
+        users_with_tokens: usersWithTokens.length,
+        users_without_tokens: usersWithoutTokens.length,
+        user_details: sentUserDetails,
+        message: `Notification sent to ${result.success} user(s) successfully`,
       },
-      `Notification sent to ${recipientCount} recipients`
+      `Notification sent to ${result.success}/${targetUsers.length} recipients`
     );
   } catch (error: any) {
     console.error("Send push notification error:", error);
