@@ -50,47 +50,43 @@ export const getSocialMeta = async (req: Request, res: Response) => {
             title = type === 'menu'
                 ? `${brandName} Menu`
                 : `${brandName}`;
-                ?`${brandName} Menu`
-                : `${brandName}`;
 
-description = type === 'menu'
-    ? `View the menu for ${brandName}! Discover our delicious offerings.`
-    : `Check out ${brandName}! Scan the QR code or visit the link to explore.`;
-                ?`View the menu for ${brandName}! Discover our delicious offerings.`
+            description = type === 'menu'
+                ? `View the menu for ${brandName}! Discover our delicious offerings.`
                 : `Check out ${brandName}! Scan the QR code or visit the link to explore.`;
 
-pageUrlPath = `/restaurant/${outletId}${type === 'menu' ? '/menu' : ''}`;
+            pageUrlPath = `/restaurant/${outletId}${type === 'menu' ? '/menu' : ''}`;
         }
 
-// Map API domain to frontend domain for redirect
-// API: preview.api.dynleaf.com -> Frontend: preview.dynleaf.com
-// API: api.dynleaf.com -> Frontend: dynleaf.com
-const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-const apiHost = req.headers['x-forwarded-host'] || req.get('host');
+        // Map API domain to frontend domain for redirect
+        // API: preview.api.dynleaf.com -> Frontend: preview.dynleaf.com
+        // API: api.dynleaf.com -> Frontend: dynleaf.com
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        const apiHost = req.headers['x-forwarded-host'] || req.get('host');
 
-// Determine the frontend host based on the API host
-let frontendHost = apiHost;
-if (apiHost?.includes('preview.api.dynleaf.com')) {
-    frontendHost = 'preview.dynleaf.com';
-} else if (apiHost?.includes('api.dynleaf.com')) {
-    frontendHost = 'dynleaf.com';
-} else if (apiHost?.includes('localhost') || apiHost?.includes('127.0.0.1')) {
-    // For local development, assume frontend is on port 5173
-    frontendHost = 'localhost:5173';
-}
+        // Determine the frontend host based on the API host
+        let frontendHost = apiHost;
+        if (apiHost?.includes('preview.api.dynleaf.com')) {
+            frontendHost = 'preview.dynleaf.com';
+        } else if (apiHost?.includes('api.dynleaf.com')) {
+            frontendHost = 'dynleaf.com';
+        } else if (apiHost?.includes('localhost') || apiHost?.includes('127.0.0.1')) {
+            // For local development, assume frontend is on port 5173
+            frontendHost = 'localhost:5173';
+        }
 
-const apiBaseUrl = `${protocol}://${apiHost}`;
-const frontendBaseUrl = `${protocol}://${frontendHost}`;
+        const apiBaseUrl = `${protocol}://${apiHost}`;
+        const frontendBaseUrl = `${protocol}://${frontendHost}`;
 
-const imageUrl = brandLogo.startsWith('http')
-    ? brandLogo
-    : `${apiBaseUrl}${brandLogo.startsWith('/') ? '' : '/'}${brandLogo}`;
+        const imageUrl = brandLogo.startsWith('http')
+            ? brandLogo
+            : `${apiBaseUrl}${brandLogo.startsWith('/') ? '' : '/'}${brandLogo}`;
 
-const pageUrl = `${frontendBaseUrl}${pageUrlPath}`;
+        const pageUrl = `${frontendBaseUrl}${pageUrlPath}`;
 
-// Minimal HTML template with meta tags
-// This is optimized for bots (WhatsApp, Facebook, Twitter, etc.)
-const html = `<!DOCTYPE html>
+        // Minimal HTML template with meta tags
+        // This is optimized for bots (WhatsApp, Facebook, Twitter, etc.)
+        const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -144,12 +140,10 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`.trim();
 
-// Set cache headers for better performance
-res.setHeader('Content-Type', 'text/html; charset=utf-8');
-res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600'); // Cache for 5-10 minutes
-return res.send(html);
+        res.setHeader('Content-Type', 'text/html');
+        return res.send(html);
     } catch (error: any) {
-    console.error('Social share meta error:', error);
-    return res.status(500).send('Internal Server Error');
-}
+        console.error('Social share meta error:', error);
+        return res.status(500).send('Internal Server Error');
+    }
 };
