@@ -28,8 +28,7 @@ export const sendPushNotificationToUsers = async (
   userIds: string[],
   title: string,
   body: string,
-  data: Record<string, string> = {},
-  brandLogo: string = '/favicon/android-icon-192x192.png',
+  link: string,
   image?: string,
   notificationId?: string
 ) => {
@@ -62,12 +61,12 @@ export const sendPushNotificationToUsers = async (
 
     for (const batch of batches) {
       // Build the data payload with all required fields
-      const messageData: Record<string, string> = {
+      let messageData: Record<string, string> = {
         notification_id: notificationId || '',
         title,
         body,
-        brandLogo,
-        ...data,
+        image: '',
+        link,
       };
 
       // Only include image if provided and not empty
@@ -204,14 +203,14 @@ export const sendPushNotificationCampaign = async (
       notification_type: notification.notification_type,
       ...customDataStringified,
     };
+    const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();;
 
     // Send via FCM
     const result = await sendPushNotificationToUsers(
       targetUserIds,
       notification.content.title,
       notification.content.description,
-      dataPayload,
-      undefined, // Use default brandLogo
+      link,
       notification.content.image_url,
       notificationId.toString()
     );

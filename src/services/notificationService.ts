@@ -46,21 +46,15 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         const userIds = followers.map(f => f.user.toString());
         const notificationTitle = `New Offer from ${outlet.name}`;
         const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-        const brandLogo = brand?.logo_url || '/favicon/android-icon-192x192.png';
-        const offerImage = offer.banner_image_url || offer.background_image_url;
-        
+        const offerImage = (brand?.logo_url || '').toString();
+        const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();
+
         await sendPushNotificationToUsers(
             userIds,
             notificationTitle,
             notificationBody,
-            {
-                type: 'OFFER',
-                offerId: offerId.toString(),
-                outletId: outletId.toString(),
-                link: `/restaurant/${outletId.toString()}/menu`,
-            },
-            brandLogo,
-            offerImage || undefined,
+            link,
+            offerImage,
             offerId.toString()
         );
 
