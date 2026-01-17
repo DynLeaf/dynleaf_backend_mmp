@@ -30,7 +30,8 @@ export const sendPushNotificationToUsers = async (
   body: string,
   link: string,
   image?: string,
-  notificationId?: string
+  notificationId?: string,
+  brandLogo?: string
 ) => {
   try {
     // Convert string IDs to ObjectId
@@ -67,11 +68,17 @@ export const sendPushNotificationToUsers = async (
         body,
         image: '',
         link,
+        icon: brandLogo || '',
       };
 
       // Only include image if provided and not empty
       if (image && typeof image === 'string' && image.trim().length > 0) {
         messageData.image = image;
+      }
+
+      // Only include brandLogo if provided and not empty (use frontend default if not provided)
+      if (brandLogo && typeof brandLogo === 'string' && brandLogo.trim().length > 0) {
+        messageData.icon = brandLogo;
       }
 
       const message = {
@@ -212,7 +219,8 @@ export const sendPushNotificationCampaign = async (
       notification.content.description,
       link,
       notification.content.image_url,
-      notificationId.toString()
+      notificationId.toString(),
+      undefined
     );
 
     // Update notification with delivery results

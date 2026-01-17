@@ -46,8 +46,9 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         const userIds = followers.map(f => f.user.toString());
         const notificationTitle = `New Offer from ${outlet.name}`;
         const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-        const offerImage = (brand?.logo_url || '').toString();
+        const offerImage = (offer.banner_image_url || offer.background_image_url).toString();
         const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();
+        const restaurantBrandLogo = brand?.logo_url ? brand.logo_url.toString() : undefined;
 
         await sendPushNotificationToUsers(
             userIds,
@@ -55,7 +56,8 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
             notificationBody,
             link,
             offerImage,
-            offerId.toString()
+            offerId.toString(),
+            restaurantBrandLogo
         );
 
     } catch (error) {
