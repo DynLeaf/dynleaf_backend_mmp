@@ -25,7 +25,8 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 const MAX_IMAGE_SIZE_MB = 20; // Gemini API limit
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 90000; // 90 seconds
-const MENU_EXTRACTION_TIMEOUT_MS = 120000; // 2 minutes for large menus
+const MENU_EXTRACTION_TIMEOUT_MS = 300000; // 5 minutes for large menus/images
+const PDF_EXTRACTION_TIMEOUT_MS = 600000; // 10 minutes for very large multi-page PDFs
 
 // ============================================================================
 // Configuration & Types
