@@ -191,10 +191,18 @@ export const sendPushNotificationCampaign = async (
     }
 
     // Prepare data payload in the new format
+    // Convert all custom_data values to strings to satisfy Record<string, string> type
+    const customDataStringified: Record<string, string> = {};
+    if (notification.content.custom_data) {
+      for (const [key, value] of Object.entries(notification.content.custom_data)) {
+        customDataStringified[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      }
+    }
+
     const dataPayload: Record<string, string> = {
       notification_id: notificationId.toString(),
       notification_type: notification.notification_type,
-      ...notification.content.custom_data,
+      ...customDataStringified,
     };
 
     // Send via FCM
