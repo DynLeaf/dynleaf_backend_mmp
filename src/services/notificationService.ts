@@ -40,14 +40,14 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         // Bulk insert for efficiency
         await Notification.insertMany(notifications);
 
-
         console.log(`Notified ${followers.length} followers of new offer ${offerId}`);
 
         // Trigger Push Notifications
         const userIds = followers.map(f => f.user.toString());
         const notificationTitle = `New Offer from ${outlet.name}`;
         const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-        const restaurantLogo = brand?.logo_url || undefined;
+        const brandLogo = brand?.logo_url || '/favicon/android-icon-192x192.png';
+        const offerImage = offer.banner_image_url || offer.background_image_url;
         
         await sendPushNotificationToUsers(
             userIds,
@@ -56,9 +56,12 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
             {
                 type: 'OFFER',
                 offerId: offerId.toString(),
-                outletId: outletId.toString()
+                outletId: outletId.toString(),
+                link: `/restaurant/${outletId.toString()}/menu`,
             },
-            restaurantLogo
+            brandLogo,
+            offerImage || undefined,
+            offerId.toString()
         );
 
     } catch (error) {

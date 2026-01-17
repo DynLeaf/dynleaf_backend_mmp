@@ -10,13 +10,28 @@ import mongoose from "mongoose";
 /**
  * Send push notification to specific users
  * Used by the legacy notification system
+ * 
+ * Payload format:
+ * {
+ *   data: {
+ *     notification_id: string,
+ *     title: string,
+ *     body: string,
+ *     brandLogo: string,
+ *     image?: string (optional, for ads/brands),
+ *     link?: string,
+ *     ...otherData
+ *   }
+ * }
  */
 export const sendPushNotificationToUsers = async (
   userIds: string[],
   title: string,
   body: string,
   data: Record<string, string> = {},
-  image?: string
+  brandLogo: string = '/favicon/android-icon-192x192.png',
+  image?: string,
+  notificationId?: string
 ) => {
   try {
     // Convert string IDs to ObjectId
@@ -46,20 +61,22 @@ export const sendPushNotificationToUsers = async (
     const stats = { success: 0, failure: 0 };
 
     for (const batch of batches) {
-      // Send both notification and data payloads
-      // notification: triggers the push display
-      // data: carries custom data for the app to handle
+      // Build the data payload with all required fields
+      const messageData: Record<string, string> = {
+        notification_id: notificationId || '',
+        title,
+        body,
+        brandLogo,
+        ...data,
+      };
+
+      // Only include image if provided and not empty
+      if (image && typeof image === 'string' && image.trim().length > 0) {
+        messageData.image = image;
+      }
+
       const message = {
-        notification: {
-          title,
-          body,
-        },
-        data: {
-          title,
-          body,
-          ...(image ? { image } : {}),
-          ...data,
-        },
+        data: messageData,
         tokens: batch,
       };
 
@@ -173,17 +190,22 @@ export const sendPushNotificationCampaign = async (
       return { success: 0, failure: 0 };
     }
 
+    // Prepare data payload in the new format
+    const dataPayload: Record<string, string> = {
+      notification_id: notificationId.toString(),
+      notification_type: notification.notification_type,
+      ...notification.content.custom_data,
+    };
+
     // Send via FCM
     const result = await sendPushNotificationToUsers(
       targetUserIds,
       notification.content.title,
       notification.content.description,
-      {
-        notification_id: notificationId.toString(),
-        notification_type: notification.notification_type,
-        ...notification.content.custom_data,
-      },
-      notification.content.image_url
+      dataPayload,
+      undefined, // Use default brandLogo
+      notification.content.image_url,
+      notificationId.toString()
     );
 
     // Update notification with delivery results
