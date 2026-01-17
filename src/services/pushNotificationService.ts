@@ -10,13 +10,28 @@ import mongoose from "mongoose";
 /**
  * Send push notification to specific users
  * Used by the legacy notification system
+ * 
+ * Payload format:
+ * {
+ *   data: {
+ *     notification_id: string,
+ *     title: string,
+ *     body: string,
+ *     brandLogo: string,
+ *     image?: string (optional, for ads/brands),
+ *     link?: string,
+ *     ...otherData
+ *   }
+ * }
  */
 export const sendPushNotificationToUsers = async (
   userIds: string[],
   title: string,
   body: string,
-  data: Record<string, string> = {},
-  image?: string
+  link: string,
+  image?: string,
+  notificationId?: string,
+  brandLogo?: string
 ) => {
   try {
     // Convert string IDs to ObjectId
@@ -46,20 +61,28 @@ export const sendPushNotificationToUsers = async (
     const stats = { success: 0, failure: 0 };
 
     for (const batch of batches) {
-      // Send both notification and data payloads
-      // notification: triggers the push display
-      // data: carries custom data for the app to handle
+      // Build the data payload with all required fields
+      let messageData: Record<string, string> = {
+        notification_id: notificationId || '',
+        title,
+        body,
+        image: '',
+        link,
+        icon: brandLogo || '',
+      };
+
+      // Only include image if provided and not empty
+      if (image && typeof image === 'string' && image.trim().length > 0) {
+        messageData.image = image;
+      }
+
+      // Only include brandLogo if provided and not empty (use frontend default if not provided)
+      if (brandLogo && typeof brandLogo === 'string' && brandLogo.trim().length > 0) {
+        messageData.icon = brandLogo;
+      }
+
       const message = {
-        notification: {
-          title,
-          body,
-        },
-        data: {
-          title,
-          body,
-          ...(image ? { image } : {}),
-          ...data,
-        },
+        data: messageData,
         tokens: batch,
       };
 
@@ -173,17 +196,31 @@ export const sendPushNotificationCampaign = async (
       return { success: 0, failure: 0 };
     }
 
+    // Prepare data payload in the new format
+    // Convert all custom_data values to strings to satisfy Record<string, string> type
+    const customDataStringified: Record<string, string> = {};
+    if (notification.content.custom_data) {
+      for (const [key, value] of Object.entries(notification.content.custom_data)) {
+        customDataStringified[key] = typeof value === 'string' ? value : JSON.stringify(value);
+      }
+    }
+
+    const dataPayload: Record<string, string> = {
+      notification_id: notificationId.toString(),
+      notification_type: notification.notification_type,
+      ...customDataStringified,
+    };
+    const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();;
+
     // Send via FCM
     const result = await sendPushNotificationToUsers(
       targetUserIds,
       notification.content.title,
       notification.content.description,
-      {
-        notification_id: notificationId.toString(),
-        notification_type: notification.notification_type,
-        ...notification.content.custom_data,
-      },
-      notification.content.image_url
+      link,
+      notification.content.image_url,
+      notificationId.toString(),
+      undefined
     );
 
     // Update notification with delivery results

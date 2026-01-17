@@ -40,25 +40,24 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         // Bulk insert for efficiency
         await Notification.insertMany(notifications);
 
-
         console.log(`Notified ${followers.length} followers of new offer ${offerId}`);
 
         // Trigger Push Notifications
         const userIds = followers.map(f => f.user.toString());
         const notificationTitle = `New Offer from ${outlet.name}`;
         const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-        const restaurantLogo = brand?.logo_url || undefined;
-        
+        const offerImage = offer.banner_image_url || offer.background_image_url || undefined;
+        const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();
+        const restaurantBrandLogo = brand?.logo_url ? brand.logo_url.toString() : undefined;
+
         await sendPushNotificationToUsers(
             userIds,
             notificationTitle,
             notificationBody,
-            {
-                type: 'OFFER',
-                offerId: offerId.toString(),
-                outletId: outletId.toString()
-            },
-            restaurantLogo
+            link,
+            offerImage ? offerImage.toString() : undefined,
+            offerId.toString(),
+            restaurantBrandLogo
         );
 
     } catch (error) {
