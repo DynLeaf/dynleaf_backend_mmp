@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
-import { sendError } from '../utils/response.js';
+import { sendNotFoundError, sendServerError, ErrorCode } from '../utils/response.js';
 
 /**
  * Serves a minimal HTML page with dynamic Open Graph and Twitter meta tags 
@@ -32,7 +32,14 @@ export const getSocialMeta = async (req: Request, res: Response) => {
         if (type === 'user') {
             const { User } = await import('../models/User.js');
             const user = await User.findById(outletId);
-            if (!user) return res.status(404).send('User not found');
+
+            if (!user) {
+                return sendNotFoundError(
+                    res,
+                    ErrorCode.USER_NOT_FOUND,
+                    'This user profile could not be found.'
+                );
+            }
 
             brandName = user.full_name || 'Food Explorer';
             brandLogo = user.avatar_url || '/user-profile-icon.avif';
@@ -41,7 +48,14 @@ export const getSocialMeta = async (req: Request, res: Response) => {
             pageUrlPath = `/u/${outletId}`;
         } else {
             const outlet = await Outlet.findById(outletId).populate('brand_id');
-            if (!outlet) return res.status(404).send('Outlet not found');
+
+            if (!outlet) {
+                return sendNotFoundError(
+                    res,
+                    ErrorCode.OUTLET_NOT_FOUND,
+                    'This restaurant is no longer available or has been removed.'
+                );
+            }
 
             const brand: any = outlet.brand_id;
             brandName = outlet.name || brand?.name || 'Restaurant';
@@ -158,6 +172,10 @@ export const getSocialMeta = async (req: Request, res: Response) => {
         return res.send(html);
     } catch (error: any) {
         console.error('Social share meta error:', error);
-        return res.status(500).send('Internal Server Error');
+        return sendServerError(
+            res,
+            ErrorCode.INTERNAL_SERVER_ERROR,
+            'Unable to load share preview. Please try again later.'
+        );
     }
 };
