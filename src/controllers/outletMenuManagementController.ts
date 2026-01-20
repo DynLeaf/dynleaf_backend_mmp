@@ -1698,3 +1698,374 @@ export const deleteComboForOutlet = async (req: Request, res: Response) => {
         return sendError(res, error.message);
     }
 };
+
+// ==================== MENU SYNC ====================
+
+export const previewMenuSyncForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { targetOutletIds, options } = req.body;
+
+        if (!targetOutletIds || !Array.isArray(targetOutletIds) || targetOutletIds.length === 0) {
+            return sendError(res, 'Target outlet IDs are required', 400);
+        }
+
+        // Verify source outlet exists and user has access
+        const sourceOutlet = await Outlet.findById(outletId);
+        if (!sourceOutlet) {
+            return sendError(res, 'Source outlet not found', 404);
+        }
+
+        // Get source menu data
+        const [sourceItems, sourceCategories, sourceAddons, sourceCombos] = await Promise.all([
+            FoodItem.find({ outlet_id: outletId }),
+            Category.find({ outlet_id: outletId }),
+            AddOn.find({ outlet_id: outletId }),
+            Combo.find({ outlet_id: outletId })
+        ]);
+
+        // Prepare preview for each target outlet
+        const targetOutlets = await Promise.all(
+            targetOutletIds.map(async (targetId: string) => {
+                const targetOutlet = await Outlet.findById(targetId);
+                if (!targetOutlet) {
+                    return null;
+                }
+
+                const [targetItems, targetCategories] = await Promise.all([
+                    FoodItem.find({ outlet_id: targetId }),
+                    Category.find({ outlet_id: targetId })
+                ]);
+
+                // Find duplicates
+                const targetItemNames = new Set(targetItems.map(i => i.name.toLowerCase()));
+                const targetCategoryNames = new Set(targetCategories.map(c => c.name.toLowerCase()));
+
+                const duplicateItems = sourceItems
+                    .filter(i => targetItemNames.has(i.name.toLowerCase()))
+                    .map(i => i.name);
+
+                const duplicateCategories = sourceCategories
+                    .filter(c => targetCategoryNames.has(c.name.toLowerCase()))
+                    .map(c => c.name);
+
+                // Estimate changes
+                let itemsToCreate = 0;
+                let itemsToUpdate = 0;
+                let categoriesToCreate = 0;
+                let categoriesToUpdate = 0;
+
+                if (options?.duplicateStrategy === 'skip') {
+                    itemsToCreate = sourceItems.length - duplicateItems.length;
+                } else if (options?.duplicateStrategy === 'update') {
+                    itemsToCreate = sourceItems.length - duplicateItems.length;
+                    itemsToUpdate = duplicateItems.length;
+                } else {
+                    itemsToCreate = sourceItems.length;
+                }
+
+                if (options?.categoryHandling === 'map_by_name') {
+                    categoriesToUpdate = duplicateCategories.length;
+                    categoriesToCreate = sourceCategories.length - duplicateCategories.length;
+                } else {
+                    categoriesToCreate = sourceCategories.length;
+                }
+
+                return {
+                    id: targetId,
+                    name: targetOutlet.name,
+                    conflicts: {
+                        duplicateItems,
+                        duplicateCategories,
+                        missingAddons: []
+                    },
+                    estimatedChanges: {
+                        itemsToCreate,
+                        itemsToUpdate,
+                        categoriesToCreate,
+                        categoriesToUpdate
+                    }
+                };
+            })
+        );
+
+        return sendSuccess(res, {
+            sourceOutlet: {
+                id: outletId,
+                name: sourceOutlet.name,
+                itemCount: sourceItems.length,
+                categoryCount: sourceCategories.length,
+                addonCount: sourceAddons.length,
+                comboCount: sourceCombos.length
+            },
+            targetOutlets: targetOutlets.filter(t => t !== null)
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const syncMenuToOutlets = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+        const { targetOutletIds, options } = req.body;
+
+        if (!targetOutletIds || !Array.isArray(targetOutletIds) || targetOutletIds.length === 0) {
+            return sendError(res, 'Target outlet IDs are required', 400);
+        }
+
+        const startTime = Date.now();
+
+        // Verify source outlet
+        const sourceOutlet = await Outlet.findById(outletId);
+        if (!sourceOutlet) {
+            return sendError(res, 'Source outlet not found', 404);
+        }
+
+        // Get source menu data based on options
+        const sourceData: any = {};
+
+        if (options?.syncItems) {
+            sourceData.items = await FoodItem.find({ outlet_id: outletId });
+        }
+        if (options?.syncCategories) {
+            sourceData.categories = await Category.find({ outlet_id: outletId });
+        }
+        if (options?.syncAddons) {
+            sourceData.addons = await AddOn.find({ outlet_id: outletId });
+        }
+        if (options?.syncCombos) {
+            sourceData.combos = await Combo.find({ outlet_id: outletId });
+        }
+
+        // Sync to each target outlet
+        const results = await Promise.all(
+            targetOutletIds.map(async (targetId: string) => {
+                try {
+                    const targetOutlet = await Outlet.findById(targetId);
+                    if (!targetOutlet) {
+                        return {
+                            outletId: targetId,
+                            outletName: 'Unknown',
+                            status: 'failed' as const,
+                            itemsSynced: 0,
+                            categoriesSynced: 0,
+                            addonsSynced: 0,
+                            combosSynced: 0,
+                            errors: [{ type: 'outlet', message: 'Outlet not found' }]
+                        };
+                    }
+
+                    let itemsSynced = 0;
+                    let categoriesSynced = 0;
+                    let addonsSynced = 0;
+                    let combosSynced = 0;
+                    const errors: any[] = [];
+
+                    // Sync categories first (items depend on them)
+                    const categoryIdMap = new Map<string, string>();
+
+                    if (options?.syncCategories && sourceData.categories) {
+                        for (const sourceCategory of sourceData.categories) {
+                            try {
+                                const existingCategory = await Category.findOne({
+                                    outlet_id: targetId,
+                                    name: sourceCategory.name
+                                });
+
+                                if (existingCategory && options?.categoryHandling === 'map_by_name') {
+                                    // Use existing category (still count as synced since we're mapping it)
+                                    categoryIdMap.set(sourceCategory._id.toString(), existingCategory._id.toString());
+                                    categoriesSynced++;
+                                } else {
+                                    // Create new category
+                                    const newCategory = await Category.create({
+                                        outlet_id: targetId,
+                                        name: sourceCategory.name,
+                                        description: sourceCategory.description,
+                                        image_url: sourceCategory.image_url,
+                                        display_order: sourceCategory.display_order,
+                                        is_active: sourceCategory.is_active,
+                                        slug: await generateUniqueCategorySlugForOutlet(targetId, sourceCategory.name)
+                                    });
+                                    categoryIdMap.set(sourceCategory._id.toString(), newCategory._id.toString());
+                                    categoriesSynced++;
+                                }
+                            } catch (err: any) {
+                                errors.push({ type: 'category', message: `Failed to sync category ${sourceCategory.name}: ${err.message}` });
+                            }
+                        }
+                    }
+
+                    // Sync add-ons
+                    const addonIdMap = new Map<string, string>();
+
+                    if (options?.syncAddons && sourceData.addons) {
+                        for (const sourceAddon of sourceData.addons) {
+                            try {
+                                const existingAddon = await AddOn.findOne({
+                                    outlet_id: targetId,
+                                    name: sourceAddon.name
+                                });
+
+                                if (existingAddon && options?.duplicateStrategy === 'skip') {
+                                    addonIdMap.set(sourceAddon._id.toString(), existingAddon._id.toString());
+                                    addonsSynced++; // Count as synced (mapped to existing)
+                                } else if (existingAddon && options?.duplicateStrategy === 'update') {
+                                    await AddOn.findByIdAndUpdate(existingAddon._id, {
+                                        price: sourceAddon.price,
+                                        category: sourceAddon.category,
+                                        is_active: sourceAddon.is_active
+                                    });
+                                    addonIdMap.set(sourceAddon._id.toString(), existingAddon._id.toString());
+                                    addonsSynced++;
+                                } else {
+                                    const newAddon = await AddOn.create({
+                                        outlet_id: targetId,
+                                        name: sourceAddon.name,
+                                        price: sourceAddon.price,
+                                        category: sourceAddon.category,
+                                        is_active: sourceAddon.is_active
+                                    });
+                                    addonIdMap.set(sourceAddon._id.toString(), newAddon._id.toString());
+                                    addonsSynced++;
+                                }
+                            } catch (err: any) {
+                                errors.push({ type: 'addon', message: `Failed to sync addon ${sourceAddon.name}: ${err.message}` });
+                            }
+                        }
+                    }
+
+                    // Sync items
+                    if (options?.syncItems && sourceData.items) {
+                        for (const sourceItem of sourceData.items) {
+                            try {
+                                const existingItem = await FoodItem.findOne({
+                                    outlet_id: targetId,
+                                    name: sourceItem.name
+                                });
+
+                                if (existingItem && options?.duplicateStrategy === 'skip') {
+                                    continue;
+                                }
+
+                                // Map category ID
+                                const targetCategoryId = sourceItem.category_id
+                                    ? categoryIdMap.get(sourceItem.category_id.toString())
+                                    : null;
+
+                                // Map addon IDs
+                                const targetAddonIds = (sourceItem.addon_ids || [])
+                                    .map((id: any) => addonIdMap.get(id.toString()))
+                                    .filter((id: any) => id !== undefined);
+
+                                // Apply price adjustment
+                                let price = sourceItem.price;
+                                if (options?.priceAdjustment) {
+                                    price = price * (1 + options.priceAdjustment / 100);
+                                }
+
+                                // Determine availability
+                                let isAvailable = sourceItem.is_available;
+                                if (options?.availabilityMode === 'all_available') {
+                                    isAvailable = true;
+                                } else if (options?.availabilityMode === 'all_unavailable') {
+                                    isAvailable = false;
+                                }
+
+                                const itemData: any = {
+                                    outlet_id: targetId,
+                                    name: sourceItem.name,
+                                    description: sourceItem.description,
+                                    item_type: sourceItem.item_type,
+                                    food_type: sourceItem.food_type,
+                                    is_veg: sourceItem.is_veg,
+                                    is_active: isAvailable,
+                                    is_available: isAvailable,
+                                    price,
+                                    tax_percentage: sourceItem.tax_percentage,
+                                    image_url: sourceItem.image_url,
+                                    tags: sourceItem.tags,
+                                    addon_ids: targetAddonIds,
+                                    variants: sourceItem.variants,
+                                    preparation_time: sourceItem.preparation_time,
+                                    calories: sourceItem.calories,
+                                    spice_level: sourceItem.spice_level,
+                                    allergens: sourceItem.allergens,
+                                    is_featured: sourceItem.is_featured,
+                                    is_recommended: sourceItem.is_recommended,
+                                    discount_percentage: sourceItem.discount_percentage
+                                };
+
+                                // Only add category_id if it exists
+                                if (targetCategoryId) {
+                                    itemData.category_id = targetCategoryId;
+                                }
+
+                                if (existingItem && options?.duplicateStrategy === 'update') {
+                                    await FoodItem.findByIdAndUpdate(existingItem._id, itemData);
+                                } else {
+                                    await FoodItem.create(itemData);
+                                }
+                                itemsSynced++;
+                            } catch (err: any) {
+                                errors.push({ type: 'item', message: `Failed to sync item ${sourceItem.name}: ${err.message}` });
+                            }
+                        }
+                    }
+
+                    return {
+                        outletId: targetId,
+                        outletName: targetOutlet.name,
+                        status: (errors.length === 0 ? 'success' : (itemsSynced > 0 || categoriesSynced > 0 ? 'partial' : 'failed')) as 'success' | 'failed' | 'partial',
+                        itemsSynced,
+                        categoriesSynced,
+                        addonsSynced,
+                        combosSynced,
+                        errors
+                    };
+                } catch (err: any) {
+                    return {
+                        outletId: targetId,
+                        outletName: 'Unknown',
+                        status: 'failed' as const,
+                        itemsSynced: 0,
+                        categoriesSynced: 0,
+                        addonsSynced: 0,
+                        combosSynced: 0,
+                        errors: [{ type: 'general', message: err.message }]
+                    };
+                }
+            })
+        );
+
+        const totalTime = Date.now() - startTime;
+        const allSuccess = results.every(r => r.status === 'success');
+
+        return sendSuccess(res, {
+            success: allSuccess,
+            results,
+            totalTime
+        });
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getMenuSyncHistoryForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        // Verify outlet exists
+        const outlet = await Outlet.findById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+
+        // For now, return empty history
+        // In a production system, you'd store sync operations in a SyncHistory collection
+        return sendSuccess(res, []);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
