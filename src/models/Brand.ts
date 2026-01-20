@@ -23,6 +23,10 @@ export interface IBrand extends Document {
     verified_by?: mongoose.Types.ObjectId;
     verified_at?: Date;
     admin_user_id: mongoose.Types.ObjectId;
+    owner_user_id?: mongoose.Types.ObjectId; // Primary brand owner
+    settings?: {
+        allow_cross_user_sync: boolean; // Enable brand-wide menu sync
+    };
     is_featured: boolean;
     is_active: boolean;
 }
@@ -50,6 +54,10 @@ const brandSchema = new Schema<IBrand>({
     verified_by: { type: Schema.Types.ObjectId, ref: 'User' },
     verified_at: { type: Date },
     admin_user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    owner_user_id: { type: Schema.Types.ObjectId, ref: 'User' },
+    settings: {
+        allow_cross_user_sync: { type: Boolean, default: false }
+    },
     is_featured: { type: Boolean, default: false },
     is_active: { type: Boolean, default: true }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });

@@ -28,6 +28,7 @@ import {
     getMenuSyncHistoryForOutlet
 } from '../controllers/outletMenuManagementController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { checkBrandSyncPermission } from '../middleware/brandPermissionMiddleware.js';
 
 const router = express.Router();
 
@@ -51,9 +52,9 @@ router.post('/:outletId/menu/import', protect, importMenuForOutlet);
 router.get('/:outletId/menu/export', protect, exportMenuForOutlet);
 router.get('/:outletId/menu/sync-status', protect, getMenuSyncStatusForOutlet);
 
-// Menu Sync Operations
-router.post('/:outletId/menu/sync/preview', protect, previewMenuSyncForOutlet);
-router.post('/:outletId/menu/sync', protect, syncMenuToOutlets);
+// Menu Sync Operations (with brand permission check)
+router.post('/:outletId/menu/sync/preview', protect, checkBrandSyncPermission, previewMenuSyncForOutlet);
+router.post('/:outletId/menu/sync', protect, checkBrandSyncPermission, syncMenuToOutlets);
 router.get('/:outletId/menu/sync-history', protect, getMenuSyncHistoryForOutlet);
 
 
