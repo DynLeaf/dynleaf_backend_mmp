@@ -22,6 +22,9 @@ interface AuthRequest extends express.Request {
   user?: any;
 }
 
+// Public test route
+router.get("/public-test", (req, res) => res.send("Admin routes reachable!"));
+
 // Check admin auth
 router.get("/me", adminAuth, async (req: AuthRequest, res) => {
   try {
@@ -326,11 +329,46 @@ router.get("/brands", adminAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// Change brand owner - Must be before /brands/:id to avoid route conflicts 
+router.patch("/brands/:id/change-owner", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.body;
+
+    console.log(`[AdminAPI] Changing owner for brand ${id} to user ${user_id}`);
+
+    if (!user_id) {
+      return sendError(res, "User ID is required", 400);
+    }
+
+    // Verify user exists
+    const user = await User.findById(user_id);
+    if (!user) {
+      return sendError(res, "User not found", 404);
+    }
+
+    const brand = await Brand.findByIdAndUpdate(
+      id,
+      { admin_user_id: user_id },
+      { new: true }
+    ).populate("admin_user_id", "name email phone full_name username");
+
+    if (!brand) {
+      return sendError(res, "Brand not found", 404);
+    }
+
+    return sendSuccess(res, brand, "Brand owner updated successfully");
+  } catch (error: any) {
+    console.error("Change brand owner error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // Get brand by ID
 router.get("/brands/:id", adminAuth, async (req: AuthRequest, res) => {
   try {
     const brand = await Brand.findById(req.params.id)
-      .populate("admin_user_id", "phone email username")
+      .populate("admin_user_id", "phone email username full_name")
       .populate("verified_by", "email")
       .lean();
 
@@ -754,7 +792,7 @@ router.get("/outlets/:id", adminAuth, async (req: AuthRequest, res) => {
 
     const outlet = await Outlet.findById(id)
       .populate("brand_id", "name logo description cuisine_types verification_status")
-      .populate("created_by_user_id", "name email phone")
+      .populate("created_by_user_id", "name email phone full_name username")
       .lean();
 
     if (!outlet) {
@@ -918,7 +956,7 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, re
       id,
       { created_by_user_id: user_id },
       { new: true }
-    ).populate("created_by_user_id", "name email phone");
+    ).populate("created_by_user_id", "name email phone full_name username");
 
     if (!outlet) {
       return sendError(res, "Outlet not found", 404);

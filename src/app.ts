@@ -62,8 +62,10 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // Request logger (prints method, url, status and response time)
 app.use(logger);
 
+app.get('/v1/ping-test', (req, res) => res.json({ message: 'pong-test' }));
+
 app.get('/v1', (req, res) => {
-    res.json({ message: 'Welcome to Dynleaf API' });
+    res.json({ message: 'Welcome to Dynleaf API (UPDATED)' });
 });
 
 // Social share routes (must be before SPA routes to intercept /restaurant/:id)
