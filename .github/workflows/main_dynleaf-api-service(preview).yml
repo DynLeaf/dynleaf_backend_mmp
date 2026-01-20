@@ -62,3 +62,6 @@ jobs:
           app-name: 'dynleaf-api-service'
           slot-name: 'preview'
           package: .
+
+
+
