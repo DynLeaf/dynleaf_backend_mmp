@@ -23,24 +23,9 @@ jobs:
         with:
           node-version: '22.x'
 
-      - name: Delete Old Artifacts
-        uses: actions/github-script@v6
-        id: artifact
+      - uses: geekyeggo/delete-artifact@v5
         with:
-          script: |
-            const res = await github.rest.actions.listArtifactsForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            })
-
-            res.data.artifacts
-              .forEach(({ id }) => {
-                github.rest.actions.deleteArtifact({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  artifact_id: id,
-                })
-              })
+            name: node-app
 
       - name: npm install, build, and test
         run: |
@@ -81,4 +66,5 @@ jobs:
           app-name: 'dynleaf-api-service'
           slot-name: 'preview'
           package: .
+
 
