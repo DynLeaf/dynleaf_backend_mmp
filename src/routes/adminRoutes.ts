@@ -342,22 +342,71 @@ router.patch("/brands/:id/change-owner", adminAuth, async (req: AuthRequest, res
     }
 
     // Verify user exists
-    const user = await User.findById(user_id);
-    if (!user) {
+    const newOwner = await User.findById(user_id);
+    if (!newOwner) {
       return sendError(res, "User not found", 404);
     }
 
-    const brand = await Brand.findByIdAndUpdate(
-      id,
-      { admin_user_id: user_id },
-      { new: true }
-    ).populate("admin_user_id", "name email phone full_name username");
-
+    // Get the brand with current owner
+    const brand = await Brand.findById(id).populate("admin_user_id");
     if (!brand) {
       return sendError(res, "Brand not found", 404);
     }
 
-    return sendSuccess(res, brand, "Brand owner updated successfully");
+    const previousOwnerId = brand.admin_user_id;
+
+    // Update brand owner
+    brand.admin_user_id = new mongoose.Types.ObjectId(user_id);
+    await brand.save();
+
+    // Update user roles
+    // 1. Remove restaurant_owner role from previous owner (if exists)
+    if (previousOwnerId) {
+      await User.findByIdAndUpdate(
+        previousOwnerId,
+        {
+          $pull: {
+            roles: {
+              scope: 'brand',
+              role: 'restaurant_owner',
+              brandId: new mongoose.Types.ObjectId(id)
+            }
+          }
+        }
+      );
+      console.log(`[AdminAPI] Removed restaurant_owner role from previous owner ${previousOwnerId}`);
+    }
+
+    // 2. Add restaurant_owner role to new owner (if not already present)
+    const hasRole = newOwner.roles.some(
+      r => r.scope === 'brand' &&
+        r.role === 'restaurant_owner' &&
+        r.brandId?.toString() === id
+    );
+
+    if (!hasRole) {
+      await User.findByIdAndUpdate(
+        user_id,
+        {
+          $push: {
+            roles: {
+              scope: 'brand',
+              role: 'restaurant_owner',
+              brandId: new mongoose.Types.ObjectId(id),
+              assignedAt: new Date(),
+              assignedBy: req.user?.userId ? new mongoose.Types.ObjectId(req.user.userId) : undefined
+            }
+          }
+        }
+      );
+      console.log(`[AdminAPI] Added restaurant_owner role to new owner ${user_id}`);
+    }
+
+    // Populate and return updated brand
+    const updatedBrand = await Brand.findById(id)
+      .populate("admin_user_id", "name email phone full_name username");
+
+    return sendSuccess(res, updatedBrand, "Brand owner updated successfully");
   } catch (error: any) {
     console.error("Change brand owner error:", error);
     return sendError(res, error.message);
@@ -947,22 +996,69 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, re
     }
 
     // Verify user exists
-    const user = await User.findById(user_id);
-    if (!user) {
+    const newOwner = await User.findById(user_id);
+    if (!newOwner) {
       return sendError(res, "User not found", 404);
     }
 
-    const outlet = await Outlet.findByIdAndUpdate(
-      id,
-      { created_by_user_id: user_id },
-      { new: true }
-    ).populate("created_by_user_id", "name email phone full_name username");
-
+    // Get the outlet with current owner
+    const outlet = await Outlet.findById(id).populate("created_by_user_id");
     if (!outlet) {
       return sendError(res, "Outlet not found", 404);
     }
 
-    return sendSuccess(res, outlet, "Outlet owner updated successfully");
+    const previousOwnerId = outlet.created_by_user_id;
+
+    // Update outlet owner
+    outlet.created_by_user_id = new mongoose.Types.ObjectId(user_id);
+    await outlet.save();
+
+    // Update user roles
+    // 1. Remove outlet roles from previous owner (if exists)
+    if (previousOwnerId) {
+      await User.findByIdAndUpdate(
+        previousOwnerId,
+        {
+          $pull: {
+            roles: {
+              scope: 'outlet',
+              outletId: new mongoose.Types.ObjectId(id)
+            }
+          }
+        }
+      );
+      console.log(`[AdminAPI] Removed outlet roles from previous owner ${previousOwnerId}`);
+    }
+
+    // 2. Add manager role to new owner for this outlet (if not already present)
+    const hasRole = newOwner.roles.some(
+      r => r.scope === 'outlet' &&
+        r.outletId?.toString() === id
+    );
+
+    if (!hasRole) {
+      await User.findByIdAndUpdate(
+        user_id,
+        {
+          $push: {
+            roles: {
+              scope: 'outlet',
+              role: 'manager',
+              outletId: new mongoose.Types.ObjectId(id),
+              assignedAt: new Date(),
+              assignedBy: req.user?.userId ? new mongoose.Types.ObjectId(req.user.userId) : undefined
+            }
+          }
+        }
+      );
+      console.log(`[AdminAPI] Added manager role to new owner ${user_id}`);
+    }
+
+    // Populate and return updated outlet
+    const updatedOutlet = await Outlet.findById(id)
+      .populate("created_by_user_id", "name email phone full_name username");
+
+    return sendSuccess(res, updatedOutlet, "Outlet owner updated successfully");
   } catch (error: any) {
     console.error("Change outlet owner error:", error);
     return sendError(res, error.message);
