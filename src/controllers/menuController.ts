@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Category } from '../models/Category.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { FoodVariant } from '../models/FoodVariant.js';
@@ -807,11 +808,71 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                         },
                         {
                             $unwind: { path: '$brand', preserveNullAndEmptyArrays: true }
+                        },
+                        {
+                            $lookup: {
+                                from: 'offers',
+                                let: { outletId: '$outlet_id', itemId: '$_id', categoryId: '$category_id' },
+                                pipeline: [
+                                    {
+                                        $match: {
+                                            $expr: {
+                                                $and: [
+                                                    { $in: ['$$outletId', '$outlet_ids'] },
+                                                    { $eq: ['$is_active', true] },
+                                                    { $eq: ['$show_on_menu', true] },
+                                                    {
+                                                        $or: [
+                                                            // Specific item match
+                                                            { $in: ['$$itemId', { $ifNull: ['$applicable_food_item_ids', []] }] },
+                                                            // Specific category match
+                                                            { $in: ['$$categoryId', { $ifNull: ['$applicable_category_ids', []] }] },
+                                                            // Store-wide (no specific restrictions)
+                                                            {
+                                                                $and: [
+                                                                    { $eq: [{ $size: { $ifNull: ['$applicable_food_item_ids', []] } }, 0] },
+                                                                    { $eq: [{ $size: { $ifNull: ['$applicable_category_ids', []] } }, 0] }
+                                                                ]
+                                                            }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                ],
+                                as: 'offers'
+                            }
                         }
                     ]
                 }
             }
         ];
+
+        // Conditional Lookup for User Vote if Logged In
+        if ((req as any).user && (req as any).user.id) {
+            const userId = (req as any).user.id;
+            pipeline.splice(5, 0, {
+                $lookup: {
+                    from: 'dishvotes',
+                    let: { foodItemId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$food_item_id', '$$foodItemId'] },
+                                        { $eq: ['$user_id', new mongoose.Types.ObjectId(userId)] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $project: { vote_type: 1, _id: 0 } }
+                    ],
+                    as: 'user_vote'
+                }
+            });
+        }
 
         const result = await FoodItem.aggregate(pipeline);
         const metadata = result[0].metadata[0] || { total: 0 };
@@ -824,16 +885,35 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             name: item.name,
             description: item.description,
             image: item.image_url,
+            // Full Dish Details for Modal
             price: item.price,
+            basePrice: item.price,
             isVeg: item.is_veg,
+            itemType: item.item_type,
+            foodType: item.food_type,
+            isActive: item.is_active,
+            tags: item.tags || [],
+            ingredients: item.ingredients || [],
+            preparationTime: item.preparation_time,
+            calories: item.calories,
+            spiceLevel: item.spice_level,
+            allergens: item.allergens || [],
+            variants: item.variants || [],
+            addons: item.addons || [],
+            discountPercentage: item.discount_percentage,
+
             rating: item.avg_rating || 4.5,
+            reviewCount: item.total_reviews || 0,
+            upvote_count: item.upvote_count || 0,
+            votes: item.upvote_count || 0, // Legacy fallback
+
             stats: {
                 netVotes: item.net_votes,
                 views: item.view_count || 0,
                 orders: item.order_count || 0
             },
             restaurant: {
-                id: item.brand?._id,
+                id: item.brand?._id || item.outlet?.brand_id,
                 name: item.brand?.name || item.outlet?.name,
                 logo: item.brand?.logo_url || item.outlet?.media?.cover_image_url
             },
@@ -843,7 +923,30 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                 distance: Math.round(item.distance),
                 bucket: item.distance_bucket
             },
-            category: item.category?.name
+            category: item.category?.name,
+            categoryId: item.category?._id,
+
+            // Map offers 
+            offers: (item.offers || []).map((o: any) => ({
+                id: o._id,
+                title: o.title,
+                subtitle: o.subtitle,
+                description: o.description,
+                code: o.code,
+                offer_type: o.offer_type,
+                discount_percentage: o.discount_percentage,
+                discount_amount: o.discount_amount,
+                min_order_amount: o.min_order_amount,
+                valid_from: o.valid_from,
+                valid_till: o.valid_till,
+                is_active: o.is_active,
+                show_on_menu: o.show_on_menu,
+                applicable_food_item_ids: o.applicable_food_item_ids,
+                applicable_category_ids: o.applicable_category_ids
+            })),
+
+            // Check for user vote (aggregated in pipeline below if user is logged in)
+            user_vote_type: item.user_vote?.[0]?.vote_type || null
         }));
 
         return sendSuccess(res, {

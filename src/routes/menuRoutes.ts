@@ -26,13 +26,13 @@ import {
     getFoodItemById
 } from '../controllers/menuController.js';
 import { toggleVote, getUserVote, getVoteAnalytics } from '../controllers/voteController.js';
-import { protect } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 import { voteRateLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
 // Public routes
-router.get('/menu/trending-dishes', getTrendingDishes);
+router.get('/menu/trending-dishes', optionalAuth, getTrendingDishes);
 router.get('/food-items/:foodItemId', getFoodItemById);
 
 // Categories
