@@ -148,6 +148,23 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       order_count: combo.order_count
     }));
 
+    // Get user votes if authenticated (for optimistic UI)
+    let userVotes: Map<string, 'up' | 'down'> = new Map();
+    if ((req as any).user?.id) {
+      const userId = (req as any).user.id;
+      const { DishVote } = await import('../models/DishVote.js');
+
+      const itemIds = menuItems.map(item => item._id);
+      const votes = await DishVote.find({
+        user_id: userId,
+        food_item_id: { $in: itemIds }
+      }).select('food_item_id vote_type');
+
+      votes.forEach(vote => {
+        userVotes.set(vote.food_item_id.toString(), vote.vote_type);
+      });
+    }
+
     // Group by category if not searching/filtering heavily
     let formattedMenu;
     if (!search && sortBy === 'category') {
@@ -200,7 +217,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           is_signature: item.is_signature,
           is_new: item.is_new,
           addons: item.addons || [],
-          variants: item.variants || []
+          variants: item.variants || [],
+          user_vote_type: userVotes.get(item._id.toString()) || null
         });
 
         return acc;
@@ -244,7 +262,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         is_signature: item.is_signature,
         is_new: item.is_new,
         addons: item.addons || [],
-        variants: item.variants || []
+        variants: item.variants || [],
+        user_vote_type: userVotes.get(item._id.toString()) || null
       }));
     }
 
@@ -258,6 +277,13 @@ export const getOutletMenu = async (req: Request, res: Response) => {
 
     // Get total follower count
     const followersCount = await Follow.countDocuments({ outlet: outletId });
+
+    // Get menu settings (with defaults if not set)
+    const menuSettings = {
+      default_view_mode: outlet.menu_settings?.default_view_mode || 'grid',
+      show_item_images: outlet.menu_settings?.show_item_images !== false,
+      show_category_images: outlet.menu_settings?.show_category_images !== false
+    };
 
     res.json({
       status: true,
@@ -273,6 +299,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         },
         menu: formattedMenu,
         combos: formattedCombos,
+        menu_settings: menuSettings,
         total_items: menuItems.length,
         total_combos: combos.length
       }
