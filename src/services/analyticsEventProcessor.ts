@@ -10,6 +10,8 @@ import { FoodItemAnalyticsEvent } from '../models/FoodItemAnalyticsEvent.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { PromotionEvent } from '../models/PromotionEvent.js';
 import { OfferEvent } from '../models/OfferEvent.js';
+import { SessionAnalytics } from '../models/SessionAnalytics.js';
+import { NavigationEvent } from '../models/NavigationEvent.js';
 import { FeaturedPromotion } from '../models/FeaturedPromotion.js';
 import { Offer } from '../models/Offer.js';
 
@@ -92,8 +94,7 @@ export class AnalyticsEventProcessor {
                     return await this.processOfferEvent(event);
 
                 case 'session_lifecycle':
-                    // These events are just for heartbeats/sessions, no DB storage needed for now
-                    return true;
+                    return await this.processSessionEvent(event);
 
                 default:
                     // Unknown event types go to a generic log
@@ -283,6 +284,57 @@ export class AnalyticsEventProcessor {
             return true;
         }
     }
+
+    /**
+     * Process session event (session_start, session_end) with fail-safe
+     */
+    private async processSessionEvent(event: ParsedEvent): Promise<boolean> {
+        try {
+            const { payload } = event;
+            const userObjectId = payload.user_id && mongoose.Types.ObjectId.isValid(payload.user_id)
+                ? new mongoose.Types.ObjectId(payload.user_id)
+                : undefined;
+
+            // Handle session_end
+            if (event.type === 'session_end') {
+                await SessionAnalytics.create({
+                    session_id: event.session_id,
+                    user_id: userObjectId,
+                    session_duration: payload.session_duration || 0,
+                    page_time_spent: payload.page_time_spent || 0,
+                    interaction_count: payload.interaction_count || 0,
+                    device_type: event.device_type,
+                    user_agent: payload.user_agent || 'unknown',
+                    ip_address: event.ip_address,
+                    timestamp: event.timestamp,
+                });
+                return true;
+            }
+
+            // Handle navigation
+            if (event.type === 'navigation') {
+                await NavigationEvent.create({
+                    session_id: event.session_id,
+                    user_id: userObjectId,
+                    from: payload.from || '',
+                    to: payload.to || '',
+                    method: payload.method || 'direct',
+                    device_type: event.device_type,
+                    user_agent: payload.user_agent || 'unknown',
+                    ip_address: event.ip_address,
+                    timestamp: event.timestamp,
+                });
+                return true;
+            }
+
+            // session_start and heartbeats are currently just acknowledged
+            return true;
+        } catch (error: any) {
+            await fallbackStorage.writeEvent(event, `session_db_error: ${error.message}`);
+            return true;
+        }
+    }
+
 
     /**
      * Update promotion counters (non-blocking, best-effort)
