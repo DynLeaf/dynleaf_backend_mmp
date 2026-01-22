@@ -15,6 +15,7 @@ export interface ICombo extends Document {
     original_price: number;
     price: number;
     manual_price_override: boolean;
+    display_order?: number;
     is_active: boolean;
 }
 
@@ -33,6 +34,7 @@ const comboSchema = new Schema<ICombo>({
     original_price: { type: Number, default: 0, min: 0 },
     price: { type: Number, default: 0, min: 0 },
     manual_price_override: { type: Boolean, default: false },
+    display_order: { type: Number, default: 0 },
     is_active: { type: Boolean, default: true }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

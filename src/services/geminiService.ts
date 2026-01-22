@@ -744,8 +744,9 @@ PRICE EXTRACTION:
 - For "Market Price" or "MP", use 0
 
 ITEM TYPE DETECTION:
-- "beverage" for: drinks, juices, shakes, coffee, tea, smoothies, lassi, soda, water
-- "food" for: everything else
+- "beverage" for items that are drinkable: water, soda, soft drinks, juices, mocktails, cocktails, wine, beer, spirits, shakes, smoothies, coffee, tea, lassi, coolers, tonics. Look for keywords like "ml", "bottle", "glass", "pint", "on the rocks".
+- "food" for: solid dishes, appetizers, main courses, breads, desserts, snacks, etc.
+- If an item's category is already "Beverages", "Drinks", "Cocktails", etc., use "beverage".
 
 CONFIDENCE SCORING (for each item):
 - "high": Clear text, clear price, clear category
@@ -828,6 +829,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
         isVeg: Boolean(item.isVeg),
         isSpicy: Boolean(item.isSpicy),
         isCombo: Boolean(item.isCombo),
+        itemType: (item.itemType === 'beverage') ? 'beverage' : 'food' as 'food' | 'beverage',
 
         // Validate and clean variants
         variants: this.validateAndCleanVariants(item.variants, item),

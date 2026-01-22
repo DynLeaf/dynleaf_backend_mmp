@@ -25,7 +25,8 @@ import {
     getMenuSyncStatusForOutlet,
     previewMenuSyncForOutlet,
     syncMenuToOutlets,
-    getMenuSyncHistoryForOutlet
+    getMenuSyncHistoryForOutlet,
+    bulkUpdateCategoryItemTypeForOutlet
 } from '../controllers/outletMenuManagementController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { checkBrandSyncPermission } from '../middleware/brandPermissionMiddleware.js';
@@ -59,6 +60,7 @@ router.get('/:outletId/menu/sync-history', protect, getMenuSyncHistoryForOutlet)
 
 
 // Bulk Operations (MUST be before parameterized routes)
+router.patch('/:outletId/categories/:categoryId/convert-item-type', protect, bulkUpdateCategoryItemTypeForOutlet);
 router.patch('/:outletId/food-items/bulk-update', protect, bulkUpdateFoodItemsForOutlet);
 router.post('/:outletId/food-items/bulk-delete', protect, bulkDeleteFoodItemsForOutlet);
 

@@ -93,6 +93,34 @@ const generateUniqueCategorySlugForOutlet = async (outletId: string, name: strin
 };
 
 // ==================== CATEGORIES ====================
+export const bulkUpdateCategoryItemTypeForOutlet = async (req: Request, res: Response) => {
+    try {
+        const { outletId, categoryId } = req.params;
+        const { itemType } = req.body;
+
+        if (!itemType || (itemType !== 'food' && itemType !== 'beverage')) {
+            return sendError(res, 'Valid itemType (food or beverage) is required', 400);
+        }
+
+        // Verify category belongs to outlet
+        const category = await Category.findOne({ _id: categoryId, outlet_id: outletId });
+        if (!category) {
+            return sendError(res, 'Category not found for this outlet', 404);
+        }
+
+        const result = await FoodItem.updateMany(
+            {
+                category_id: new mongoose.Types.ObjectId(categoryId),
+                outlet_id: new mongoose.Types.ObjectId(outletId)
+            },
+            { $set: { item_type: itemType } }
+        );
+
+        return sendSuccess(res, null, `${result.modifiedCount} items in category converted to ${itemType} successfully`);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
 
 export const createCategoryForOutlet = async (req: Request, res: Response) => {
     try {
@@ -293,12 +321,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             categoryId,
             itemType,
             isVeg,
-            basePrice,
-            base_price,
-            price,
             taxPercentage,
             imageUrl,
-            isActive,
             isAvailable,
             addonIds,
             tags,
@@ -310,7 +334,11 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             isFeatured,
             discountPercentage,
             isRecommended,
-            is_recommended
+            manualPriceOverride = false,
+            price, // Expecting 'price' from frontend
+            basePrice, // Fallback 'basePrice'
+            displayOrder,
+            isActive
         } = req.body;
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
@@ -318,8 +346,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Item name is required', null, 400);
         }
 
-        const rawPrice = price ?? basePrice ?? base_price;
-        const priceNum = Number(rawPrice);
+        const priceNum = Number(price ?? basePrice);
         if (!Number.isFinite(priceNum) || priceNum < 0) {
             return sendError(res, 'Invalid price', null, 400);
         }
@@ -380,7 +407,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             allergens,
             is_featured: isFeatured,
             discount_percentage: discountPercentage,
-            is_recommended: isRecommended ?? is_recommended ?? false
+            is_recommended: isRecommended ?? false,
+            display_order: displayOrder ?? 0,
         };
 
         // Copy location from outlet if available (for geospatial queries)
@@ -416,7 +444,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             allergens: foodItem.allergens,
             isFeatured: foodItem.is_featured,
             isRecommended: foodItem.is_recommended,
-            discountPercentage: foodItem.discount_percentage
+            discountPercentage: foodItem.discount_percentage,
+            displayOrder: foodItem.display_order
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -460,6 +489,9 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
         const skip = (pageNum - 1) * limitNum;
 
         const sortOptions: any = {};
+        if (sortBy === 'created_at') {
+            sortOptions.display_order = 1; // Default to display_order if no specific sort is requested
+        }
         sortOptions[sortBy as string] = sortOrder === 'asc' ? 1 : -1;
 
         const [items, total] = await Promise.all([
@@ -484,7 +516,7 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
             variants: Array.isArray((i as any).variants)
                 ? (i as any).variants.map((v: any) => ({ size: v.size, price: v.price }))
                 : [],
-            order: i.order,
+            displayOrder: i.display_order,
             preparationTime: i.preparation_time,
             calories: i.calories,
             spiceLevel: i.spice_level,
@@ -613,6 +645,11 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             delete updates.isRecommended;
         }
 
+        if (body.displayOrder !== undefined && body.display_order === undefined) {
+            updates.display_order = body.displayOrder;
+            delete updates.displayOrder;
+        }
+
         if (body.variants !== undefined) {
             if (body.variants === null) {
                 updates.variants = [];
@@ -660,7 +697,8 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             allergens: item?.allergens,
             isFeatured: item?.is_featured,
             isRecommended: item?.is_recommended,
-            discountPercentage: item?.discount_percentage
+            discountPercentage: item?.discount_percentage,
+            displayOrder: item?.display_order
         });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -711,6 +749,9 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
         let updated = 0;
         let skipped = 0;
         let failed = 0;
+
+        // Tracks category encounter order for auto-assigning display_order
+        let categoryEncounterCount = existingCategories.length;
         const errors: Array<{ index: number; name?: string; message: string }> = [];
         const results: Array<{ index: number; status: 'created' | 'updated' | 'skipped' | 'failed'; id?: string; name?: string }> = [];
 
@@ -758,7 +799,8 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                                 name: categoryName,
                                 slug,
                                 description: 'Imported category',
-                                is_active: true
+                                is_active: true,
+                                display_order: ++categoryEncounterCount
                             });
                             categoryId = String(createdCategory._id);
                             categoryIdByName.set(key, categoryId);
@@ -829,7 +871,8 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                     addon_ids: Array.isArray(item.addonIds)
                         ? item.addonIds.map((a: any) => new mongoose.Types.ObjectId(String(a)))
                         : [],
-                    variants: variants ?? []
+                    variants: variants ?? [],
+                    display_order: item.display_order ?? index + 1,
                 };
 
                 // Copy location from outlet (same as createFoodItemForOutlet)
@@ -898,9 +941,9 @@ export const exportMenuForOutlet = async (req: Request, res: Response) => {
 
         const [categories, items, addons, combos] = await Promise.all([
             Category.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 }),
-            FoodItem.find({ outlet_id: outletId }).sort({ created_at: -1 }),
-            AddOn.find({ outlet_id: outletId }).sort({ created_at: -1 }),
-            Combo.find({ outlet_id: outletId }).sort({ created_at: -1 })
+            FoodItem.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 }),
+            AddOn.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 }),
+            Combo.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 })
         ]);
 
         const categoryNameById = new Map<string, string>();
@@ -933,14 +976,16 @@ export const exportMenuForOutlet = async (req: Request, res: Response) => {
                 isActive: i.is_active,
                 isAvailable: i.is_available,
                 tags: i.tags || [],
-                variants: Array.isArray(i.variants) ? i.variants.map((v: any) => ({ size: v.size, price: v.price })) : []
+                variants: Array.isArray(i.variants) ? i.variants.map((v: any) => ({ size: v.size, price: v.price })) : [],
+                displayOrder: i.display_order
             })),
             addons: addons.map((a: any) => ({
                 id: String(a._id),
                 name: a.name,
                 price: a.price,
                 category: a.category,
-                isActive: a.is_active
+                isActive: a.is_active,
+                displayOrder: a.display_order
             })),
             combos: combos.map((c: any) => ({
                 id: String(c._id),
@@ -952,7 +997,8 @@ export const exportMenuForOutlet = async (req: Request, res: Response) => {
                 originalPrice: c.original_price,
                 price: c.price,
                 manualPriceOverride: c.manual_price_override,
-                isActive: c.is_active
+                isActive: c.is_active,
+                displayOrder: c.display_order
             }))
         });
     } catch (error: any) {
@@ -1067,7 +1113,8 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             allergens: originalItem.allergens,
             is_featured: false,
             is_recommended: originalItem.is_recommended,
-            discount_percentage: originalItem.discount_percentage
+            discount_percentage: originalItem.discount_percentage,
+            display_order: originalItem.display_order
         });
 
         return sendSuccess(res, {
@@ -1093,7 +1140,8 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             allergens: duplicatedItem.allergens,
             isFeatured: duplicatedItem.is_featured,
             isRecommended: duplicatedItem.is_recommended,
-            discountPercentage: duplicatedItem.discount_percentage
+            discountPercentage: duplicatedItem.discount_percentage,
+            displayOrder: duplicatedItem.display_order
         }, 'Food item duplicated successfully', 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1197,6 +1245,11 @@ export const bulkUpdateFoodItemsForOutlet = async (req: Request, res: Response) 
             delete normalized.isAvailable;
         }
 
+        if (body.displayOrder !== undefined && body.display_order === undefined) {
+            normalized.display_order = body.displayOrder;
+            delete normalized.displayOrder;
+        }
+
         // Keep is_available aligned when toggling is_active
         if (normalized.is_active !== undefined && normalized.is_available === undefined) {
             normalized.is_available = normalized.is_active;
@@ -1223,7 +1276,8 @@ export const bulkUpdateFoodItemsForOutlet = async (req: Request, res: Response) 
             'allergens',
             'is_featured',
             'is_recommended',
-            'discount_percentage'
+            'discount_percentage',
+            'display_order'
         ]);
 
         const sanitized: any = {};
@@ -1341,7 +1395,12 @@ export const uploadFoodItemImageForOutlet = async (req: Request, res: Response) 
 export const createAddOnForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { name, price, category, isActive } = req.body;
+        const { name, price, category, displayOrder, isActive } = req.body;
+
+        if (!name) return sendError(res, 'Add-on name is required', null, 400);
+        if (price === undefined || price === null || isNaN(Number(price)) || Number(price) < 0) {
+            return sendError(res, 'Valid price is required', null, 400);
+        }
 
         // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
@@ -1350,12 +1409,13 @@ export const createAddOnForOutlet = async (req: Request, res: Response) => {
         }
 
         // Add-ons are outlet-level, so use outlet_id
-        const addOn = await AddOn.create({
+        const addOn: any = await AddOn.create({
             outlet_id: outletId,
             name,
-            price,
+            price: Number(price),
             category,
-            is_active: isActive
+            display_order: displayOrder ?? 0,
+            is_active: isActive !== false
         });
 
         return sendSuccess(res, {
@@ -1363,7 +1423,8 @@ export const createAddOnForOutlet = async (req: Request, res: Response) => {
             name: addOn.name,
             price: addOn.price,
             category: addOn.category,
-            isActive: addOn.is_active
+            isActive: addOn.is_active,
+            displayOrder: addOn.display_order
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1380,14 +1441,15 @@ export const listAddOnsForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const addOns = await AddOn.find({ outlet_id: outletId }).sort({ name: 1 });
+        const addOns = await AddOn.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 });
 
         return sendSuccess(res, addOns.map(a => ({
             id: a._id,
             name: a.name,
             price: a.price,
             category: a.category,
-            isActive: a.is_active
+            isActive: a.is_active,
+            displayOrder: a.display_order
         })));
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1410,13 +1472,14 @@ export const updateAddOnForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Add-on not found for this outlet', 404);
         }
 
-        const { name, price, category, is_active, isActive } = req.body;
+        const { name, price, category, is_active, isActive, displayOrder } = req.body;
         const updates: any = {};
         if (name !== undefined) updates.name = name;
         if (price !== undefined) updates.price = price;
         if (category !== undefined) updates.category = category;
         if (is_active !== undefined) updates.is_active = is_active;
         if (isActive !== undefined) updates.is_active = isActive;
+        if (displayOrder !== undefined) updates.display_order = displayOrder;
 
         const updatedAddOn = await AddOn.findOneAndUpdate(
             { _id: addOnId, outlet_id: outletId },
@@ -1428,7 +1491,8 @@ export const updateAddOnForOutlet = async (req: Request, res: Response) => {
             name: updatedAddOn?.name,
             price: updatedAddOn?.price,
             category: updatedAddOn?.category,
-            isActive: updatedAddOn?.is_active
+            isActive: updatedAddOn?.is_active,
+            displayOrder: updatedAddOn?.display_order
         });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1477,7 +1541,7 @@ export const deleteAddOnForOutlet = async (req: Request, res: Response) => {
 export const createComboForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { name, description, imageUrl, items, discountPercentage = 0, manualPriceOverride = false, price, isActive } = req.body;
+        const { name, description, imageUrl, items, discountPercentage = 0, manualPriceOverride = false, price, isActive, displayOrder } = req.body;
 
         // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
@@ -1519,12 +1583,12 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
         const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
 
         // Combos are outlet-level
-        const combo = await Combo.create({
+        const combo: any = await Combo.create({
             outlet_id: outletId,
             name,
             description,
             image_url: imageUrl,
-            items: normalizedItems.map((i: any) => ({
+            items: normalizedItems.map((i: { foodItemId: string; quantity: number }) => ({
                 food_item_id: i.foodItemId,
                 quantity: i.quantity
             })),
@@ -1532,7 +1596,8 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
             original_price: originalPrice,
             price: finalPrice,
             manual_price_override: manualPriceOverride,
-            is_active: isActive
+            display_order: displayOrder ?? 0,
+            is_active: isActive !== false
         });
 
         return sendSuccess(res, {
@@ -1540,12 +1605,13 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
             name: combo.name,
             description: combo.description,
             imageUrl: combo.image_url,
-            items: combo.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+            items: combo.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
             discountPercentage: combo.discount_percentage,
             originalPrice: combo.original_price,
             price: combo.price,
             manualPriceOverride: combo.manual_price_override,
-            isActive: combo.is_active
+            isActive: combo.is_active,
+            displayOrder: combo.display_order
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1562,7 +1628,7 @@ export const listCombosForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        const combos = await Combo.find({ outlet_id: outletId }).sort({ created_at: -1 });
+        const combos = await Combo.find({ outlet_id: outletId }).sort({ display_order: 1, name: 1 });
 
         return sendSuccess(res, combos.map(c => ({
             id: c._id,

@@ -5,6 +5,7 @@ export interface IAddOn extends Document {
     name: string;
     price: number;
     category?: string;
+    display_order?: number;
     is_active: boolean;
 }
 
@@ -13,6 +14,7 @@ const addOnSchema = new Schema<IAddOn>({
     name: { type: String, required: true },
     price: { type: Number, required: true, min: 0 },
     category: { type: String },
+    display_order: { type: Number, default: 0 },
     is_active: { type: Boolean, default: true }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
