@@ -416,9 +416,9 @@ class GeminiService {
       throw new Error('Gemini client not initialized');
     }
 
-    // KEEP EXISTING MODEL NAMES - DO NOT CHANGE
+    // Updated to use supported GA models (Gemini 2.0 discontinued March 31, 2026)
     const modelName = modelType === 'FAST'
-      ? 'gemini-2.0-flash-exp'  // Fast model for quick responses
+      ? 'gemini-2.5-flash-lite'  // Fast, cost-effective model for quick responses
       : 'gemini-2.5-flash';      // Quality model for complex tasks
 
     return this.client.getGenerativeModel({ model: modelName });
@@ -1094,7 +1094,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
       rateLimits: this.rateLimiter.getStats(),
       cache: this.cache.getStats(),
       models: {
-        fast: 'gemini-2.0-flash-exp',
+        fast: 'gemini-2.5-flash-lite',
         quality: 'gemini-2.5-flash',
       },
       timeouts: {
