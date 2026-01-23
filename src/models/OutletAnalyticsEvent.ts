@@ -30,7 +30,7 @@ const outletAnalyticsEventSchema = new Schema<IOutletAnalyticsEvent>(
     },
     event_type: {
       type: String,
-      enum: ['outlet_visit', 'profile_view', 'menu_view'],
+      enum: ['outlet_visit', 'profile_view', 'menu_view', 'qr_scan'],
       required: true,
     },
 

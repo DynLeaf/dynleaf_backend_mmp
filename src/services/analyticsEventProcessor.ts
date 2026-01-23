@@ -164,6 +164,16 @@ export class AnalyticsEventProcessor {
                 ? new mongoose.Types.ObjectId(payload.outlet_id)
                 : undefined;
 
+            if (event.type === 'qr_scan') {
+                console.log(`🔍 [EventProcessor] QR Scan Detected:`, {
+                    outlet_id: payload.outlet_id,
+                    method: payload.method,
+                    type: payload.type,
+                    is_valid: payload.is_valid,
+                    scanned_url: payload.scanned_url
+                });
+            }
+
             if (!outletObjectId) {
                 console.warn('[EventProcessor] Invalid outlet ID');
                 return true;
@@ -393,7 +403,7 @@ export class AnalyticsEventProcessor {
             return 'food_item';
         }
 
-        if (type === 'outlet_visit' || type === 'profile_view' || type === 'menu_view' || type === 'outlet_search') {
+        if (type === 'outlet_visit' || type === 'profile_view' || type === 'menu_view' || type === 'outlet_search' || type === 'qr_scan') {
             return 'outlet';
         }
 
