@@ -811,6 +811,14 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                         },
                         {
                             $lookup: {
+                                from: 'foodvariants',
+                                localField: '_id',
+                                foreignField: 'food_item_id',
+                                as: 'variants'
+                            }
+                        },
+                        {
+                            $lookup: {
                                 from: 'offers',
                                 let: { outletId: '$outlet_id', itemId: '$_id', categoryId: '$category_id' },
                                 pipeline: [
@@ -880,7 +888,59 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
         console.log(`🍽️ Returned ${dishes.length} trending dishes (Total: ${metadata.total})`);
 
-        const formattedItems = dishes.map((item: any) => ({
+        // ✅ Fetch variants separately for each dish to ensure they're populated
+        const dishesWithVariants = await Promise.all(
+            dishes.map(async (dish: any) => {
+                try {
+                    // DEBUG: Check database and collection info
+                    if (dishes.indexOf(dish) === 0) {
+                        console.log('🔧 DEBUG INFO:');
+                        console.log('   - DB Name:', mongoose.connection.db?.databaseName);
+                        console.log('   - Collections:', await mongoose.connection.db?.listCollections().toArray().then(c => c.map(x => x.name)));
+                        console.log('   - Querying collection: foodvariants');
+                        console.log('   - Looking for food_item_id:', dish._id);
+                    }
+
+                    // First, check if there are ANY variants at all
+                    const totalVariants = await FoodVariant.countDocuments({} as any);
+                    if (dishes.indexOf(dish) === 0) {
+                        console.log('   - Total variants in collection:', totalVariants);
+                    }
+
+                    // Check for this specific dish
+                    const variants = await FoodVariant.find({
+                        food_item_id: dish._id
+                    } as any).lean();
+
+                    console.log(`🔍 Dish ${dish.name} (${dish._id}): Found ${variants.length} variants`);
+
+                    return {
+                        ...dish,
+                        variants: variants || []
+                    };
+                } catch (error) {
+                    console.error(`❌ Error fetching variants for dish ${dish._id}:`, error);
+                    return {
+                        ...dish,
+                        variants: []
+                    };
+                }
+            })
+        );
+
+        console.log(`📊 Dishes with variants populated: ${dishesWithVariants.filter((d: any) => d.variants.length > 0).length}/${dishesWithVariants.length}`);
+
+        // Debug: Check if brand/outlet have slugs
+        if (dishesWithVariants.length > 0) {
+            const firstDish = dishesWithVariants[0];
+            console.log('🔍 First dish brand:', firstDish.brand);
+            console.log('🔍 First dish outlet:', firstDish.outlet);
+            console.log('🔍 Brand slug:', firstDish.brand?.slug);
+            console.log('🔍 Outlet slug:', firstDish.outlet?.slug);
+        }
+
+
+        const formattedItems = dishesWithVariants.map((item: any) => ({
             id: item._id,
             name: item.name,
             description: item.description,
@@ -898,8 +958,16 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             calories: item.calories,
             spiceLevel: item.spice_level,
             allergens: item.allergens || [],
-            variants: item.variants || [],
-            addons: item.addons || [],
+            variants: (item.variants || []).map((v: any) => ({
+                id: v._id,
+                name: v.name,
+                price: v.price || item.price + (v.price_delta || 0)
+            })),
+            addons: (item.addons || []).map((a: any) => ({
+                id: a._id,
+                name: a.name,
+                price: a.price
+            })),
             discountPercentage: item.discount_percentage,
 
             rating: item.avg_rating || 4.5,
@@ -944,6 +1012,10 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                 applicable_food_item_ids: o.applicable_food_item_ids,
                 applicable_category_ids: o.applicable_category_ids
             })),
+
+            // ✅ CRITICAL: Add restaurantSlug for navigation
+            restaurantSlug: item.outlet?.slug || item.brand?.slug || null,
+            restaurantId: item.outlet._id,
 
             // Check for user vote (aggregated in pipeline below if user is logged in)
             user_vote_type: item.user_vote?.[0]?.vote_type || null
