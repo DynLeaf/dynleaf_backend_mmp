@@ -147,7 +147,7 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
         }
         const actualOutletId = outlet._id;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId })
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId as any })
             .populate('brand_id', 'name')
             .populate('created_by_user_id', 'username phone')
             .lean();
@@ -199,7 +199,7 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
         }
         const actualOutletId = outlet._id;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId });
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -229,7 +229,7 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
         if (display_order !== undefined) offer.display_order = display_order;
         if (is_active !== undefined) offer.is_active = is_active;
 
-        await offer.save();
+        await (offer as any).save();
 
         return sendSuccess(res, {
             message: 'Offer updated successfully',
@@ -252,7 +252,7 @@ export const deleteOffer = async (req: AuthRequest, res: Response) => {
         }
         const actualOutletId = outlet._id;
 
-        const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: actualOutletId });
+        const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -278,14 +278,14 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
         }
         const actualOutletId = outlet._id;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId });
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
         }
 
         (offer as any).is_active = !offer.is_active;
-        await offer.save();
+        await (offer as any).save();
 
         return sendSuccess(res, {
             message: `Offer ${offer.is_active ? 'activated' : 'deactivated'} successfully`,
