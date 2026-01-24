@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
+import * as outletService from '../services/outletService.js';
 
 export const updateSocialLinks = async (req: Request, res: Response) => {
     try {
@@ -31,12 +32,14 @@ export const getProfileFeed = async (req: Request, res: Response) => {
 export const getProfilePhotos = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
+        const outlet = await outletService.getOutletById(outletId);
 
-        const outlet = await Outlet.findById(outletId).select('photo_gallery media');
-        
         if (!outlet) {
+            console.warn(`[getProfilePhotos] Outlet NOT FOUND for ID: ${outletId}`);
             return sendError(res, 'Outlet not found', 404);
         }
+
+        console.log(`[getProfilePhotos] Found outlet: ${outlet.name} (${outlet._id})`);
 
         // Transform photo_gallery structure to flat array with categories
         const photos: Array<{ url: string; category: 'interior' | 'exterior' | 'food' }> = [];
@@ -69,6 +72,7 @@ export const getProfilePhotos = async (req: Request, res: Response) => {
 
         return sendSuccess(res, { photos });
     } catch (error: any) {
+        console.error(`[getProfilePhotos] Error for outlet ${req.params.outletId}:`, error);
         return sendError(res, error.message);
     }
 };

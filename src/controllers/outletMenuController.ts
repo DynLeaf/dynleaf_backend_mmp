@@ -8,6 +8,8 @@ import { OutletMenuItem } from '../models/OutletMenuItem.js';
 import { Follow } from '../models/Follow.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
+import * as outletService from '../services/outletService.js';
+
 /**
  * Get outlet's menu with all items (NEW: Direct from FoodItem, no junction table)
  * GET /api/v1/outlets/:outletId/menu
@@ -15,11 +17,12 @@ import { AuthRequest } from '../middleware/authMiddleware.js';
  */
 export const getOutletMenu = async (req: Request, res: Response) => {
   try {
-    const { outletId } = req.params;
+    const { outletId: idOrSlug } = req.params;
     const { category, foodType, isVeg, isAvailable, search, sortBy = 'category' } = req.query;
+    console.log(`🍴 [getOutletMenu] Fetching menu for: ${idOrSlug}`);
 
     // Verify outlet exists
-    const outlet = await Outlet.findById(outletId).populate('brand_id', 'name logo_url cuisines');
+    const outlet = await outletService.getOutletById(idOrSlug);
     if (!outlet) {
       return res.status(404).json({
         status: false,
@@ -27,10 +30,13 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       });
     }
 
+    const actualOutletId = outlet._id;
+
     // Build aggregation pipeline
     const pipeline: any[] = [
-      { $match: { outlet_id: new mongoose.Types.ObjectId(outletId), is_active: true } }
+      { $match: { outlet_id: new mongoose.Types.ObjectId(actualOutletId as any), is_active: true } }
     ];
+    console.log(`🍴 [getOutletMenu] Pipeline initialized for actualOutletId: ${actualOutletId}`);
 
     // Filter by availability
     if (isAvailable === 'true') {
@@ -112,16 +118,20 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       pipeline.push({ $sort: { 'category.display_order': 1, display_order: 1 } });
     }
 
+    console.log('🍴 [getOutletMenu] Running aggregate pipeline...');
     const menuItems = await FoodItem.aggregate(pipeline);
+    console.log(`🍴 [getOutletMenu] Aggregate complete. Items found: ${menuItems.length}`);
 
     // Fetch active combos for the outlet
+    console.log('🍴 [getOutletMenu] Fetching combos...');
     const combos = await Combo.find({
-      outlet_id: new mongoose.Types.ObjectId(outletId),
+      outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
       is_active: true
     })
       .populate('items.food_item_id')
       .sort({ display_order: 1, order_count: -1 })
       .lean();
+    console.log(`🍴 [getOutletMenu] Combos fetched: ${combos.length}`);
 
     // Format combos
     const formattedCombos = combos.map((combo: any) => ({
@@ -152,13 +162,16 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     let userVotes: Map<string, 'up' | 'down'> = new Map();
     if ((req as any).user?.id) {
       const userId = (req as any).user.id;
+      console.log('🍴 [getOutletMenu] Fetching user votes...');
       const { DishVote } = await import('../models/DishVote.js');
+      console.log('🍴 [getOutletMenu] DishVote model imported');
 
       const itemIds = menuItems.map(item => item._id);
       const votes = await DishVote.find({
         user_id: userId,
         food_item_id: { $in: itemIds }
       }).select('food_item_id vote_type');
+      console.log(`🍴 [getOutletMenu] Votes found: ${votes.length}`);
 
       votes.forEach(vote => {
         userVotes.set(vote.food_item_id.toString(), vote.vote_type);
@@ -273,12 +286,12 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     let isFollowing = false;
     if ((req as any).user?.id) {
       const userId = (req as any).user.id;
-      const follow = await Follow.findOne({ user: userId, outlet: outletId });
+      const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
       isFollowing = !!follow;
     }
 
     // Get total follower count
-    const followersCount = await Follow.countDocuments({ outlet: outletId });
+    const followersCount = await Follow.countDocuments({ outlet: actualOutletId });
 
     // Get menu settings (with defaults if not set)
     const menuSettings = {
@@ -455,10 +468,10 @@ export const reorderOutletMenu = async (req: AuthRequest, res: Response) => {
  */
 export const getOutletMenuCategories = async (req: Request, res: Response) => {
   try {
-    const { outletId } = req.params;
+    const { outletId: idOrSlug } = req.params;
 
     // Verify outlet
-    const outlet = await Outlet.findById(outletId);
+    const outlet = await outletService.getOutletById(idOrSlug);
     if (!outlet) {
       return res.status(404).json({
         status: false,
@@ -466,9 +479,11 @@ export const getOutletMenuCategories = async (req: Request, res: Response) => {
       });
     }
 
+    const actualOutletId = outlet._id;
+
     // Get all menu items with categories
     const menuItems = await OutletMenuItem.find({
-      outlet_id: outletId,
+      outlet_id: actualOutletId,
       is_available: true
     })
       .populate({

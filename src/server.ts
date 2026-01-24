@@ -11,6 +11,9 @@ const PORT = Number(process.env.PORT) || 5005;
 
 const startServer = async () => {
     try {
+        console.log('---------------------------------------------------------');
+        console.log('🚀 [DIAGNOSTIC] Backend Starting - Logic Updated Jan 24');
+        console.log('---------------------------------------------------------');
         await connectDB();
         console.log(
             `[mongo] connected host=${mongoose.connection.host} db=${mongoose.connection.name}`

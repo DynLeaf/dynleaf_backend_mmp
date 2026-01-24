@@ -1,10 +1,14 @@
 import { Request, Response } from 'express';
+console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+console.log('!!! BRAND_OUTLET_CONTROLLER LOADING - JAN-24-16-25 !!!');
+console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
 import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { Follow } from '../models/Follow.js';
 import mongoose from 'mongoose';
+import * as outletService from '../services/outletService.js';
 
 /**
  * NEW: Get featured brands with their nearest outlet
@@ -372,32 +376,28 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
  * GET /api/v1/outlets/:outletId/detail
  */
 export const getOutletDetail = async (req: Request, res: Response) => {
+  console.log('--- ENTERING getOutletDetail ---');
   try {
     const { outletId } = req.params;
+    console.log(`[getOutletDetail] Requested ID/Slug: ${outletId}`);
 
-    // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(outletId)) {
-      return res.status(400).json({
-        status: false,
-        message: 'Invalid outlet ID'
-      });
-    }
+    // Use service to find outlet by ID or slug
+    const outletDoc = await outletService.getOutletById(outletId);
 
-    // Get outlet with brand
-    const outlet = await Outlet.findById(outletId)
-      .populate('brand_id', 'name slug logo_url description cuisines social_media verification_status')
-      .lean();
-
-    if (!outlet) {
+    if (!outletDoc) {
       return res.status(404).json({
         status: false,
-        message: 'Outlet not found'
+        message: 'Outlet not found [MARKER-NEW-LOGIC]'
       });
     }
+
+    const outlet = outletDoc.toObject();
+    const actualOutletId = outlet._id;
+    console.log(`[getOutletDetail] Resolved ID: ${actualOutletId}`);
 
     // Get operating hours from OperatingHours collection
     const operatingHours = await OperatingHours.find({
-      outlet_id: outletId
+      outlet_id: actualOutletId
     })
       .sort({ day_of_week: 1 })
       .select('day_of_week open_time close_time is_closed')
@@ -413,7 +413,7 @@ export const getOutletDetail = async (req: Request, res: Response) => {
 
     // Get available items count
     const itemsCount = await FoodItem.countDocuments({
-      outlet_id: outletId,
+      outlet_id: actualOutletId,
       is_available: true,
       is_active: true
     });
@@ -422,7 +422,7 @@ export const getOutletDetail = async (req: Request, res: Response) => {
     const categories = await FoodItem.aggregate([
       {
         $match: {
-          outlet_id: new mongoose.Types.ObjectId(outletId),
+          outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
           is_available: true,
           is_active: true
         }
@@ -448,13 +448,13 @@ export const getOutletDetail = async (req: Request, res: Response) => {
     ]);
 
     // Get followers count
-    const followersCount = await Follow.countDocuments({ outlet: outletId });
+    const followersCount = await Follow.countDocuments({ outlet: actualOutletId });
 
     // Check if user follows the outlet
     let isFollowing = false;
     if ((req as any).user?.id) {
       const userId = (req as any).user.id;
-      const follow = await Follow.findOne({ user: userId, outlet: outletId });
+      const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
       isFollowing = !!follow;
     }
 
@@ -482,10 +482,11 @@ export const getOutletDetail = async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    console.error('Error in getOutletDetail:', error);
+    console.error('[getOutletDetail] FATAL ERROR:', error);
+    console.error(error.stack);
     res.status(500).json({
       status: false,
-      message: error.message || 'Failed to fetch outlet detail'
+      message: `Outlet detail error: ${error.message}`
     });
   }
 };

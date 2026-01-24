@@ -132,15 +132,17 @@ export const getUserOutletsList = async (req: AuthRequest, res: Response) => {
 
 export const getOutletById = async (req: AuthRequest, res: Response) => {
     try {
-        const { outletId } = req.params;
-        const outlet = await outletService.getOutletById(outletId);
+        const { outletId: idOrSlug } = req.params;
+        const outlet = await outletService.getOutletById(idOrSlug);
 
         if (!outlet) {
             return sendError(res, 'Outlet not found', 404);
         }
 
+        const actualOutletId = outlet._id.toString();
+
         // Fetch operating hours from OperatingHours collection
-        const operatingHours = await OperatingHours.find({ outlet_id: outletId }).sort({ day_of_week: 1 });
+        const operatingHours = await OperatingHours.find({ outlet_id: actualOutletId }).sort({ day_of_week: 1 });
 
         const userRoles = req.user?.roles || [];
         const outletBrandId = (outlet as any)?.brand_id?._id?.toString?.()
@@ -151,7 +153,7 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
 
         const hasOutletAccess = userRoles.some((r: any) => {
             if (r.role === 'admin') return true;
-            if (r.scope === 'outlet' && r.outletId?.toString?.() === outletId) return true;
+            if (r.scope === 'outlet' && r.outletId?.toString?.() === actualOutletId) return true;
             if (r.scope === 'brand' && r.brandId && outletBrandId) return r.brandId.toString() === outletBrandId;
             return false;
         });
@@ -169,7 +171,7 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
         // Only attach subscription details for authorized outlet/brand/admin users.
         // (This route is used by consumer flows too, so we must not leak subscription info.)
         if (hasOutletAccess) {
-            const summary = await getOutletSubscriptionSummary(outletId, {
+            const summary = await getOutletSubscriptionSummary(actualOutletId, {
                 assignedByUserId: req.user?.id,
                 notes: 'Auto-created on outlet details access'
             });
@@ -181,12 +183,12 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
         // Check if user follows the outlet
         if ((req as any).user?.id) {
             const userId = (req as any).user.id;
-            const follow = await Follow.findOne({ user: userId, outlet: outletId });
+            const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
             outletPayload.is_following = !!follow;
         }
 
         // Get total follower count
-        const followersCount = await Follow.countDocuments({ outlet: outletId });
+        const followersCount = await Follow.countDocuments({ outlet: actualOutletId });
         outletPayload.followers_count = followersCount;
 
         return sendSuccess(res, {
@@ -440,8 +442,8 @@ export const updateOperatingHours = async (req: Request, res: Response) => {
 
 export const getProfileOverview = async (req: Request, res: Response) => {
     try {
-        const { outletId } = req.params;
-        const outlet = await Outlet.findById(outletId).populate('brand_id');
+        const { outletId: idOrSlug } = req.params;
+        const outlet = await outletService.getOutletById(idOrSlug);
         if (!outlet) return sendError(res, 'Outlet not found', null, 404);
 
         const brand: any = outlet.brand_id;
@@ -449,6 +451,7 @@ export const getProfileOverview = async (req: Request, res: Response) => {
         return sendSuccess(res, {
             outletId: outlet._id,
             name: outlet.name,
+            slug: outlet.slug,
             coverImage: outlet.media?.cover_image_url,
             cuisines: brand?.cuisines || [],
             openingStatus: 'OPEN', // Simplified
@@ -467,11 +470,12 @@ export const getProfileOverview = async (req: Request, res: Response) => {
 
 export const getProfileAbout = async (req: Request, res: Response) => {
     try {
-        const { outletId } = req.params;
-        const outlet = await Outlet.findById(outletId);
+        const { outletId: idOrSlug } = req.params;
+        const outlet = await outletService.getOutletById(idOrSlug);
         if (!outlet) return sendError(res, 'Outlet not found', null, 404);
 
-        const operatingHours = await OperatingHours.find({ outlet_id: outletId });
+        const actualOutletId = outlet._id.toString();
+        const operatingHours = await OperatingHours.find({ outlet_id: actualOutletId });
 
         return sendSuccess(res, {
             description: '',

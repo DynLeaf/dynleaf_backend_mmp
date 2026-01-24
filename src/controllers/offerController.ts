@@ -4,6 +4,7 @@ import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { notifyFollowersOfNewOffer } from '../services/notificationService.js';
+import * as outletService from '../services/outletService.js';
 
 export const createOffer = async (req: AuthRequest, res: Response) => {
     try {
@@ -38,16 +39,18 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Title is required', null, 400);
         }
 
-        const outlet = req.outlet || await Outlet.findById(outletId);
+        const outlet = req.outlet || await outletService.getOutletById(outletId);
         if (!outlet) {
             return sendError(res, 'Outlet not found', null, 404);
         }
+
+        const actualOutletId = outlet._id;
 
         const offer = await Offer.create({
             brand_id: outlet.brand_id,
             created_by_user_id: req.user.id,
             created_by_role: req.user.activeRole?.role,
-            outlet_ids: [outletId],
+            outlet_ids: [actualOutletId],
             location: outlet.location,
             title,
             subtitle,
@@ -78,7 +81,7 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
         const createdOffer = Array.isArray(offer) ? offer[0] : offer;
 
         // Notify followers asynchronously (don't wait for it to finish to send response)
-        notifyFollowersOfNewOffer((createdOffer as any)._id as string, outletId)
+        notifyFollowersOfNewOffer((createdOffer as any)._id as string, actualOutletId.toString())
             .catch(err => console.error('[OfferController] Notification error:', err));
 
         return sendSuccess(res, {
@@ -96,7 +99,14 @@ export const getOutletOffers = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const { is_active, page = 1, limit = 20 } = req.query;
 
-        const filter: any = { outlet_ids: outletId };
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+        const actualOutletId = outlet._id;
+
+        const filter: any = { outlet_ids: actualOutletId };
         if (is_active !== undefined) {
             filter.is_active = is_active === 'true';
         }
@@ -130,7 +140,14 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId })
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+        const actualOutletId = outlet._id;
+
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId })
             .populate('brand_id', 'name')
             .populate('created_by_user_id', 'username phone')
             .lean();
@@ -175,7 +192,14 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
             is_active
         } = req.body;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId });
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+        const actualOutletId = outlet._id;
+
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -221,7 +245,14 @@ export const deleteOffer = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: outletId });
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+        const actualOutletId = outlet._id;
+
+        const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: actualOutletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);
@@ -240,7 +271,14 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        const offer = await Offer.findOne({ _id: offerId, outlet_ids: outletId });
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(outletId);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', null, 404);
+        }
+        const actualOutletId = outlet._id;
+
+        const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId });
 
         if (!offer) {
             return sendError(res, 'Offer not found', null, 404);

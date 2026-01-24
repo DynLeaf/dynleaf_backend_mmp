@@ -10,6 +10,7 @@ import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
+import * as outletService from '../services/outletService.js';
 
 // --- Helpers ---
 
@@ -42,14 +43,21 @@ const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> 
 
 export const createStory = async (req: AuthRequest, res: Response) => {
     try {
-        const { outletId, slides, category, visibilityStart, visibilityEnd, pinned } = req.body;
+        const { outletId: idOrSlug, slides, category, visibilityStart, visibilityEnd, pinned } = req.body;
 
-        if (!outletId || !slides || slides.length === 0 || !category) {
+        if (!idOrSlug || !slides || slides.length === 0 || !category) {
             return sendError(res, 'Missing required fields (outletId, slides, category)', 400);
         }
 
+        // Verify outlet exists and get actual ID
+        const outlet = await outletService.getOutletById(idOrSlug);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+        const actualOutletId = outlet._id.toString();
+
         // 1. Permission Check
-        if (!req.user || !await checkOutletAccess(req.user, outletId)) {
+        if (!req.user || !await checkOutletAccess(req.user, actualOutletId)) {
             return sendError(res, 'Unauthorized to create story for this outlet', 403);
         }
 
@@ -57,7 +65,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const storiesToday = await Story.countDocuments({
-            outletId,
+            outletId: actualOutletId,
             created_at: { $gte: today }
         });
 
@@ -116,7 +124,6 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
         // 3.5. Check subscription for pinning feature
         if (pinned) {
-            const outlet = await Outlet.findById(outletId);
             if (!outlet?.subscription_id) {
                 return sendError(res, 'Story pinning requires an active subscription', 403);
             }
@@ -137,7 +144,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
             // If pinning this story, unpin all other stories for this outlet
             await Story.updateMany(
-                { outletId, _id: { $ne: null } },
+                { outletId: actualOutletId, _id: { $ne: null } },
                 { $set: { pinned: false } }
             );
         }
@@ -148,7 +155,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
         const end = visibilityEnd ? new Date(visibilityEnd) : new Date(start.getTime() + 24 * 60 * 60 * 1000);
 
         const story = await Story.create({
-            outletId,
+            outletId: actualOutletId,
             slides: processedSlides,
             category,
             status: 'live', // Auto-publish for now, or use 'draft' if requested
@@ -161,7 +168,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
         // 5. Initialize Metrics
         await StoryMetrics.create({
             storyId: story._id,
-            outletId: outletId
+            outletId: actualOutletId
         });
 
         return sendSuccess(res, story, 'Story created successfully', 201);
@@ -261,11 +268,18 @@ export const getStoryFeed = async (req: Request, res: Response) => {
 
 export const getOutletStories = async (req: Request, res: Response) => {
     try {
-        const { outletId } = req.params;
+        const { outletId: idOrSlug } = req.params;
         const now = new Date();
 
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(idOrSlug);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+        const actualOutletId = outlet._id;
+
         const stories = await Story.find({
-            outletId,
+            outletId: actualOutletId,
             status: 'live',
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
@@ -451,13 +465,20 @@ export const getSeenStatus = async (req: Request, res: Response) => {
 
 export const getStoryAnalytics = async (req: AuthRequest, res: Response) => {
     try {
-        const { outletId } = req.params;
+        const { outletId: idOrSlug } = req.params;
 
-        if (!req.user || !await checkOutletAccess(req.user, outletId)) {
+        // Resolve optional slug/ID
+        const outlet = await outletService.getOutletById(idOrSlug);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', 404);
+        }
+        const actualOutletId = outlet._id;
+
+        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
             return sendError(res, 'Unauthorized', 403);
         }
 
-        const metrics = await StoryMetrics.find({ outletId }).populate('storyId', 'slides category created_at status');
+        const metrics = await StoryMetrics.find({ outletId: actualOutletId }).populate('storyId', 'slides category created_at status');
 
         return sendSuccess(res, metrics);
     } catch (error: any) {

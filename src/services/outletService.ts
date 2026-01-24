@@ -83,10 +83,18 @@ export const getUserOutletsList = async (userId: string) => {
 };
 
 /**
- * Get outlet by ID
+ * Get outlet by ID or Slug
  */
-export const getOutletById = async (outletId: string): Promise<IOutlet | null> => {
-    return await Outlet.findById(outletId).populate('brand_id');
+export const getOutletById = async (idOrSlug: string): Promise<IOutlet | null> => {
+    console.log(`[getOutletById] Resolving: ${idOrSlug}`);
+    if (mongoose.Types.ObjectId.isValid(idOrSlug)) {
+        console.log(`[getOutletById] Valid ObjectId detected`);
+        return await Outlet.findById(idOrSlug).populate('brand_id');
+    }
+    console.log(`[getOutletById] Not a valid ObjectId, searching by slug`);
+    const outlet = await Outlet.findOne({ slug: idOrSlug }).populate('brand_id');
+    console.log(`[getOutletById] Resolved to ID: ${outlet?._id || 'NULL'}`);
+    return outlet;
 };
 
 /**

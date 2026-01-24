@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import { sendNotFoundError, sendServerError, ErrorCode } from '../utils/response.js';
@@ -31,7 +32,12 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
         if (type === 'user') {
             const { User } = await import('../models/User.js');
-            const user = await User.findById(outletId);
+            let user;
+            if (mongoose.Types.ObjectId.isValid(outletId)) {
+                user = await User.findById(outletId);
+            } else {
+                user = await User.findOne({ username: outletId });
+            }
 
             if (!user) {
                 return sendNotFoundError(
@@ -45,9 +51,14 @@ export const getSocialMeta = async (req: Request, res: Response) => {
             brandLogo = user.avatar_url || '/user-profile-icon.avif';
             title = `${brandName}`;
             description = `Join ${brandName} on DynLeaf and discover exceptional dining together!`;
-            pageUrlPath = `/u/${outletId}`;
+            pageUrlPath = `/u/${user.username || user._id}`;
         } else {
-            const outlet = await Outlet.findById(outletId).populate('brand_id');
+            let outlet;
+            if (mongoose.Types.ObjectId.isValid(outletId)) {
+                outlet = await Outlet.findById(outletId).populate('brand_id');
+            } else {
+                outlet = await Outlet.findOne({ slug: outletId }).populate('brand_id');
+            }
 
             if (!outlet) {
                 return sendNotFoundError(
@@ -69,7 +80,8 @@ export const getSocialMeta = async (req: Request, res: Response) => {
                 ? `View the menu for ${brandName}! Discover our delicious offerings.`
                 : `Check out ${brandName}! Scan the QR code or visit the link to explore.`;
 
-            pageUrlPath = `/restaurant/${outletId}${type === 'menu' ? '/menu' : ''}`;
+            const actualIdOrSlug = outlet.slug || outlet._id;
+            pageUrlPath = `/restaurant/${actualIdOrSlug}${type === 'menu' ? '/menu' : ''}`;
         }
 
         // Map API domain to frontend domain for redirect

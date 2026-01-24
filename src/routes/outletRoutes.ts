@@ -46,6 +46,11 @@ import {
 
 const router = express.Router();
 
+router.use((req, res, next) => {
+    console.log(`🔍 [Router:outlet] ${req.method} ${req.url} | Params: ${JSON.stringify(req.params)}`);
+    next();
+});
+
 // Public routes (with optional auth for personalized data like 'is_following')
 router.get('/nearby', optionalAuth, getNearbyOutlets);
 router.get('/featured', optionalAuth, getFeaturedOutlets);

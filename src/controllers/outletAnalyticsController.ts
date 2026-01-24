@@ -4,6 +4,7 @@ import { Outlet } from '../models/Outlet.js';
 import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { OutletAnalyticsSummary } from '../models/OutletAnalyticsSummary.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import * as outletService from '../services/outletService.js';
 
 const detectDeviceType = (userAgentRaw: string): 'mobile' | 'desktop' | 'tablet' => {
   const userAgent = userAgentRaw || '';
@@ -31,9 +32,10 @@ const toObjectIdOrUndefined = (value?: string) => {
 export const trackOutletVisit = async (req: Request, res: Response) => {
   try {
     const { outletId } = req.params;
+    console.log(`[trackOutletVisit] Tracking outlet: ${outletId}`);
     const { session_id, entry_page, source, prev_path, promotion_id } = req.body as OutletTrackBody;
 
-    const outlet = await Outlet.findById(outletId);
+    const outlet = await outletService.getOutletById(outletId);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
     const userAgent = (req.headers['user-agent'] as string) || '';
@@ -53,6 +55,7 @@ export const trackOutletVisit = async (req: Request, res: Response) => {
 
     if (recent) return sendSuccess(res, { tracked: false, deduped: true });
 
+    console.log(`[trackOutletVisit] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create({
       outlet_id: outlet._id,
       event_type: 'outlet_visit',
@@ -69,8 +72,9 @@ export const trackOutletVisit = async (req: Request, res: Response) => {
 
     return sendSuccess(res, { tracked: true });
   } catch (error: any) {
-    console.error('Track outlet visit error:', error);
-    return sendError(res, error.message || 'Failed to track outlet visit');
+    console.error('[trackOutletVisit] FATAL ERROR:', error);
+    console.error(error.stack);
+    return sendError(res, `Visit tracking failed: ${error.message}`);
   }
 };
 
@@ -79,13 +83,14 @@ export const trackOutletProfileView = async (req: Request, res: Response) => {
     const { outletId } = req.params;
     const { session_id, entry_page, source, prev_path, promotion_id } = req.body as OutletTrackBody;
 
-    const outlet = await Outlet.findById(outletId);
+    const outlet = await outletService.getOutletById(outletId);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
     const userAgent = (req.headers['user-agent'] as string) || '';
     const device_type = detectDeviceType(userAgent);
     const ip_address = getIpAddress(req);
 
+    console.log(`[trackOutletProfileView] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create({
       outlet_id: outlet._id,
       event_type: 'profile_view',
@@ -102,8 +107,9 @@ export const trackOutletProfileView = async (req: Request, res: Response) => {
 
     return sendSuccess(res, { tracked: true });
   } catch (error: any) {
-    console.error('Track outlet profile view error:', error);
-    return sendError(res, error.message || 'Failed to track outlet profile view');
+    console.error('[trackOutletProfileView] FATAL ERROR:', error);
+    console.error(error.stack);
+    return sendError(res, `Profile view tracking failed: ${error.message}`);
   }
 };
 
@@ -112,13 +118,14 @@ export const trackOutletMenuView = async (req: Request, res: Response) => {
     const { outletId } = req.params;
     const { session_id, entry_page, source, prev_path, promotion_id } = req.body as OutletTrackBody;
 
-    const outlet = await Outlet.findById(outletId);
+    const outlet = await outletService.getOutletById(outletId);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
     const userAgent = (req.headers['user-agent'] as string) || '';
     const device_type = detectDeviceType(userAgent);
     const ip_address = getIpAddress(req);
 
+    console.log(`[trackOutletMenuView] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create({
       outlet_id: outlet._id,
       event_type: 'menu_view',
@@ -135,8 +142,9 @@ export const trackOutletMenuView = async (req: Request, res: Response) => {
 
     return sendSuccess(res, { tracked: true });
   } catch (error: any) {
-    console.error('Track outlet menu view error:', error);
-    return sendError(res, error.message || 'Failed to track outlet menu view');
+    console.error('[trackOutletMenuView] FATAL ERROR:', error);
+    console.error(error.stack);
+    return sendError(res, `Menu view tracking failed: ${error.message}`);
   }
 };
 
@@ -149,7 +157,7 @@ export const getOutletAnalytics = async (req: Request, res: Response) => {
     const startOfNextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
     const utcDateKey = (d: Date) => d.toISOString().slice(0, 10);
 
-    const outlet = await Outlet.findById(id).select('name logo_url');
+    const outlet = await outletService.getOutletById(id);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
     const fallbackFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -163,7 +171,7 @@ export const getOutletAnalytics = async (req: Request, res: Response) => {
     const rangeEndExclusive = startOfNextUtcDay(dateTo);
 
     const summaries = await OutletAnalyticsSummary.find({
-      outlet_id: id,
+      outlet_id: outlet._id,
       date: { $gte: rangeStart, $lt: rangeEndExclusive },
     }).sort({ date: 1 });
 
@@ -199,7 +207,8 @@ export const getOutletAnalytics = async (req: Request, res: Response) => {
     const todayStartUtc = startOfUtcDay(now);
     const yesterdayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
 
-    const outletObjectId = new mongoose.Types.ObjectId(id);
+    const outletObjectId = outlet._id;
+    console.log(`[getOutletAnalytics] Aggregate with ID: ${outletObjectId}`);
     const recentDayStarts = [yesterdayStartUtc, todayStartUtc];
 
     for (const dayStart of recentDayStarts) {

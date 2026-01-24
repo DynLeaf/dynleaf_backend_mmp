@@ -6,11 +6,21 @@ import mongoose from 'mongoose';
 export const toggleVote = async (req: Request, res: Response) => {
   const session = await mongoose.startSession();
   session.startTransaction();
-  
+
   try {
     const { foodItemId } = req.params;
     const { voteType } = req.body;
     const userId = (req as any).user.id;
+    let actualFoodItemId = foodItemId;
+
+    if (!mongoose.Types.ObjectId.isValid(foodItemId)) {
+      const foodItem = await FoodItem.findOne({ slug: foodItemId }).session(session);
+      if (!foodItem) {
+        await session.abortTransaction();
+        return res.status(404).json({ message: 'Food item not found' });
+      }
+      actualFoodItemId = foodItem._id.toString();
+    }
 
     if (!['up', 'down'].includes(voteType)) {
       await session.abortTransaction();
@@ -20,7 +30,7 @@ export const toggleVote = async (req: Request, res: Response) => {
     // Check existing vote
     const existingVote = await DishVote.findOne({
       user_id: userId,
-      food_item_id: foodItemId
+      food_item_id: actualFoodItemId
     }).session(session);
 
     let action: 'added' | 'removed' | 'changed';
@@ -36,7 +46,7 @@ export const toggleVote = async (req: Request, res: Response) => {
         // Update counts
         const updateField = voteType === 'up' ? 'upvote_count' : 'downvote_count';
         await FoodItem.findByIdAndUpdate(
-          foodItemId, 
+          actualFoodItemId,
           { $inc: { [updateField]: -1 } },
           { session }
         );
@@ -50,9 +60,9 @@ export const toggleVote = async (req: Request, res: Response) => {
         // Update counts: decrement old, increment new
         const oldField = voteType === 'up' ? 'downvote_count' : 'upvote_count';
         const newField = voteType === 'up' ? 'upvote_count' : 'downvote_count';
-        
+
         await FoodItem.findByIdAndUpdate(
-          foodItemId, 
+          actualFoodItemId,
           { $inc: { [oldField]: -1, [newField]: 1 } },
           { session }
         );
@@ -62,7 +72,7 @@ export const toggleVote = async (req: Request, res: Response) => {
       await DishVote.create(
         [{
           user_id: userId,
-          food_item_id: foodItemId,
+          food_item_id: actualFoodItemId,
           vote_type: voteType
         }],
         { session }
@@ -72,14 +82,14 @@ export const toggleVote = async (req: Request, res: Response) => {
       // Update counts
       const updateField = voteType === 'up' ? 'upvote_count' : 'downvote_count';
       await FoodItem.findByIdAndUpdate(
-        foodItemId, 
+        actualFoodItemId,
         { $inc: { [updateField]: 1 } },
         { session }
       );
     }
 
     // Get updated counts to return
-    const updatedFoodItem = await FoodItem.findById(foodItemId)
+    const updatedFoodItem = await FoodItem.findById(actualFoodItemId)
       .select('upvote_count')
       .session(session);
 
@@ -105,10 +115,19 @@ export const getUserVote = async (req: Request, res: Response) => {
   try {
     const { foodItemId } = req.params;
     const userId = (req as any).user.id;
+    let actualFoodItemId = foodItemId;
+
+    if (!mongoose.Types.ObjectId.isValid(foodItemId)) {
+      const foodItem = await FoodItem.findOne({ slug: foodItemId });
+      if (!foodItem) {
+        return res.status(404).json({ message: 'Food item not found' });
+      }
+      actualFoodItemId = foodItem._id.toString();
+    }
 
     const vote = await DishVote.findOne({
       user_id: userId,
-      food_item_id: foodItemId
+      food_item_id: actualFoodItemId
     });
 
     res.json({
@@ -126,10 +145,20 @@ export const getVoteAnalytics = async (req: Request, res: Response) => {
   try {
     const { foodItemId } = req.params;
 
+    let actualFoodItemId = foodItemId;
+
+    if (!mongoose.Types.ObjectId.isValid(foodItemId)) {
+      const foodItem = await FoodItem.findOne({ slug: foodItemId });
+      if (!foodItem) {
+        return res.status(404).json({ message: 'Food item not found' });
+      }
+      actualFoodItemId = foodItem._id.toString();
+    }
+
     // Get vote counts
     const [upvotes, downvotes] = await Promise.all([
-      DishVote.countDocuments({ food_item_id: foodItemId, vote_type: 'up' }),
-      DishVote.countDocuments({ food_item_id: foodItemId, vote_type: 'down' })
+      DishVote.countDocuments({ food_item_id: actualFoodItemId, vote_type: 'up' }),
+      DishVote.countDocuments({ food_item_id: actualFoodItemId, vote_type: 'down' })
     ]);
 
     // Get vote trend (last 7 days)
@@ -139,7 +168,7 @@ export const getVoteAnalytics = async (req: Request, res: Response) => {
     const voteTrend = await DishVote.aggregate([
       {
         $match: {
-          food_item_id: new mongoose.Types.ObjectId(foodItemId),
+          food_item_id: new mongoose.Types.ObjectId(actualFoodItemId),
           created_at: { $gte: sevenDaysAgo }
         }
       },

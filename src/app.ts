@@ -1,4 +1,7 @@
 import express from 'express';
+console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+console.log('!!! APP.TS LOADING - Logic Updated Jan 24 16:00 !!!');
+console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 
@@ -54,6 +57,10 @@ app.use(cors({
 }));
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
+app.use((req, res, next) => {
+    console.log(`🚀 [GLOBAL_REQUEST] ${req.method} ${req.url}`);
+    next();
+});
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded files
@@ -62,7 +69,7 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 // Request logger (prints method, url, status and response time)
 app.use(logger);
 
-app.get('/v1/ping-test', (req, res) => res.json({ message: 'pong-test' }));
+app.get('/v1/ping-test', (req, res) => res.json({ message: 'pong-test-UPDATED-JAN-24-16-05' }));
 
 app.get('/v1', (req, res) => {
     res.json({ message: 'Welcome to Dynleaf API (UPDATED)' });

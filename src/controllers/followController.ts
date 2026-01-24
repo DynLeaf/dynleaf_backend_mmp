@@ -3,22 +3,24 @@ import { AuthRequest } from '../middleware/authMiddleware.js';
 import { Follow } from '../models/Follow.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+import * as outletService from '../services/outletService.js';
 
 export const followOutlet = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
         const userId = req.user.id;
 
-        // Check if outlet exists
-        const outlet = await Outlet.findById(outletId);
+        const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
             return sendError(res, 'Outlet not found', null, 404);
         }
 
+        const actualOutletId = outlet._id;
+
         // Create follow record (using findOneAndUpdate with upsert to avoid duplicates if 1,1 index somehow fails or handling race conditions)
         await Follow.findOneAndUpdate(
-            { user: userId, outlet: outletId },
-            { $setOnInsert: { user: userId, outlet: outletId } },
+            { user: userId, outlet: actualOutletId },
+            { $setOnInsert: { user: userId, outlet: actualOutletId } },
             { upsert: true, new: true }
         );
 
@@ -34,7 +36,10 @@ export const unfollowOutlet = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const userId = req.user.id;
 
-        await Follow.findOneAndDelete({ user: userId, outlet: outletId });
+        const outlet = await outletService.getOutletById(outletId);
+        const actualOutletId = outlet ? outlet._id : outletId;
+
+        await Follow.findOneAndDelete({ user: userId, outlet: actualOutletId });
 
         return sendSuccess(res, { message: 'Unfollowed successfully' });
     } catch (error: any) {
@@ -85,7 +90,9 @@ export const getFollowedOutlets = async (req: AuthRequest, res: Response) => {
 export const getOutletFollowersCount = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        const count = await Follow.countDocuments({ outlet: outletId });
+        const outlet = await outletService.getOutletById(outletId);
+        const actualOutletId = outlet ? outlet._id : outletId;
+        const count = await Follow.countDocuments({ outlet: actualOutletId });
         return sendSuccess(res, { count });
     } catch (error: any) {
         console.error('Get followers count error:', error);
@@ -98,7 +105,10 @@ export const checkFollowStatus = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const userId = req.user.id;
 
-        const follow = await Follow.findOne({ user: userId, outlet: outletId });
+        const outlet = await outletService.getOutletById(outletId);
+        const actualOutletId = outlet ? outlet._id : outletId;
+
+        const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
         return sendSuccess(res, { is_following: !!follow });
     } catch (error: any) {
         console.error('Check follow status error:', error);

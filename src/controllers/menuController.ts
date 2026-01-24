@@ -972,9 +972,17 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 export const getFoodItemById = async (req: Request, res: Response) => {
     try {
         const { foodItemId } = req.params;
-        const item = await FoodItem.findById(foodItemId)
-            .populate('category_id')
-            .lean();
+        let item;
+
+        if (mongoose.Types.ObjectId.isValid(foodItemId)) {
+            item = await FoodItem.findById(foodItemId)
+                .populate('category_id')
+                .lean();
+        } else {
+            item = await FoodItem.findOne({ slug: foodItemId })
+                .populate('category_id')
+                .lean();
+        }
 
         if (!item) {
             return sendError(res, 'Food item not found', 404);
