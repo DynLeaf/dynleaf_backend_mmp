@@ -16,6 +16,8 @@ export type FoodItemAnalyticsSource =
   | 'shared'
   | 'promo'
   | 'notification'
+  | 'trending'
+  | 'homepage_trending'
   | 'other';
 
 export interface IFoodItemAnalyticsEvent extends Document {
@@ -71,7 +73,18 @@ const foodItemAnalyticsEventSchema = new Schema<IFoodItemAnalyticsEvent>(
 
     source: {
       type: String,
-      enum: ['menu', 'explore', 'home', 'search', 'shared', 'promo', 'notification', 'other'],
+      enum: [
+        'menu',
+        'explore',
+        'home',
+        'search',
+        'shared',
+        'promo',
+        'notification',
+        'trending',
+        'homepage_trending',
+        'other',
+      ],
       required: true,
       index: true,
     },
