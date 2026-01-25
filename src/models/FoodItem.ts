@@ -18,9 +18,10 @@ export interface IFoodItem extends Document {
     is_veg: boolean;
     is_available: boolean;
     is_active: boolean;
-    price: number;
+    price?: number;
     original_price?: number;
     tax_percentage: number;
+    price_display_type?: 'fixed' | 'market' | 'by_weight' | 'price_on_request' | 'hidden';
 
     // Variants (e.g., sizes)
     variants?: { size: string; price: number }[];
@@ -112,9 +113,14 @@ const foodItemSchema = new Schema<IFoodItem>({
     is_veg: { type: Boolean, default: true },
     is_available: { type: Boolean, default: true },
     is_active: { type: Boolean, default: true },
-    price: { type: Number, required: true, min: 0 },
+    price: { type: Number, min: 0 },
     original_price: { type: Number },
     tax_percentage: { type: Number, default: 5 },
+    price_display_type: {
+        type: String,
+        enum: ['fixed', 'market', 'by_weight', 'price_on_request', 'hidden'],
+        default: 'fixed'
+    },
 
     variants: [
         {

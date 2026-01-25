@@ -338,7 +338,9 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             price, // Expecting 'price' from frontend
             basePrice, // Fallback 'basePrice'
             displayOrder,
-            isActive
+            isActive,
+            price_display_type,
+            priceDisplayType
         } = req.body;
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
@@ -346,9 +348,12 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Item name is required', null, 400);
         }
 
-        const priceNum = Number(price ?? basePrice);
-        if (!Number.isFinite(priceNum) || priceNum < 0) {
-            return sendError(res, 'Invalid price', null, 400);
+        const resolvedPriceDisplayType = price_display_type || priceDisplayType || 'fixed';
+        const isFixedPrice = resolvedPriceDisplayType === 'fixed';
+
+        const priceNum = Number(price ?? basePrice ?? 0);
+        if (isFixedPrice && (!Number.isFinite(priceNum) || priceNum < 0)) {
+            return sendError(res, 'Invalid price for fixed price item', null, 400);
         }
 
         // Verify outlet exists
@@ -409,6 +414,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             discount_percentage: discountPercentage,
             is_recommended: isRecommended ?? false,
             display_order: displayOrder ?? 0,
+            price_display_type: resolvedPriceDisplayType,
         };
 
         // Copy location from outlet if available (for geospatial queries)
@@ -445,7 +451,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
             isFeatured: foodItem.is_featured,
             isRecommended: foodItem.is_recommended,
             discountPercentage: foodItem.discount_percentage,
-            displayOrder: foodItem.display_order
+            displayOrder: foodItem.display_order,
+            price_display_type: foodItem.price_display_type
         }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -523,7 +530,8 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
             allergens: i.allergens,
             isFeatured: i.is_featured,
             isRecommended: i.is_recommended,
-            discountPercentage: i.discount_percentage
+            discountPercentage: i.discount_percentage,
+            price_display_type: i.price_display_type
         }));
 
         return sendSuccess(res, {
@@ -580,15 +588,26 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
 
         // Price can come as basePrice/base_price/price
         const rawPrice = body.basePrice ?? body.base_price ?? body.price;
+        const resolvedPriceDisplayType = updates.price_display_type ?? updates.priceDisplayType ?? foodItem.price_display_type ?? 'fixed';
+        const isFixedPrice = resolvedPriceDisplayType === 'fixed';
+
         if (rawPrice !== undefined) {
             const priceNum = Number(rawPrice);
-            if (!Number.isFinite(priceNum) || priceNum < 0) {
-                return sendError(res, 'Invalid price', null, 400);
+            if (isFixedPrice && (!Number.isFinite(priceNum) || priceNum < 0)) {
+                return sendError(res, 'Invalid price for fixed price item', null, 400);
             }
             updates.price = priceNum;
             delete updates.basePrice;
             delete updates.base_price;
         }
+
+        if (updates.priceDisplayType !== undefined) {
+            updates.price_display_type = updates.priceDisplayType;
+            delete updates.priceDisplayType;
+        }
+
+        // Always use the resolved type for consistency
+        updates.price_display_type = resolvedPriceDisplayType;
 
         if (body.imageUrl !== undefined && body.image_url === undefined) {
             updates.image_url = body.imageUrl;
@@ -698,7 +717,8 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             isFeatured: item?.is_featured,
             isRecommended: item?.is_recommended,
             discountPercentage: item?.discount_percentage,
-            displayOrder: item?.display_order
+            displayOrder: item?.display_order,
+            price_display_type: item?.price_display_type
         });
     } catch (error: any) {
         return sendError(res, error.message);
@@ -1114,7 +1134,8 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             is_featured: false,
             is_recommended: originalItem.is_recommended,
             discount_percentage: originalItem.discount_percentage,
-            display_order: originalItem.display_order
+            display_order: originalItem.display_order,
+            price_display_type: originalItem.price_display_type
         });
 
         return sendSuccess(res, {
@@ -1141,7 +1162,8 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
             isFeatured: duplicatedItem.is_featured,
             isRecommended: duplicatedItem.is_recommended,
             discountPercentage: duplicatedItem.discount_percentage,
-            displayOrder: duplicatedItem.display_order
+            displayOrder: duplicatedItem.display_order,
+            price_display_type: duplicatedItem.price_display_type
         }, 'Food item duplicated successfully', 201);
     } catch (error: any) {
         return sendError(res, error.message);

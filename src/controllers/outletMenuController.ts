@@ -148,11 +148,11 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         quantity: item.quantity,
         individual_price: item.food_item_id?.price
       })),
-      combo_price: combo.combo_price,
+      combo_price: combo.price, // Map 'price' from DB to 'combo_price' for frontend
       original_price: combo.original_price,
       discount_percentage: combo.discount_percentage,
       food_type: combo.food_type,
-      is_available: combo.is_available,
+      is_available: combo.is_active, // Map 'is_active' from DB to 'is_available' for frontend
       avg_rating: combo.avg_rating,
       total_votes: combo.total_votes,
       order_count: combo.order_count
@@ -232,7 +232,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           is_new: item.is_new,
           addons: item.addons || [],
           variants: item.variants || [],
-          user_vote_type: userVotes.get(item._id.toString()) || null
+          user_vote_type: userVotes.get(item._id.toString()) || null,
+          price_display_type: item.price_display_type
         });
 
         return acc;
@@ -278,7 +279,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         is_new: item.is_new,
         addons: item.addons || [],
         variants: item.variants || [],
-        user_vote_type: userVotes.get(item._id.toString()) || null
+        user_vote_type: userVotes.get(item._id.toString()) || null,
+        price_display_type: item.price_display_type
       }));
     }
 
@@ -377,7 +379,8 @@ export const updateOutletMenuItem = async (req: AuthRequest, res: Response) => {
       'preparation_time',
       'description',
       'images',
-      'tags'
+      'variants',
+      'price_display_type'
     ];
 
     Object.keys(updateData).forEach(key => {
