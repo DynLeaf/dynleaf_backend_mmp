@@ -18,6 +18,10 @@ async function updateSchema() {
 
         const db = mongoose.connection.db;
 
+        if (!db) {
+            throw new Error('Database connection not established');
+        }
+
         // Drop the existing validation on the collection
         console.log('Updating FoodItemAnalyticsEvent schema...');
 
