@@ -135,6 +135,15 @@ export const verifyOtp = async (req: Request, res: Response) => {
     const brands = await Brand.find({ admin_user_id: user._id });
     const outlets = await outletService.getUserOutletsList(user._id.toString());
 
+    // Fix for transferred accounts: If user has access to outlets but no explicit role, grant restaurant_owner role
+    if (outlets.length > 0 && !user.roles.some((r) => r.role === "restaurant_owner")) {
+      user.roles.push({
+        scope: "platform",
+        role: "restaurant_owner",
+        assignedAt: new Date(),
+      } as any);
+    }
+
     const hasCompletedOnboarding =
       user.roles.some((r) => r.role === "restaurant_owner") &&
       brands.length > 0 &&
@@ -276,7 +285,17 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
     }
 
     const brands = await Brand.find({ admin_user_id: user._id });
-    const outlets = await Outlet.find({ created_by_user_id: user._id });
+    // Use getUserOutletsList to check for ANY accessible outlets (including transferred ones)
+    const outlets = await outletService.getUserOutletsList(user._id.toString());
+
+    // Fix for transferred accounts: If user has access to outlets but no explicit role, grant restaurant_owner role
+    if (outlets.length > 0 && !user.roles.some((r) => r.role === "restaurant_owner")) {
+      user.roles.push({
+        scope: "platform",
+        role: "restaurant_owner",
+        assignedAt: new Date(),
+      } as any);
+    }
 
     const hasCompletedOnboarding =
       user.roles.some((r) => r.role === "restaurant_owner") &&

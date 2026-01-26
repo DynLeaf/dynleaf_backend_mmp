@@ -48,9 +48,8 @@ const getAccessibleOutletQueryForUser = async (userId: string) => {
  * Get all outlets for a user (full details)
  */
 export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
-    // Security/UX: "My outlets" should only include outlets created by this user.
-    // (Do not expand via brand/outlet roles here.)
-    return await Outlet.find({ created_by_user_id: userId })
+    const query = await getAccessibleOutletQueryForUser(userId);
+    return await Outlet.find(query)
         .populate('brand_id')
         .sort({ created_at: -1 });
 };
@@ -59,9 +58,8 @@ export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
  * Get outlet list for dropdown (lightweight - only essential fields)
  */
 export const getUserOutletsList = async (userId: string) => {
-    // Security/UX: dropdown should only list outlets created by this user.
-    // (Do not expand via brand/outlet roles here.)
-    const outlets = await Outlet.find({ created_by_user_id: userId })
+    const query = await getAccessibleOutletQueryForUser(userId);
+    const outlets = await Outlet.find(query)
         .select('_id name brand_id status approval_status media.cover_image_url address.city')
         .populate('brand_id', 'name')
         .sort({ created_at: -1 })
@@ -211,7 +209,13 @@ export const updateOutlet = async (
     userId: string,
     updateData: Partial<IOutlet>
 ): Promise<IOutlet | null> => {
-    const outlet = await Outlet.findOne({ _id: outletId, created_by_user_id: userId });
+    const accessQuery = await getAccessibleOutletQueryForUser(userId);
+    const outlet = await Outlet.findOne({
+        $and: [
+            { _id: outletId },
+            accessQuery
+        ]
+    });
 
     if (!outlet) {
         throw new Error('Outlet not found or unauthorized');
@@ -239,7 +243,13 @@ export const updateOutlet = async (
  * Submit outlet for approval
  */
 export const submitOutletForApproval = async (outletId: string, userId: string): Promise<IOutlet | null> => {
-    const outlet = await Outlet.findOne({ _id: outletId, created_by_user_id: userId });
+    const accessQuery = await getAccessibleOutletQueryForUser(userId);
+    const outlet = await Outlet.findOne({
+        $and: [
+            { _id: outletId },
+            accessQuery
+        ]
+    });
 
     if (!outlet) {
         throw new Error('Outlet not found or unauthorized');
