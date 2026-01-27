@@ -778,6 +778,61 @@ router.patch("/compliance/:id/toggle-verification", adminAuth, async (req: AuthR
   }
 });
 
+// Update compliance information
+router.patch("/compliance/:id", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { fssai_number, gst_number, gst_percentage } = req.body;
+    
+    const compliance = await Compliance.findById(req.params.id);
+    if (!compliance) {
+      return sendError(res, "Compliance not found", null, 404);
+    }
+
+    // Validate FSSAI number if provided
+    if (fssai_number !== undefined && fssai_number !== null && fssai_number !== '') {
+      if (!/^\d{14}$/.test(fssai_number)) {
+        return sendError(res, "FSSAI number must be exactly 14 digits", null, 400);
+      }
+    }
+
+    // Validate GST number if provided
+    if (gst_number !== undefined && gst_number !== null && gst_number !== '') {
+      if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gst_number)) {
+        return sendError(res, "Invalid GST number format", null, 400);
+      }
+    }
+
+    // Validate GST percentage if provided
+    if (gst_percentage !== undefined && gst_percentage !== null && gst_percentage !== '') {
+      const gstPercent = parseFloat(gst_percentage);
+      if (isNaN(gstPercent) || gstPercent < 0 || gstPercent > 100) {
+        return sendError(res, "GST percentage must be between 0 and 100", null, 400);
+      }
+    }
+
+    // Build update object
+    const updateData: any = {};
+    if (fssai_number !== undefined) updateData.fssai_number = fssai_number || undefined;
+    if (gst_number !== undefined) updateData.gst_number = gst_number || undefined;
+    if (gst_percentage !== undefined) updateData.gst_percentage = gst_percentage === '' ? undefined : parseFloat(gst_percentage);
+
+    const updatedCompliance = await Compliance.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    return sendSuccess(
+      res,
+      updatedCompliance,
+      "Compliance information updated successfully"
+    );
+  } catch (error: any) {
+    console.error("Update compliance error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // Get all outlets
 router.get("/outlets", adminAuth, async (req: AuthRequest, res) => {
   try {
