@@ -60,7 +60,7 @@ export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
 export const getUserOutletsList = async (userId: string) => {
     const query = await getAccessibleOutletQueryForUser(userId);
     const outlets = await Outlet.find(query)
-        .select('_id name brand_id status approval_status media.cover_image_url address.city')
+        .select('_id name slug brand_id status approval_status media.cover_image_url address.city')
         .populate('brand_id', 'name')
         .sort({ created_at: -1 })
         .lean();
