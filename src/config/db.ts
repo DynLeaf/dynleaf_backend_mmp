@@ -2,6 +2,9 @@ import mongoose from 'mongoose';
 
 const connectDB = async () => {
     try {
+        if (!process.env.MONGODB_URI && process.env.NODE_ENV === 'production') {
+            throw new Error('MONGODB_URI is required in production');
+        }
         const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/dynleaf');
         console.log(`MongoDB Connected: ${conn.connection.host}`);
 
@@ -12,33 +15,29 @@ const connectDB = async () => {
 
             const models = Object.values(mongoose.models);
             if (models.length === 0) {
-                console.warn('[mongo] No models loaded yet, indexes will be created when models are imported');
                 return;
             }
-
-            console.log(`[mongo] Ensuring indexes for ${models.length} models...`);
 
             for (const model of models) {
                 try {
                     await model.createIndexes();
-                    console.log(`[mongo] ✅ Indexes created for ${model.modelName}`);
                 } catch (err: any) {
-                    if (err.message?.includes('already exists')) {
-                        console.log(`[mongo] ℹ️  Indexes already exist for ${model.modelName}`);
-                    } else {
-                        console.error(`[mongo] ❌ Index creation failed for ${model.modelName}:`, err.message);
+                    if (!err?.message?.includes('already exists')) {
+                        console.error(`[mongo] ❌ Index creation failed for ${model.modelName}:`, err?.message || err);
                     }
                 }
             }
-
-            console.log('[mongo] Index creation complete');
         };
 
         // Run index creation after a delay to allow models to load
-        setTimeout(ensureIndexes, 2000);
+        setTimeout(() => {
+            ensureIndexes().catch(err => {
+                console.error('[mongo] ❌ Async index creation failed:', err?.message || err);
+            });
+        }, 2000);
 
     } catch (error: any) {
-        console.error(`Error: ${error.message}`);
+        console.error(`Error connecting to MongoDB:`, error);
         process.exit(1);
     }
 };

@@ -15,9 +15,7 @@ const startServer = async () => {
         console.log('🚀 [DIAGNOSTIC] Backend Starting - Logic Updated Jan 24');
         console.log('---------------------------------------------------------');
         await connectDB();
-        console.log(
-            `[mongo] connected host=${mongoose.connection.host} db=${mongoose.connection.name}`
-        );
+        
 
         // Start cron jobs
         startAnalyticsAggregation();

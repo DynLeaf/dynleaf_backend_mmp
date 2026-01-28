@@ -546,7 +546,7 @@ export const adminLogin = async (req: Request, res: Response) => {
         role: admin.role,
         permissions: admin.permissions
       },
-      process.env.JWT_SECRET || "secret",
+      process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET is required'); })(),
       { expiresIn: "7d" }
     );
 
