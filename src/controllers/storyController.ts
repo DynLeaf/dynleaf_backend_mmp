@@ -12,8 +12,51 @@ import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
 import * as outletService from '../services/outletService.js';
 
-// --- Helpers ---
+const normalizePoint = (value: any): { x: number; y: number } | undefined => {
+    if (!value || typeof value !== 'object') return undefined;
+    const x = typeof value.x === 'number' ? value.x : undefined;
+    const y = typeof value.y === 'number' ? value.y : undefined;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
+    return { x, y };
+};
 
+const validateStoryPinning = async (outlet: any): Promise<void> => {
+    if (!outlet?.subscription_id) {
+        throw new Error('Story pinning requires an active subscription');
+    }
+
+    const subscription = await Subscription.findById(outlet.subscription_id);
+    if (!subscription) {
+        throw new Error('Subscription not found');
+    }
+
+    if (subscription.status !== 'active' && subscription.status !== 'trial') {
+        throw new Error(`Subscription is ${subscription.status}. Story pinning requires an active subscription.`);
+    }
+
+    if (!hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.STORY_PINNING)) {
+        throw new Error('Story pinning is a premium feature. Upgrade your subscription to pin stories.');
+    }
+};
+
+const unpinOtherStories = async (outletId: string, excludeStoryId?: mongoose.Types.ObjectId): Promise<void> => {
+    await Story.updateMany(
+        { outletId, _id: { $ne: excludeStoryId || null } },
+        { $set: { pinned: false } }
+    );
+};
+
+// Constants
+const MAX_STORIES_PER_DAY = 10;
+const DEFAULT_STORY_DURATION = 5;
+const STORY_DEFAULT_VISIBILITY_HOURS = 24;
+const DEFAULT_RADIUS = 10000;
+const DEFAULT_OUTLET_LIMIT = 50;
+const STATUS_CODE_BAD_REQUEST = 400;
+const STATUS_CODE_FORBIDDEN = 403;
+const STATUS_CODE_NOT_FOUND = 404;
+
+// Helper Functions
 const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> => {
     if (user.activeRole?.role === 'admin') return true;
 
@@ -46,22 +89,19 @@ export const createStory = async (req: AuthRequest, res: Response) => {
         const { outletId: idOrSlug, slides, category, visibilityStart, visibilityEnd, pinned } = req.body;
 
         if (!idOrSlug || !slides || slides.length === 0 || !category) {
-            return sendError(res, 'Missing required fields (outletId, slides, category)', 400);
+            return sendError(res, 'Missing required fields (outletId, slides, category)', STATUS_CODE_BAD_REQUEST);
         }
 
-        // Verify outlet exists and get actual ID
         const outlet = await outletService.getOutletById(idOrSlug);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', 404);
+            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id.toString();
 
-        // 1. Permission Check
         if (!req.user || !await checkOutletAccess(req.user, actualOutletId)) {
-            return sendError(res, 'Unauthorized to create story for this outlet', 403);
+            return sendError(res, 'Unauthorized to create story for this outlet', STATUS_CODE_FORBIDDEN);
         }
 
-        // 2. Validate Limits (Max stories per day)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const storiesToday = await Story.countDocuments({
@@ -69,20 +109,9 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             created_at: { $gte: today }
         });
 
-        const MAX_STORIES_PER_DAY = 10; // Configurable
         if (storiesToday >= MAX_STORIES_PER_DAY) {
-            return sendError(res, `Daily story limit reached (${MAX_STORIES_PER_DAY})`, 400);
+            return sendError(res, `Daily story limit reached (${MAX_STORIES_PER_DAY})`, STATUS_CODE_BAD_REQUEST);
         }
-
-        const normalizePoint = (value: any): { x: number; y: number } | undefined => {
-            if (!value || typeof value !== 'object') return undefined;
-            const x = typeof value.x === 'number' ? value.x : undefined;
-            const y = typeof value.y === 'number' ? value.y : undefined;
-            if (!Number.isFinite(x) || !Number.isFinite(y)) return undefined;
-            return { x, y };
-        };
-
-        // 3. Process Slides (Upload Media)
         const processedSlides = await Promise.all(slides.map(async (slide: any, index: number) => {
             let mediaUrl = slide.mediaUrl;
             if (mediaUrl && mediaUrl.startsWith('data:')) {
@@ -179,87 +208,150 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
 export const getStoryFeed = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, radius = 10000, userId } = req.query;
+        const { latitude, longitude, radius = DEFAULT_RADIUS, userId } = req.query;
         const now = new Date();
 
-        // 1. Find nearby outlets (if location provided) - only approved and active outlets
-        let outletIds: mongoose.Types.ObjectId[] = [];
-        const outletQuery: any = {
-            status: 'ACTIVE',
-            approval_status: 'APPROVED'
-        };
+        // Use aggregation pipeline for better performance
+        const pipeline: any[] = [
+            // 1. Match active/approved outlets (with optional geospatial filter)
+            {
+                $match: {
+                    status: 'ACTIVE',
+                    approval_status: 'APPROVED'
+                }
+            }
+        ];
 
+        // Add geospatial filtering if coordinates provided
         if (latitude && longitude) {
-            outletQuery.location = {
-                $near: {
-                    $geometry: {
+            pipeline.unshift({
+                $geoNear: {
+                    near: {
                         type: 'Point',
                         coordinates: [parseFloat(longitude as string), parseFloat(latitude as string)]
                     },
-                    $maxDistance: parseInt(radius as string)
+                    distanceField: 'distance',
+                    maxDistance: parseInt(radius as string),
+                    query: { status: 'ACTIVE', approval_status: 'APPROVED' },
+                    spherical: true
                 }
-            };
-            const outlets = await Outlet.find(outletQuery).select('_id');
-            outletIds = outlets.map(o => o._id);
+            });
         } else {
-            // If no location, just get all approved outlets (or top N)
-            const outlets = await Outlet.find(outletQuery).limit(50).select('_id');
-            outletIds = outlets.map(o => o._id);
+            pipeline.push({ $limit: DEFAULT_OUTLET_LIMIT });
         }
 
-        if (outletIds.length === 0) {
+        // 2. Project only needed outlet fields early
+        pipeline.push({
+            $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                'media.cover_image_url': 1,
+                location: 1,
+                address: 1,
+                status: 1,
+                approval_status: 1,
+                brand_id: 1
+            }
+        });
+
+        // 3. Lookup stories for these outlets
+        pipeline.push(
+            {
+                $lookup: {
+                    from: 'stories',
+                    let: { outletId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: {
+                                    $and: [
+                                        { $eq: ['$outletId', '$$outletId'] },
+                                        { $eq: ['$status', 'live'] },
+                                        { $lte: ['$visibilityStart', now] },
+                                        { $gt: ['$visibilityEnd', now] }
+                                    ]
+                                }
+                            }
+                        },
+                        { $sort: { created_at: -1 } }
+                    ],
+                    as: 'stories'
+                }
+            },
+            // Filter out outlets with no stories
+            { $match: { stories: { $ne: [] } } }
+        );
+
+        // 4. Lookup brand info
+        pipeline.push(
+            {
+                $lookup: {
+                    from: 'brands',
+                    localField: 'brand_id',
+                    foreignField: '_id',
+                    as: 'brand'
+                }
+            },
+            { $unwind: { path: '$brand', preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 1,
+                    name: 1,
+                    slug: 1,
+                    media: 1,
+                    location: 1,
+                    address: 1,
+                    status: 1,
+                    approval_status: 1,
+                    stories: 1,
+                    brand: {
+                        _id: '$brand._id',
+                        name: '$brand.name',
+                        verification_status: '$brand.verification_status'
+                    }
+                }
+            }
+        );
+
+        const outlets = await Outlet.aggregate(pipeline);
+
+        if (outlets.length === 0) {
             return sendSuccess(res, []);
         }
 
-        // 2. Find live stories for these outlets
-        const stories = await Story.find({
-            outletId: { $in: outletIds },
-            status: 'live',
-            visibilityStart: { $lte: now },
-            visibilityEnd: { $gt: now }
-        })
-            .populate({
-                path: 'outletId',
-                select: 'name slug media.cover_image_url location address status approval_status brand_id',
-                populate: {
-                    path: 'brand_id',
-                    select: 'name verification_status'
-                }
-            })
-            .sort({ created_at: -1 });
-
-        // 3. Get user's viewed stories if userId provided
+        // 5. Get user's viewed stories if userId provided
         let viewedStoryIds = new Set<string>();
         if (userId) {
-            const viewedStories = await StoryView.find({ userId }).select('storyId');
+            const viewedStories = await StoryView.find({ userId }).select('storyId').lean();
             viewedStoryIds = new Set(viewedStories.map(v => v.storyId.toString()));
         }
 
-        // 4. Group by outlet and check if outlet has unseen stories
-        const feedMap = new Map<string, any>();
-        for (const story of stories) {
-            const outletIdStr = (story.outletId as any)._id.toString();
-            const storyIdStr = story._id.toString();
-            const isSeen = viewedStoryIds.has(storyIdStr);
+        // 6. Format response with viewed status
+        const feed = outlets.map((outlet: any) => {
+            const stories = outlet.stories.map((story: any) => ({
+                ...story,
+                isSeen: viewedStoryIds.has(story._id.toString())
+            }));
 
-            if (!feedMap.has(outletIdStr)) {
-                feedMap.set(outletIdStr, {
-                    outlet: story.outletId,
-                    stories: [],
-                    latestUpdate: story.created_at,
-                    hasUnseen: false
-                });
-            }
+            return {
+                outlet: {
+                    _id: outlet._id,
+                    name: outlet.name,
+                    slug: outlet.slug,
+                    media: outlet.media,
+                    location: outlet.location,
+                    address: outlet.address,
+                    status: outlet.status,
+                    approval_status: outlet.approval_status,
+                    brand_id: outlet.brand
+                },
+                stories,
+                latestUpdate: stories[0]?.created_at || new Date(),
+                hasUnseen: stories.some((s: any) => !s.isSeen)
+            };
+        });
 
-            feedMap.get(outletIdStr)!.stories.push(story);
-
-            // If any story is unseen, mark outlet as having unseen content
-            if (!isSeen) {
-                feedMap.get(outletIdStr)!.hasUnseen = true;
-            }
-        }
-
-        const feed = Array.from(feedMap.values());
         return sendSuccess(res, feed);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -271,10 +363,9 @@ export const getOutletStories = async (req: Request, res: Response) => {
         const { outletId: idOrSlug } = req.params;
         const now = new Date();
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(idOrSlug);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', 404);
+            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
@@ -303,45 +394,26 @@ export const getOutletStories = async (req: Request, res: Response) => {
 export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
     try {
         const { storyId } = req.params;
-        const { status, pinned } = req.body; // status: 'archived', 'live', etc.
+        const { status, pinned } = req.body;
 
         const story = await Story.findById(storyId);
-        if (!story) return sendError(res, 'Story not found', 404);
+        if (!story) return sendError(res, 'Story not found', STATUS_CODE_NOT_FOUND);
 
-        // Permission check
         if (!req.user || !await checkOutletAccess(req.user, story.outletId.toString())) {
-            return sendError(res, 'Unauthorized', 403);
+            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
         if (status) story.status = status;
 
-        // Check subscription for pinning feature
         if (typeof pinned === 'boolean' && pinned) {
-            const outlet = await Outlet.findById(story.outletId);
-            if (!outlet?.subscription_id) {
-                return sendError(res, 'Story pinning requires an active subscription', 403);
+            try {
+                const outlet = await Outlet.findById(story.outletId);
+                await validateStoryPinning(outlet);
+                await unpinOtherStories(story.outletId.toString(), story._id);
+                story.pinned = true;
+            } catch (error: any) {
+                return sendError(res, error.message, STATUS_CODE_FORBIDDEN);
             }
-
-            const subscription = await Subscription.findById(outlet.subscription_id);
-            if (!subscription) {
-                return sendError(res, 'Subscription not found', 403);
-            }
-
-            if (subscription.status !== 'active' && subscription.status !== 'trial') {
-                return sendError(res, `Subscription is ${subscription.status}. Story pinning requires an active subscription.`, 403);
-            }
-
-            // Check if the subscription plan includes story pinning feature
-            if (!hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.STORY_PINNING)) {
-                return sendError(res, 'Story pinning is a premium feature. Upgrade your subscription to pin stories.', 403);
-            }
-
-            // If pinning this story, unpin all other stories for this outlet
-            await Story.updateMany(
-                { outletId: story.outletId, _id: { $ne: story._id } },
-                { $set: { pinned: false } }
-            );
-            story.pinned = true;
         } else if (typeof pinned === 'boolean') {
             story.pinned = pinned;
         }
@@ -358,19 +430,12 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
         const { storyId } = req.params;
 
         const story = await Story.findById(storyId);
-        if (!story) return sendError(res, 'Story not found', 404);
+        if (!story) return sendError(res, 'Story not found', STATUS_CODE_NOT_FOUND);
 
         if (!req.user || !await checkOutletAccess(req.user, story.outletId.toString())) {
-            return sendError(res, 'Unauthorized', 403);
+            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
-        // Soft delete (archive) or hard delete?
-        // Let's hard delete for now or set to archived. 
-        // User asked for "status states: draft -> scheduled -> live -> expired -> archived"
-        // And "outlet deleted -> archive stories".
-        // Explicit delete usually means remove.
-
-        // Extract all media URLs from slides to delete from Cloudinary
         const mediaUrls = story.slides
             .map(slide => slide.mediaUrl)
             .filter((url): url is string => Boolean(url) && url.includes('cloudinary.com'));
@@ -378,11 +443,8 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
         await Story.deleteOne({ _id: storyId });
         await StoryMetrics.deleteOne({ storyId: storyId });
 
-        // Delete media from Cloudinary (both images and videos)
         if (mediaUrls.length > 0) {
-            // Stories can contain both images and videos, try deleting as both types
             for (const url of mediaUrls) {
-                // Determine if it's a video or image based on URL pattern
                 const isVideo = url.includes('/video/upload/');
                 const resourceType = isVideo ? 'video' : 'image';
 
@@ -403,17 +465,16 @@ export const recordView = async (req: Request, res: Response) => {
         const { userId, completedAllSlides } = req.body;
 
         if (!userId) {
-            return sendError(res, 'userId is required', 400);
+            return sendError(res, 'userId is required', STATUS_CODE_BAD_REQUEST);
         }
 
-        // Get story to find outletId
         const story = await Story.findById(storyId);
         if (!story) {
-            return sendError(res, 'Story not found', 404);
+            return sendError(res, 'Story not found', STATUS_CODE_NOT_FOUND);
         }
 
         // Check if user has already viewed this story
-        const existingView = await StoryView.findOne({ userId, storyId });
+        const existingView = await StoryView.findOne({ userId, storyId }).lean();
         const isUniqueView = !existingView;
 
         // Create or update user's view record
@@ -445,18 +506,15 @@ export const recordView = async (req: Request, res: Response) => {
     }
 };
 
-// Get seen status for user (which stories they've viewed)
 export const getSeenStatus = async (req: Request, res: Response) => {
     try {
         const { userId } = req.query;
 
         if (!userId) {
-            return sendError(res, 'userId is required', 400);
+            return sendError(res, 'userId is required', STATUS_CODE_BAD_REQUEST);
         }
 
-        // Get all story IDs the user has viewed
         const viewedStories = await StoryView.find({ userId }).select('storyId outletId viewedAt');
-
         return sendSuccess(res, viewedStories);
     } catch (error: any) {
         return sendError(res, error.message);
@@ -467,15 +525,14 @@ export const getStoryAnalytics = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId: idOrSlug } = req.params;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(idOrSlug);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', 404);
+            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
         if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
-            return sendError(res, 'Unauthorized', 403);
+            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
         const metrics = await StoryMetrics.find({ outletId: actualOutletId }).populate('storyId', 'slides category created_at status');

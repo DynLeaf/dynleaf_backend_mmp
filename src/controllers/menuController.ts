@@ -9,6 +9,38 @@ import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { safeDeleteFromCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
 
+// Constants
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 50;
+const DEFAULT_TAX_PERCENTAGE = 5;
+const DEFAULT_RADIUS = 50000;
+const MAX_STORIES_PER_DAY = 10;
+const DEFAULT_TRENDING_LIMIT = 20;
+const DEFAULT_TRENDING_PAGE = 1;
+const DISTANCE_BUCKET_SIZE = 10000; // 10km
+
+// Helper Functions
+const getActiveOutlet = async (brandId: string) => {
+    const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' }).lean();
+    if (!outlet) {
+        throw new Error('No active outlet found for this brand. Please create an outlet first.');
+    }
+    return outlet;
+};
+
+const generateUniqueSlug = async (baseName: string, outletId: mongoose.Types.ObjectId): Promise<string> => {
+    const baseSlug = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    let slug = baseSlug;
+    let counter = 1;
+
+    while (await Category.findOne({ outlet_id: outletId, slug }).lean()) {
+        slug = `${baseSlug}-${counter}`;
+        counter++;
+    }
+
+    return slug;
+};
+
 const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: number }>, discountPercentage: number) => {
     const foodItemIds = items.map(i => i.foodItemId);
     const foodItems = await FoodItem.find({ _id: { $in: foodItemIds } });
@@ -23,27 +55,64 @@ const computeComboPricing = async (items: Array<{ foodItemId: string; quantity: 
     return { originalPrice, discountedPrice };
 };
 
+// Mappers
+const mapCategoryResponse = (category: any) => ({
+    id: category._id,
+    name: category.name,
+    slug: category.slug,
+    isActive: category.is_active
+});
+
+const mapFoodItemResponse = (item: any) => ({
+    id: item._id,
+    categoryId: item.category_id ? item.category_id.toString() : null,
+    addonIds: item.addon_ids ? item.addon_ids.map((a: any) => a.toString()) : [],
+    name: item.name,
+    description: item.description,
+    itemType: item.item_type,
+    isVeg: item.is_veg,
+    basePrice: item.price,
+    taxPercentage: item.tax_percentage,
+    imageUrl: item.image_url,
+    isActive: item.is_active,
+    tags: item.tags,
+    order: item.order,
+    preparationTime: item.preparation_time,
+    calories: item.calories,
+    spiceLevel: item.spice_level,
+    allergens: item.allergens,
+    isFeatured: item.is_featured,
+    discountPercentage: item.discount_percentage
+});
+
+const mapAddOnResponse = (addOn: any) => ({
+    id: addOn._id,
+    name: addOn.name,
+    price: addOn.price,
+    category: addOn.category,
+    isActive: addOn.is_active
+});
+
+const mapComboResponse = (combo: any) => ({
+    id: combo._id,
+    name: combo.name,
+    description: combo.description,
+    imageUrl: combo.image_url,
+    items: combo.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+    discountPercentage: combo.discount_percentage,
+    originalPrice: combo.original_price,
+    price: combo.price,
+    manualPriceOverride: combo.manual_price_override,
+    isActive: combo.is_active
+});
+
 export const createCategory = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
         const { name, description, imageUrl, isActive } = req.body;
 
-        // Get the first outlet for this brand
-        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
-        if (!outlet) {
-            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
-        }
-
-        // Generate slug from name
-        const baseSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        let slug = baseSlug;
-        let counter = 1;
-
-        // Ensure slug is unique for this outlet
-        while (await Category.findOne({ outlet_id: outlet._id, slug })) {
-            slug = `${baseSlug}-${counter}`;
-            counter++;
-        }
+        const outlet = await getActiveOutlet(brandId);
+        const slug = await generateUniqueSlug(name, outlet._id);
 
         const category = await Category.create({
             outlet_id: outlet._id,
@@ -54,7 +123,7 @@ export const createCategory = async (req: Request, res: Response) => {
             is_active: isActive ?? true
         });
 
-        return sendSuccess(res, { id: category._id, name: category.name, slug: category.slug, isActive: category.is_active }, null, 201);
+        return sendSuccess(res, mapCategoryResponse(category), null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -64,14 +133,13 @@ export const listCategories = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
 
-        // Get the first outlet for this brand
         const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
         if (!outlet) {
-            return sendSuccess(res, []); // Return empty array if no outlet
+            return sendSuccess(res, []);
         }
 
         const categories = await Category.find({ outlet_id: outlet._id });
-        return sendSuccess(res, categories.map(c => ({ id: c._id, name: c.name, slug: c.slug, isActive: c.is_active })));
+        return sendSuccess(res, categories.map(mapCategoryResponse));
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -82,17 +150,14 @@ export const updateCategory = async (req: Request, res: Response) => {
         const { categoryId } = req.params;
         const { imageUrl } = req.body;
 
-        // Get existing category to check for old image
         const existing = await Category.findById(categoryId);
-
         const category = await Category.findByIdAndUpdate(categoryId, req.body, { new: true });
 
-        // Delete old image from Cloudinary if image was updated
         if (existing?.image_url) {
             await safeDeleteFromCloudinary(existing.image_url, imageUrl);
         }
 
-        return sendSuccess(res, { id: category?._id, name: category?.name, isActive: category?.is_active });
+        return sendSuccess(res, category ? { id: category._id, name: category.name, isActive: category.is_active } : null);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -103,16 +168,9 @@ export const createFoodItem = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { name, description, categoryId, itemType, isVeg, basePrice, taxPercentage, imageUrl, isActive, addonIds } = req.body;
 
-        // Get the first outlet for this brand
-        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
-        if (!outlet) {
-            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
-        }
-
-        // Determine food_type from isVeg
+        const outlet = await getActiveOutlet(brandId);
         const foodType = isVeg ? 'veg' : 'non-veg';
 
-        // Prepare food item data
         const foodItemData: any = {
             outlet_id: outlet._id,
             category_id: categoryId,
@@ -122,14 +180,13 @@ export const createFoodItem = async (req: Request, res: Response) => {
             food_type: foodType,
             is_veg: isVeg ?? true,
             price: basePrice,
-            tax_percentage: taxPercentage ?? 5,
+            tax_percentage: taxPercentage ?? DEFAULT_TAX_PERCENTAGE,
             image_url: imageUrl,
             is_active: isActive ?? true,
             is_available: isActive ?? true,
             addon_ids: addonIds || []
         };
 
-        // Copy location from outlet if available (for geospatial queries)
         if (outlet.location && outlet.location.coordinates && outlet.location.coordinates.length === 2) {
             foodItemData.location = {
                 type: 'Point',
@@ -137,11 +194,18 @@ export const createFoodItem = async (req: Request, res: Response) => {
             };
         }
 
-        // Avoid `Model.create()` overload ambiguity when the input is typed `any`.
         const foodItem = await new FoodItem(foodItemData).save();
 
-
-        return sendSuccess(res, { id: foodItem._id, categoryId: foodItem.category_id, addonIds: foodItem.addon_ids, name: foodItem.name, itemType: foodItem.item_type, isVeg: foodItem.is_veg, basePrice: foodItem.price, isActive: foodItem.is_active }, null, 201);
+        return sendSuccess(res, {
+            id: foodItem._id,
+            categoryId: foodItem.category_id,
+            addonIds: foodItem.addon_ids,
+            name: foodItem.name,
+            itemType: foodItem.item_type,
+            isVeg: foodItem.is_veg,
+            basePrice: foodItem.price,
+            isActive: foodItem.is_active
+        }, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -150,12 +214,11 @@ export const createFoodItem = async (req: Request, res: Response) => {
 export const listFoodItems = async (req: Request, res: Response) => {
     try {
         const { brandId } = req.params;
-        const { search, category, tags, isVeg, isActive, itemType, page = '1', limit = '50', sortBy = 'created_at', sortOrder = 'desc' } = req.query;
+        const { search, category, tags, isVeg, isActive, itemType, page = String(DEFAULT_PAGE), limit = String(DEFAULT_LIMIT), sortBy = 'created_at', sortOrder = 'desc' } = req.query;
 
-        // Get the first outlet for this brand
         const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
         if (!outlet) {
-            return sendSuccess(res, { items: [], pagination: { page: 1, limit: 50, total: 0, pages: 0 } });
+            return sendSuccess(res, { items: [], pagination: { page: DEFAULT_PAGE, limit: DEFAULT_LIMIT, total: 0, pages: 0 } });
         }
 
         const query: any = { outlet_id: outlet._id };
@@ -193,27 +256,7 @@ export const listFoodItems = async (req: Request, res: Response) => {
             FoodItem.countDocuments(query)
         ]);
 
-        const mappedItems = items.map(i => ({
-            id: i._id,
-            categoryId: i.category_id ? i.category_id.toString() : null,
-            addonIds: i.addon_ids ? i.addon_ids.map(a => a.toString()) : [],
-            name: i.name,
-            description: i.description,
-            itemType: i.item_type,
-            isVeg: i.is_veg,
-            basePrice: i.price,
-            taxPercentage: i.tax_percentage,
-            imageUrl: i.image_url,
-            isActive: i.is_active,
-            tags: i.tags,
-            order: i.order,
-            preparationTime: i.preparation_time,
-            calories: i.calories,
-            spiceLevel: i.spice_level,
-            allergens: i.allergens,
-            isFeatured: i.is_featured,
-            discountPercentage: i.discount_percentage
-        }));
+        const mappedItems = items.map(mapFoodItemResponse);
 
         return sendSuccess(res, {
             items: mappedItems,
@@ -449,10 +492,7 @@ export const createAddOn = async (req: Request, res: Response) => {
         const { brandId } = req.params;
         const { name, price, category, isActive } = req.body;
 
-        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
-        if (!outlet) {
-            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
-        }
+        const outlet = await getActiveOutlet(brandId);
 
         const addOn = await AddOn.create({
             outlet_id: outlet._id,
@@ -462,13 +502,7 @@ export const createAddOn = async (req: Request, res: Response) => {
             is_active: isActive
         });
 
-        return sendSuccess(res, {
-            id: addOn._id,
-            name: addOn.name,
-            price: addOn.price,
-            category: addOn.category,
-            isActive: addOn.is_active
-        }, null, 201);
+        return sendSuccess(res, mapAddOnResponse(addOn), null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -484,14 +518,7 @@ export const listAddOns = async (req: Request, res: Response) => {
         }
 
         const addOns = await AddOn.find({ outlet_id: outlet._id });
-
-        return sendSuccess(res, addOns.map(a => ({
-            id: a._id,
-            name: a.name,
-            price: a.price,
-            category: a.category,
-            isActive: a.is_active
-        })));
+        return sendSuccess(res, addOns.map(mapAddOnResponse));
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -501,13 +528,7 @@ export const updateAddOn = async (req: Request, res: Response) => {
     try {
         const { addOnId } = req.params;
         const addOn = await AddOn.findByIdAndUpdate(addOnId, req.body, { new: true });
-        return sendSuccess(res, {
-            id: addOn?._id,
-            name: addOn?.name,
-            price: addOn?.price,
-            category: addOn?.category,
-            isActive: addOn?.is_active
-        });
+        return sendSuccess(res, addOn ? mapAddOnResponse(addOn) : null);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -545,10 +566,7 @@ export const createCombo = async (req: Request, res: Response) => {
         const { originalPrice, discountedPrice } = await computeComboPricing(normalizedItems, discountPercentage);
         const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
 
-        const outlet = await Outlet.findOne({ brand_id: brandId, status: 'ACTIVE' });
-        if (!outlet) {
-            return sendError(res, 'No active outlet found for this brand. Please create an outlet first.', 404);
-        }
+        const outlet = await getActiveOutlet(brandId);
 
         const combo = await Combo.create({
             outlet_id: outlet._id,
@@ -566,18 +584,7 @@ export const createCombo = async (req: Request, res: Response) => {
             is_active: isActive
         });
 
-        return sendSuccess(res, {
-            id: combo._id,
-            name: combo.name,
-            description: combo.description,
-            imageUrl: combo.image_url,
-            items: combo.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
-            discountPercentage: combo.discount_percentage,
-            originalPrice: combo.original_price,
-            price: combo.price,
-            manualPriceOverride: combo.manual_price_override,
-            isActive: combo.is_active
-        }, null, 201);
+        return sendSuccess(res, mapComboResponse(combo), null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -593,19 +600,7 @@ export const listCombos = async (req: Request, res: Response) => {
         }
 
         const combos = await Combo.find({ outlet_id: outlet._id });
-
-        return sendSuccess(res, combos.map(c => ({
-            id: c._id,
-            name: c.name,
-            description: c.description,
-            imageUrl: c.image_url,
-            items: c.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
-            discountPercentage: c.discount_percentage,
-            originalPrice: c.original_price,
-            price: c.price,
-            manualPriceOverride: c.manual_price_override,
-            isActive: c.is_active
-        })));
+        return sendSuccess(res, combos.map(mapComboResponse));
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -669,23 +664,11 @@ export const updateCombo = async (req: Request, res: Response) => {
 
         const combo = await Combo.findByIdAndUpdate(comboId, updates, { new: true });
 
-        // Delete old image from Cloudinary if image was updated
         if (existing?.image_url) {
             await safeDeleteFromCloudinary(existing.image_url, imageUrl);
         }
 
-        return sendSuccess(res, {
-            id: combo?._id,
-            name: combo?.name,
-            description: combo?.description,
-            imageUrl: combo?.image_url,
-            items: combo?.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
-            discountPercentage: combo?.discount_percentage,
-            originalPrice: combo?.original_price,
-            price: combo?.price,
-            manualPriceOverride: combo?.manual_price_override,
-            isActive: combo?.is_active
-        });
+        return sendSuccess(res, combo ? mapComboResponse(combo) : null);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -714,7 +697,7 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = 20, page = 1, radius = 50000 } = req.query;
+        const { latitude, longitude, limit = String(DEFAULT_TRENDING_LIMIT), page = String(DEFAULT_TRENDING_PAGE), radius = String(DEFAULT_RADIUS) } = req.query;
 
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
@@ -722,10 +705,10 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
         const lat = parseFloat(latitude as string);
         const lng = parseFloat(longitude as string);
-        const pageNum = parseInt(page as string) || 1;
-        const limitNum = parseInt(limit as string) || 20;
+        const pageNum = parseInt(page as string) || DEFAULT_TRENDING_PAGE;
+        const limitNum = parseInt(limit as string) || DEFAULT_TRENDING_LIMIT;
         const skip = (pageNum - 1) * limitNum;
-        const radiusNum = parseInt(radius as string) || 50000; // Default 50km to capture wide area
+        const radiusNum = parseInt(radius as string) || DEFAULT_RADIUS;
 
         console.log(`🔥 Trending: [${lat}, ${lng}], Rad: ${radiusNum}m, Page: ${pageNum}`);
 
@@ -751,7 +734,7 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                     },
                     // Bucketize distance into 10km chunks (0-10km=0, 10-20km=1)
                     distance_bucket: {
-                        $floor: { $divide: ['$distance', 10000] }
+                        $floor: { $divide: ['$distance', DISTANCE_BUCKET_SIZE] }
                     }
                 }
             },
@@ -887,52 +870,12 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
         const dishes = result[0].data || [];
 
         console.log(`🍽️ Returned ${dishes.length} trending dishes (Total: ${metadata.total})`);
+        console.log(`📊 Dishes with variants: ${dishes.filter((d: any) => d.variants && d.variants.length > 0).length}/${dishes.length}`);
 
-        // ✅ Fetch variants separately for each dish to ensure they're populated
-        const dishesWithVariants = await Promise.all(
-            dishes.map(async (dish: any) => {
-                try {
-                    // DEBUG: Check database and collection info
-                    if (dishes.indexOf(dish) === 0) {
-                        console.log('🔧 DEBUG INFO:');
-                        console.log('   - DB Name:', mongoose.connection.db?.databaseName);
-                        console.log('   - Collections:', await mongoose.connection.db?.listCollections().toArray().then(c => c.map(x => x.name)));
-                        console.log('   - Querying collection: foodvariants');
-                        console.log('   - Looking for food_item_id:', dish._id);
-                    }
-
-                    // First, check if there are ANY variants at all
-                    const totalVariants = await FoodVariant.countDocuments({} as any);
-                    if (dishes.indexOf(dish) === 0) {
-                        console.log('   - Total variants in collection:', totalVariants);
-                    }
-
-                    // Check for this specific dish
-                    const variants = await FoodVariant.find({
-                        food_item_id: dish._id
-                    } as any).lean();
-
-                    console.log(`🔍 Dish ${dish.name} (${dish._id}): Found ${variants.length} variants`);
-
-                    return {
-                        ...dish,
-                        variants: variants || []
-                    };
-                } catch (error) {
-                    console.error(`❌ Error fetching variants for dish ${dish._id}:`, error);
-                    return {
-                        ...dish,
-                        variants: []
-                    };
-                }
-            })
-        );
-
-        console.log(`📊 Dishes with variants populated: ${dishesWithVariants.filter((d: any) => d.variants.length > 0).length}/${dishesWithVariants.length}`);
-
+        // Variants are already populated via $lookup in aggregation pipeline
         // Debug: Check if brand/outlet have slugs
-        if (dishesWithVariants.length > 0) {
-            const firstDish = dishesWithVariants[0];
+        if (dishes.length > 0) {
+            const firstDish = dishes[0];
             console.log('🔍 First dish brand:', firstDish.brand);
             console.log('🔍 First dish outlet:', firstDish.outlet);
             console.log('🔍 Brand slug:', firstDish.brand?.slug);
@@ -940,7 +883,7 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
         }
 
 
-        const formattedItems = dishesWithVariants.map((item: any) => ({
+        const formattedItems = dishes.map((item: any) => ({
             id: item._id,
             name: item.name,
             description: item.description,

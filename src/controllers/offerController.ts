@@ -6,6 +6,13 @@ import { sendSuccess, sendError } from '../utils/response.js';
 import { notifyFollowersOfNewOffer } from '../services/notificationService.js';
 import * as outletService from '../services/outletService.js';
 
+// Constants
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const DEFAULT_RADIUS = 50000;
+const STATUS_CODE_NOT_FOUND = 404;
+const STATUS_CODE_BAD_REQUEST = 400;
+
 export const createOffer = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
@@ -36,12 +43,12 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
         } = req.body;
 
         if (!title) {
-            return sendError(res, 'Title is required', null, 400);
+            return sendError(res, 'Title is required', null, STATUS_CODE_BAD_REQUEST);
         }
 
         const outlet = req.outlet || await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
 
         const actualOutletId = outlet._id;
@@ -97,12 +104,11 @@ export const createOffer = async (req: AuthRequest, res: Response) => {
 export const getOutletOffers = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { is_active, page = 1, limit = 20 } = req.query;
+        const { is_active, page = DEFAULT_PAGE, limit = DEFAULT_LIMIT } = req.query;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
@@ -140,10 +146,9 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
@@ -153,7 +158,7 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
             .lean();
 
         if (!offer) {
-            return sendError(res, 'Offer not found', null, 404);
+            return sendError(res, 'Offer not found', null, STATUS_CODE_NOT_FOUND);
         }
 
         return sendSuccess(res, { offer });
@@ -192,17 +197,16 @@ export const updateOffer = async (req: AuthRequest, res: Response) => {
             is_active
         } = req.body;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
         const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
-            return sendError(res, 'Offer not found', null, 404);
+            return sendError(res, 'Offer not found', null, STATUS_CODE_NOT_FOUND);
         }
 
         if (title !== undefined) offer.title = title;
@@ -245,17 +249,16 @@ export const deleteOffer = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
         const offer = await Offer.findOneAndDelete({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
-            return sendError(res, 'Offer not found', null, 404);
+            return sendError(res, 'Offer not found', null, STATUS_CODE_NOT_FOUND);
         }
 
         return sendSuccess(res, {
@@ -271,17 +274,16 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;
 
-        // Resolve optional slug/ID
         const outlet = await outletService.getOutletById(outletId);
         if (!outlet) {
-            return sendError(res, 'Outlet not found', null, 404);
+            return sendError(res, 'Outlet not found', null, STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
 
         const offer = await Offer.findOne({ _id: offerId, outlet_ids: actualOutletId as any });
 
         if (!offer) {
-            return sendError(res, 'Offer not found', null, 404);
+            return sendError(res, 'Offer not found', null, STATUS_CODE_NOT_FOUND);
         }
 
         (offer as any).is_active = !offer.is_active;
@@ -299,10 +301,10 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
 
 export const getNearbyOffers = async (req: any, res: Response) => {
     try {
-        const { latitude, longitude, radius = 50000, limit = 20 } = req.query;
+        const { latitude, longitude, radius = DEFAULT_RADIUS, limit = DEFAULT_LIMIT } = req.query;
 
         if (!latitude || !longitude) {
-            return sendError(res, 'Latitude and longitude are required', null, 400);
+            return sendError(res, 'Latitude and longitude are required', null, STATUS_CODE_BAD_REQUEST);
         }
 
         const lat = parseFloat(latitude as string);

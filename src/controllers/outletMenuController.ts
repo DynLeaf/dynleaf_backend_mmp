@@ -288,7 +288,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     let isFollowing = false;
     if ((req as any).user?.id) {
       const userId = (req as any).user.id;
-      const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
+      const follow = await Follow.findOne({ user: userId, outlet: actualOutletId }).lean();
       isFollowing = !!follow;
     }
 

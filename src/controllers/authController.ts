@@ -16,18 +16,100 @@ interface AuthRequest extends Request {
   user?: any;
 }
 
+// Cookie configuration constants
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
+const ACCESS_TOKEN_OPTIONS = {
+  ...COOKIE_OPTIONS,
+  maxAge: 15 * 60 * 1000, // 15 mins
+};
+
+const PUBLIC_COOKIE_OPTIONS = {
+  ...COOKIE_OPTIONS,
+  httpOnly: false,
+};
+
+const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
+const ACCOUNT_LOCK_DURATION = 30 * 60 * 1000; // 30 minutes
+const MAX_FAILED_ATTEMPTS = 5;
+
+// Helper functions
+const validatePhoneNumber = (phone: string): boolean => {
+  return PHONE_REGEX.test(phone);
+};
+
+const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
+  res.cookie("accessToken", accessToken, ACCESS_TOKEN_OPTIONS);
+  res.cookie("refreshToken", refreshToken, COOKIE_OPTIONS);
+  res.cookie("isLoggedIn", "true", PUBLIC_COOKIE_OPTIONS);
+};
+
+const clearAuthCookies = (res: Response) => {
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+  res.clearCookie("isLoggedIn");
+};
+
+const mapBrandToResponse = (brand: any) => ({
+  id: brand._id,
+  name: brand.name,
+  slug: brand.slug,
+  logo_url: brand.logo_url,
+});
+
+const mapOutletToResponse = (outlet: any) => ({
+  id: outlet._id,
+  name: outlet.name,
+  brandId: outlet.brand_id?._id || outlet.brand_id,
+  status: outlet.status,
+});
+
+const checkAccountLock = (lockUntil?: Date) => {
+  if (lockUntil && lockUntil > new Date()) {
+    return {
+      isLocked: true,
+      locked_until: lockUntil,
+    };
+  }
+  return { isLocked: false };
+};
+
+const ensureRestaurantOwnerRole = async (user: any, outlets: any[]) => {
+  if (outlets.length > 0 && !user.roles.some((r: any) => r.role === "restaurant_owner")) {
+    user.roles.push({
+      scope: "platform",
+      role: "restaurant_owner",
+      assignedAt: new Date(),
+    });
+  }
+};
+
+const updateLoginMetadata = (user: any, req: Request, deviceInfo?: any) => {
+  user.last_login_at = new Date();
+  user.last_login_ip = req.ip || req.socket.remoteAddress;
+  if (deviceInfo?.deviceName) {
+    user.last_login_device = deviceInfo.deviceName;
+  } else if (req.headers['user-agent']) {
+    user.last_login_device = req.headers['user-agent'];
+  }
+  user.failed_login_attempts = 0;
+  user.locked_until = undefined;
+};
+
 export const sendOtp = async (req: Request, res: Response) => {
   try {
-    console.log("reached");
-    console.log("reached");
     const { phone } = req.body;
 
     if (!phone) {
       return sendError(res, "Phone number is required", null, 400);
     }
 
-    const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-    if (!phoneRegex.test(phone)) {
+    if (!validatePhoneNumber(phone)) {
       return sendError(res, "Invalid phone number format", null, 400);
     }
 
@@ -48,7 +130,6 @@ export const sendOtp = async (req: Request, res: Response) => {
 export const verifyOtp = async (req: Request, res: Response) => {
   try {
     const { phone, otp, deviceInfo } = req.body;
-    console.log(deviceInfo, "vdg");
 
     if (!phone || !otp) {
       return sendError(res, "Phone and OTP are required", null, 400);
@@ -86,8 +167,9 @@ export const verifyOtp = async (req: Request, res: Response) => {
       return sendError(res, "Account suspended", { reason: user.suspension_reason }, 403);
     }
 
-    if (user.locked_until && user.locked_until > new Date()) {
-      return sendError(res, "Account temporarily locked", { locked_until: user.locked_until }, 403);
+    const lockCheck = checkAccountLock(user.locked_until);
+    if (lockCheck.isLocked) {
+      return sendError(res, "Account temporarily locked", { locked_until: lockCheck.locked_until }, 403);
     }
 
     const accessToken = tokenService.generateAccessToken(user, "", undefined);
@@ -126,42 +208,20 @@ export const verifyOtp = async (req: Request, res: Response) => {
       newRefreshToken
     );
 
-    user.last_login_at = new Date();
-    user.last_login_ip = req.ip || req.socket.remoteAddress;
-    user.last_login_device = deviceInfo.deviceName;
-    user.failed_login_attempts = 0;
+    updateLoginMetadata(user, req, deviceInfo);
     await user.save();
 
     const brands = await Brand.find({ admin_user_id: user._id });
     const outlets = await outletService.getUserOutletsList(user._id.toString());
 
-    // Fix for transferred accounts: If user has access to outlets but no explicit role, grant restaurant_owner role
-    if (outlets.length > 0 && !user.roles.some((r) => r.role === "restaurant_owner")) {
-      user.roles.push({
-        scope: "platform",
-        role: "restaurant_owner",
-        assignedAt: new Date(),
-      } as any);
-    }
+    await ensureRestaurantOwnerRole(user, outlets);
 
     const hasCompletedOnboarding =
       user.roles.some((r) => r.role === "restaurant_owner") &&
       brands.length > 0 &&
       user.currentStep === "DONE";
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    };
-
-    res.cookie("accessToken", newAccessToken, {
-      ...cookieOptions,
-      maxAge: 15 * 60 * 1000, // 15 mins
-    });
-    res.cookie("refreshToken", newRefreshToken, cookieOptions);
-    res.cookie("isLoggedIn", "true", { ...cookieOptions, httpOnly: false });
+    setAuthCookies(res, newAccessToken, newRefreshToken);
 
     return sendSuccess(res, {
       user: {
@@ -173,12 +233,8 @@ export const verifyOtp = async (req: Request, res: Response) => {
         roles: user.roles,
         currentStep: user.currentStep,
         hasCompletedOnboarding,
-        brands: brands.map((b) => ({ id: b._id, name: b.name, slug: b.slug })),
-        outlets: outlets.map((o: any) => ({
-          id: o._id,
-          name: o.name,
-          brandId: o.brand_id?._id || o.brand_id,
-        })),
+        brands: brands.map(mapBrandToResponse),
+        outlets: outlets.map(mapOutletToResponse),
         is_verified: user.is_verified,
         is_active: user.is_active,
       },
@@ -232,19 +288,7 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     await sessionService.rotateRefreshToken(decoded.sessionId, newRefreshToken);
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    };
-
-    res.cookie("accessToken", newAccessToken, {
-      ...cookieOptions,
-      maxAge: 15 * 60 * 1000, // 15 mins
-    });
-    res.cookie("refreshToken", newRefreshToken, cookieOptions);
-    res.cookie("isLoggedIn", "true", { ...cookieOptions, httpOnly: false });
+    setAuthCookies(res, newAccessToken, newRefreshToken);
 
     return sendSuccess(res, null);
   } catch (error: any) {
@@ -266,9 +310,7 @@ export const logout = async (req: AuthRequest, res: Response) => {
       await sessionService.revokeSession(req.user.sessionId);
     }
 
-    res.clearCookie("accessToken");
-    res.clearCookie("refreshToken");
-    res.clearCookie("isLoggedIn");
+    clearAuthCookies(res);
     return sendSuccess(res, null, "Logged out successfully");
   } catch (error: any) {
     console.error("Logout error:", error);
@@ -285,17 +327,9 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
     }
 
     const brands = await Brand.find({ admin_user_id: user._id });
-    // Use getUserOutletsList to check for ANY accessible outlets (including transferred ones)
     const outlets = await outletService.getUserOutletsList(user._id.toString());
 
-    // Fix for transferred accounts: If user has access to outlets but no explicit role, grant restaurant_owner role
-    if (outlets.length > 0 && !user.roles.some((r) => r.role === "restaurant_owner")) {
-      user.roles.push({
-        scope: "platform",
-        role: "restaurant_owner",
-        assignedAt: new Date(),
-      } as any);
-    }
+    await ensureRestaurantOwnerRole(user, outlets);
 
     const hasCompletedOnboarding =
       user.roles.some((r) => r.role === "restaurant_owner") &&
@@ -332,18 +366,8 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
         currentStep: user.currentStep,
         hasCompletedOnboarding,
         onboardingStatus,
-        brands: brands.map((b) => ({
-          id: b._id,
-          name: b.name,
-          slug: b.slug,
-          logo_url: b.logo_url,
-        })),
-        outlets: outlets.map((o) => ({
-          id: o._id,
-          name: o.name,
-          brandId: o.brand_id,
-          status: o.status,
-        })),
+        brands: brands.map(mapBrandToResponse),
+        outlets: outlets.map(mapOutletToResponse),
         permissions: req.user.permissions,
         is_verified: user.is_verified,
         is_active: user.is_active,
@@ -394,12 +418,7 @@ export const switchRole = async (req: AuthRequest, res: Response) => {
     user.preferred_role = role;
     await user.save();
 
-    res.cookie("accessToken", newAccessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax" as const,
-      maxAge: 15 * 60 * 1000, // 15 mins
-    });
+    res.cookie("accessToken", newAccessToken, ACCESS_TOKEN_OPTIONS);
 
     return sendSuccess(res, {
       user: {
@@ -470,13 +489,13 @@ export const adminLogin = async (req: Request, res: Response) => {
       return sendError(res, "Invalid credentials", null, 401);
     }
 
-    // Check if account is locked
-    if (admin.locked_until && admin.locked_until > new Date()) {
-      const minutesLeft = Math.ceil((admin.locked_until.getTime() - Date.now()) / 60000);
+    const lockCheck = checkAccountLock(admin.locked_until);
+    if (lockCheck.isLocked) {
+      const minutesLeft = Math.ceil((lockCheck.locked_until!.getTime() - Date.now()) / 60000);
       return sendError(
         res,
         `Account temporarily locked. Try again in ${minutesLeft} minutes`,
-        { locked_until: admin.locked_until },
+        { locked_until: lockCheck.locked_until },
         403
       );
     }
@@ -490,12 +509,10 @@ export const adminLogin = async (req: Request, res: Response) => {
     const isPasswordValid = await admin.comparePassword(password);
 
     if (!isPasswordValid) {
-      // Increment failed login attempts
       admin.failed_login_attempts += 1;
 
-      // Lock account after 5 failed attempts for 30 minutes
-      if (admin.failed_login_attempts >= 5) {
-        admin.locked_until = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+      if (admin.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
+        admin.locked_until = new Date(Date.now() + ACCOUNT_LOCK_DURATION);
         await admin.save();
         return sendError(
           res,
@@ -509,12 +526,7 @@ export const adminLogin = async (req: Request, res: Response) => {
       return sendError(res, "Invalid credentials", null, 401);
     }
 
-    // Reset failed login attempts on successful login
-    admin.failed_login_attempts = 0;
-    admin.locked_until = undefined;
-    admin.last_login_at = new Date();
-    admin.last_login_ip = req.ip || req.socket.remoteAddress;
-    admin.last_login_device = req.headers['user-agent'];
+    updateLoginMetadata(admin, req);
     await admin.save();
 
     // Create admin user object
@@ -538,13 +550,7 @@ export const adminLogin = async (req: Request, res: Response) => {
       { expiresIn: "7d" }
     );
 
-    // Set HTTP-only cookie
-    res.cookie("admin_token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    res.cookie("admin_token", token, COOKIE_OPTIONS);
 
     return sendSuccess(res, { user: adminUser }, "Login successful");
   } catch (error: any) {

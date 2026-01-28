@@ -1,9 +1,23 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { Follow } from '../models/Follow.js';
 import { Outlet } from '../models/Outlet.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as outletService from '../services/outletService.js';
+
+// Constants
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 10;
+
+// Helper functions
+const calculatePagination = (page: number, limit: number, total: number) => ({
+  page,
+  limit,
+  total,
+  totalPages: Math.ceil(total / limit),
+  hasMore: page * limit < total
+});
 
 export const followOutlet = async (req: AuthRequest, res: Response) => {
     try {
@@ -51,35 +65,63 @@ export const unfollowOutlet = async (req: AuthRequest, res: Response) => {
 export const getFollowedOutlets = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user.id;
-        const page = parseInt(req.query.page as string) || 1;
-        const limit = parseInt(req.query.limit as string) || 10;
+        const page = parseInt(req.query.page as string) || DEFAULT_PAGE;
+        const limit = parseInt(req.query.limit as string) || DEFAULT_LIMIT;
         const skip = (page - 1) * limit;
 
+        // Use aggregation instead of nested populate for better performance
         const [follows, total] = await Promise.all([
-            Follow.find({ user: userId })
-                .populate({
-                    path: 'outlet',
-                    select: 'name banner_image_url cover_image_url brand_id location address',
-                    populate: {
-                        path: 'brand_id',
-                        select: 'logo_url name cuisines'
+            Follow.aggregate([
+                { $match: { user: new mongoose.Types.ObjectId(userId) } },
+                { $sort: { created_at: -1 } },
+                { $skip: skip },
+                { $limit: limit },
+                {
+                    $lookup: {
+                        from: 'outlets',
+                        localField: 'outlet',
+                        foreignField: '_id',
+                        as: 'outlet'
                     }
-                })
-                .sort({ created_at: -1 })
-                .skip(skip)
-                .limit(limit),
+                },
+                { $unwind: { path: '$outlet', preserveNullAndEmptyArrays: false } },
+                {
+                    $lookup: {
+                        from: 'brands',
+                        localField: 'outlet.brand_id',
+                        foreignField: '_id',
+                        as: 'outlet.brand'
+                    }
+                },
+                { $unwind: { path: '$outlet.brand', preserveNullAndEmptyArrays: true } },
+                {
+                    $project: {
+                        _id: 1,
+                        user: 1,
+                        outlet: {
+                            _id: 1,
+                            name: 1,
+                            banner_image_url: 1,
+                            cover_image_url: 1,
+                            location: 1,
+                            address: 1,
+                            brand: {
+                                _id: '$outlet.brand._id',
+                                logo_url: '$outlet.brand.logo_url',
+                                name: '$outlet.brand.name',
+                                cuisines: '$outlet.brand.cuisines'
+                            }
+                        },
+                        created_at: 1
+                    }
+                }
+            ]),
             Follow.countDocuments({ user: userId })
         ]);
 
         return sendSuccess(res, {
             follows,
-            pagination: {
-                page,
-                limit,
-                total,
-                totalPages: Math.ceil(total / limit),
-                hasMore: page * limit < total
-            }
+            pagination: calculatePagination(page, limit, total)
         });
     } catch (error: any) {
         console.error('Get followed outlets error:', error);
@@ -108,7 +150,7 @@ export const checkFollowStatus = async (req: AuthRequest, res: Response) => {
         const outlet = await outletService.getOutletById(outletId);
         const actualOutletId = outlet ? outlet._id : outletId;
 
-        const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
+        const follow = await Follow.findOne({ user: userId, outlet: actualOutletId }).lean();
         return sendSuccess(res, { is_following: !!follow });
     } catch (error: any) {
         console.error('Check follow status error:', error);

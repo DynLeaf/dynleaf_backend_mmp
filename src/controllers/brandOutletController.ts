@@ -9,6 +9,16 @@ import { OperatingHours } from '../models/OperatingHours.js';
 import { Follow } from '../models/Follow.js';
 import mongoose from 'mongoose';
 import * as outletService from '../services/outletService.js';
+import { sendSuccess, sendError } from '../utils/response.js';
+
+// Constants
+const DEFAULT_FEATURED_LIMIT = 10;
+const DEFAULT_FEATURED_RADIUS = 100000;
+const DEFAULT_NEARBY_RADIUS = 50000;
+const DEFAULT_NEARBY_LIMIT = 20;
+const STATUS_CODE_BAD_REQUEST = 400;
+const STATUS_CODE_NOT_FOUND = 404;
+const STATUS_CODE_SERVER_ERROR = 500;
 
 /**
  * NEW: Get featured brands with their nearest outlet
@@ -18,13 +28,10 @@ import * as outletService from '../services/outletService.js';
  */
 export const getFeaturedBrands = async (req: Request, res: Response) => {
   try {
-    const { latitude, longitude, limit = 10, radius = 100000 } = req.query;
+    const { latitude, longitude, limit = DEFAULT_FEATURED_LIMIT, radius = DEFAULT_FEATURED_RADIUS } = req.query;
 
     if (!latitude || !longitude) {
-      return res.status(400).json({
-        status: false,
-        message: 'Latitude and longitude are required'
-      });
+      return sendError(res, 'Latitude and longitude are required', STATUS_CODE_BAD_REQUEST);
     }
 
     const lat = parseFloat(latitude as string);
@@ -112,28 +119,21 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
       }
     }
 
-    // Convert to array and limit
     const brands = Array.from(brandMap.values()).slice(0, limitNum);
 
     console.log(`✅ Returning ${brands.length} unique featured brands`);
 
-    res.json({
-      status: true,
-      data: {
-        brands,
-        metadata: {
-          total: brands.length,
-          search_radius_km: radiusNum / 1000,
-          center: { latitude: lat, longitude: lng }
-        }
+    return sendSuccess(res, {
+      brands,
+      metadata: {
+        total: brands.length,
+        search_radius_km: radiusNum / 1000,
+        center: { latitude: lat, longitude: lng }
       }
     });
   } catch (error: any) {
     console.error('Error in getFeaturedBrands:', error);
-    res.status(500).json({
-      status: false,
-      message: error.message || 'Failed to fetch featured brands'
-    });
+    return sendError(res, error.message || 'Failed to fetch featured brands', STATUS_CODE_SERVER_ERROR);
   }
 };
 
@@ -148,20 +148,17 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
     const {
       latitude,
       longitude,
-      radius = 50000,
-      limit = 20,
+      radius = DEFAULT_NEARBY_RADIUS,
+      limit = DEFAULT_NEARBY_LIMIT,
       isVeg,
       minRating,
       priceRange,
       cuisines,
-      sortBy = 'distance' // distance, rating, reviews, delivery_time
+      sortBy = 'distance'
     } = req.query;
 
     if (!latitude || !longitude) {
-      return res.status(400).json({
-        status: false,
-        message: 'Latitude and longitude are required'
-      });
+      return sendError(res, 'Latitude and longitude are required', STATUS_CODE_BAD_REQUEST);
     }
 
     const lat = parseFloat(latitude as string);
@@ -344,30 +341,24 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
 
     console.log(`✅ Found ${outlets.length} nearby outlets`);
 
-    res.json({
-      status: true,
-      data: {
-        outlets,
-        metadata: {
-          total: outlets.length,
-          search_radius_km: radiusNum / 1000,
-          center: { latitude: lat, longitude: lng },
-          filters: {
-            isVeg: isVeg || 'all',
-            minRating: minRating || 'none',
-            priceRange: priceRange || 'all',
-            cuisines: cuisines || 'all',
-            sortBy
-          }
+    return sendSuccess(res, {
+      outlets,
+      metadata: {
+        total: outlets.length,
+        search_radius_km: radiusNum / 1000,
+        center: { latitude: lat, longitude: lng },
+        filters: {
+          isVeg: isVeg || 'all',
+          minRating: minRating || 'none',
+          priceRange: priceRange || 'all',
+          cuisines: cuisines || 'all',
+          sortBy
         }
       }
     });
   } catch (error: any) {
     console.error('Error in getNearbyOutletsNew:', error);
-    res.status(500).json({
-      status: false,
-      message: error.message || 'Failed to fetch nearby outlets'
-    });
+    return sendError(res, error.message || 'Failed to fetch nearby outlets', STATUS_CODE_SERVER_ERROR);
   }
 };
 
@@ -381,45 +372,35 @@ export const getOutletDetail = async (req: Request, res: Response) => {
     const { outletId } = req.params;
     console.log(`[getOutletDetail] Requested ID/Slug: ${outletId}`);
 
-    // Use service to find outlet by ID or slug
     const outletDoc = await outletService.getOutletById(outletId);
 
     if (!outletDoc) {
-      return res.status(404).json({
-        status: false,
-        message: 'Outlet not found [MARKER-NEW-LOGIC]'
-      });
+      return sendError(res, 'Outlet not found [MARKER-NEW-LOGIC]', STATUS_CODE_NOT_FOUND);
     }
 
     const outlet = outletDoc.toObject();
     const actualOutletId = outlet._id;
     console.log(`[getOutletDetail] Resolved ID: ${actualOutletId}`);
 
-    // Get operating hours from OperatingHours collection
-    const operatingHours = await OperatingHours.find({
-      outlet_id: actualOutletId
-    })
-      .sort({ day_of_week: 1 })
-      .select('day_of_week open_time close_time is_closed')
-      .lean();
-
-    // Transform operating hours to match frontend format
-    const formattedHours = operatingHours.map(oh => ({
-      dayOfWeek: oh.day_of_week,
-      open: oh.open_time,
-      close: oh.close_time,
-      isClosed: oh.is_closed
-    }));
-
-    // Get available items count
-    const itemsCount = await FoodItem.countDocuments({
-      outlet_id: actualOutletId,
-      is_available: true,
-      is_active: true
-    });
-
-    // Get menu categories with item counts
-    const categories = await FoodItem.aggregate([
+    // Parallelize independent queries for better performance
+    const userId = (req as any).user?.id;
+    
+    const [operatingHours, itemsCount, categories, followersCount, userFollow] = await Promise.all([
+      // Get operating hours
+      OperatingHours.find({ outlet_id: actualOutletId })
+        .sort({ day_of_week: 1 })
+        .select('day_of_week open_time close_time is_closed')
+        .lean(),
+      
+      // Get available items count
+      FoodItem.countDocuments({
+        outlet_id: actualOutletId,
+        is_available: true,
+        is_active: true
+      }),
+      
+      // Get menu categories with item counts
+      FoodItem.aggregate([
       {
         $match: {
           outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
@@ -444,49 +425,48 @@ export const getOutletDetail = async (req: Request, res: Response) => {
           items_count: { $sum: 1 }
         }
       },
-      { $sort: { name: 1 } }
+        { $sort: { name: 1 } }
+      ]),
+      
+      // Get followers count
+      Follow.countDocuments({ outlet: actualOutletId }),
+      
+      // Get user follow status if logged in
+      userId ? Follow.findOne({ user: userId, outlet: actualOutletId }).lean() : Promise.resolve(null)
     ]);
 
-    // Get followers count
-    const followersCount = await Follow.countDocuments({ outlet: actualOutletId });
+    // Transform operating hours to match frontend format
+    const formattedHours = operatingHours.map((oh: any) => ({
+      dayOfWeek: oh.day_of_week,
+      open: oh.open_time,
+      close: oh.close_time,
+      isClosed: oh.is_closed
+    }));
 
-    // Check if user follows the outlet
-    let isFollowing = false;
-    if ((req as any).user?.id) {
-      const userId = (req as any).user.id;
-      const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
-      isFollowing = !!follow;
-    }
+    const isFollowing = !!userFollow;
 
-    res.json({
-      status: true,
-      data: {
-        outlet: {
-          ...outlet,
-          available_items_count: itemsCount,
-          followers_count: followersCount,
-          is_following: isFollowing,
-          opening_hours: formattedHours,
-          // Ensure outlet-centric fields are explicitly included
-          order_phone: outlet.order_phone,
-          order_link: outlet.order_link,
-          flags: outlet.flags || {
-            is_featured: false,
-            is_trending: false,
-            accepts_online_orders: false,
-            is_open_now: false
-          },
-          social_media: outlet.social_media || {}
+    return sendSuccess(res, {
+      outlet: {
+        ...outlet,
+        available_items_count: itemsCount,
+        followers_count: followersCount,
+        is_following: isFollowing,
+        opening_hours: formattedHours,
+        order_phone: outlet.order_phone,
+        order_link: outlet.order_link,
+        flags: outlet.flags || {
+          is_featured: false,
+          is_trending: false,
+          accepts_online_orders: false,
+          is_open_now: false
         },
-        categories
-      }
+        social_media: outlet.social_media || {}
+      },
+      categories
     });
   } catch (error: any) {
     console.error('[getOutletDetail] FATAL ERROR:', error);
     console.error(error.stack);
-    res.status(500).json({
-      status: false,
-      message: `Outlet detail error: ${error.message}`
-    });
+    return sendError(res, `Outlet detail error: ${error.message}`, STATUS_CODE_SERVER_ERROR);
   }
 };

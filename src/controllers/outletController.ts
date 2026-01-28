@@ -19,6 +19,166 @@ interface AuthRequest extends Request {
     user?: any;
 }
 
+// Constants
+const VALID_GALLERY_CATEGORIES = ['interior', 'exterior', 'food'] as const;
+const MAX_INSTAGRAM_REELS = 8;
+const DEFAULT_RADIUS_METERS = 10000;
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const DEFAULT_FEATURED_LIMIT = 10;
+const FALLBACK_RADIUS_METERS = 50000;
+const EARTH_RADIUS_KM = 6371;
+const EARTH_RADIUS_METERS = 6371e3;
+const DEFAULT_TIMEZONE = 'Asia/Kolkata';
+const INSTAGRAM_REEL_REGEX = /^https?:\/\/(www\.)?instagram\.com\/(reel|reels)\/[A-Za-z0-9_-]+\/?(\?.*)?$/;
+
+// Helper functions
+const validateGalleryCategory = (category: string): boolean => {
+    return VALID_GALLERY_CATEGORIES.includes(category as any);
+};
+
+const parseLocationCoordinates = (latitude?: string | number, longitude?: string | number) => {
+    if (!latitude || !longitude) return null;
+    
+    return {
+        type: 'Point' as const,
+        coordinates: [parseFloat(String(longitude)), parseFloat(String(latitude))]
+    };
+};
+
+const validateMongoId = (id: string): boolean => {
+    return mongoose.Types.ObjectId.isValid(id);
+};
+
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = EARTH_RADIUS_METERS;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) *
+        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
+};
+
+const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = EARTH_RADIUS_KM;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+};
+
+const handleImageUpload = async (imageInput: string, folder: string, prefix?: string): Promise<string> => {
+    if (imageInput.startsWith('data:')) {
+        const uploadResult = await saveBase64Image(imageInput, folder as any, prefix);
+        return uploadResult.url;
+    }
+    
+    if (imageInput.startsWith('http://') || imageInput.startsWith('https://') || imageInput.startsWith('/uploads/')) {
+        return imageInput;
+    }
+    
+    throw new Error('Invalid image URL');
+};
+
+const checkOutletAccess = (userRoles: any[], outletId: string, brandId: string | null): boolean => {
+    return userRoles.some((r: any) => {
+        if (r.role === 'admin') return true;
+        if (r.scope === 'outlet' && r.outletId?.toString?.() === outletId) return true;
+        if (r.scope === 'brand' && r.brandId && brandId) return r.brandId.toString() === brandId;
+        return false;
+    });
+};
+
+const extractBrandId = (outlet: any): string | null => {
+    const brandId = outlet?.brand_id?._id?.toString?.()
+        ? outlet.brand_id._id.toString()
+        : outlet?.brand_id?.toString?.()
+            ? outlet.brand_id.toString()
+            : null;
+    return brandId;
+};
+
+const getPaginationParams = (query: any) => {
+    const page = parseInt(query.page as string) || DEFAULT_PAGE;
+    const limit = parseInt(query.limit as string) || DEFAULT_LIMIT;
+    const skip = (page - 1) * limit;
+    
+    return { page, limit, skip };
+};
+
+const buildActiveOutletQuery = (additionalFilters: any = {}) => {
+    return {
+        ...additionalFilters,
+        $and: [
+            {
+                $or: [
+                    { approval_status: 'APPROVED' },
+                    { approval_status: { $exists: false } }
+                ]
+            },
+            {
+                $or: [
+                    { status: 'ACTIVE' },
+                    { status: { $exists: false } }
+                ]
+            }
+        ]
+    };
+};
+
+const buildActiveBrandMatch = () => {
+    return {
+        $and: [
+            {
+                $or: [
+                    { 'brand.verification_status': 'approved' },
+                    { 'brand.verification_status': 'verified' },
+                    { 'brand.verification_status': { $exists: false } }
+                ]
+            },
+            {
+                $or: [
+                    { 'brand.is_active': true },
+                    { 'brand.is_active': { $exists: false } }
+                ]
+            }
+        ]
+    };
+};
+
+// Mappers
+const mapOperatingHoursToResponse = (hours: any[]) => {
+    return hours.map(h => ({
+        dayOfWeek: h.day_of_week,
+        open: h.open_time,
+        close: h.close_time,
+        isClosed: h.is_closed
+    }));
+};
+
+const mapBrandToResponse = (brand: any) => {
+    if (!brand) return null;
+    
+    return {
+        _id: brand._id,
+        name: brand.name,
+        slug: brand.slug,
+        logo_url: brand.logo_url,
+        cuisines: brand.cuisines,
+        is_featured: brand.is_featured
+    };
+};
+
 export const createOutlet = async (req: AuthRequest, res: Response) => {
     try {
         const {
@@ -51,13 +211,7 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
         }
 
         // Prepare location object with GeoJSON format
-        let locationData = location;
-        if (latitude && longitude) {
-            locationData = {
-                type: 'Point',
-                coordinates: [parseFloat(longitude), parseFloat(latitude)] // [lng, lat]
-            };
-        }
+        const locationData = parseLocationCoordinates(latitude, longitude) || location;
 
         const outlet = await outletService.createOutlet(req.user.id, brandId, {
             name,
@@ -99,21 +253,25 @@ export const getUserOutlets = async (req: AuthRequest, res: Response) => {
     try {
         const outlets = await outletService.getUserOutlets(req.user.id);
 
-        // Fetch operating hours for each outlet
-        const outletsWithHours = await Promise.all(
-            outlets.map(async (outlet: any) => {
-                const operatingHours = await OperatingHours.find({ outlet_id: outlet._id }).sort({ day_of_week: 1 });
-                return {
-                    ...outlet.toObject(),
-                    operatingHours: operatingHours.map(h => ({
-                        dayOfWeek: h.day_of_week,
-                        open: h.open_time,
-                        close: h.close_time,
-                        isClosed: h.is_closed
-                    }))
-                };
-            })
-        );
+        // Fetch all operating hours in a single query (avoiding N+1)
+        const outletIds = outlets.map((o: any) => o._id);
+        const allOperatingHours = await OperatingHours.find({ 
+            outlet_id: { $in: outletIds } 
+        }).sort({ day_of_week: 1 }).lean();
+
+        // Group operating hours by outlet_id
+        const hoursByOutlet = allOperatingHours.reduce((acc: any, hour: any) => {
+            const id = hour.outlet_id.toString();
+            if (!acc[id]) acc[id] = [];
+            acc[id].push(hour);
+            return acc;
+        }, {});
+
+        // Map outlets with their operating hours
+        const outletsWithHours = outlets.map((outlet: any) => ({
+            ...outlet.toObject(),
+            operatingHours: mapOperatingHoursToResponse(hoursByOutlet[outlet._id.toString()] || [])
+        }));
 
         return sendSuccess(res, { outlets: outletsWithHours });
     } catch (error: any) {
@@ -140,32 +298,24 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
         }
 
         const actualOutletId = outlet._id.toString();
+        const userId = (req as any).user?.id;
 
-        // Fetch operating hours from OperatingHours collection
-        const operatingHours = await OperatingHours.find({ outlet_id: actualOutletId }).sort({ day_of_week: 1 });
+        // Parallelize independent queries
+        const [operatingHours, userFollow, followersCount] = await Promise.all([
+            OperatingHours.find({ outlet_id: actualOutletId }).sort({ day_of_week: 1 }).lean(),
+            userId ? Follow.findOne({ user: userId, outlet: actualOutletId }).lean() : Promise.resolve(null),
+            Follow.countDocuments({ outlet: actualOutletId })
+        ]);
 
         const userRoles = req.user?.roles || [];
-        const outletBrandId = (outlet as any)?.brand_id?._id?.toString?.()
-            ? (outlet as any).brand_id._id.toString()
-            : (outlet as any)?.brand_id?.toString?.()
-                ? (outlet as any).brand_id.toString()
-                : null;
-
-        const hasOutletAccess = userRoles.some((r: any) => {
-            if (r.role === 'admin') return true;
-            if (r.scope === 'outlet' && r.outletId?.toString?.() === actualOutletId) return true;
-            if (r.scope === 'brand' && r.brandId && outletBrandId) return r.brandId.toString() === outletBrandId;
-            return false;
-        });
+        const outletBrandId = extractBrandId(outlet);
+        const hasOutletAccess = checkOutletAccess(userRoles, actualOutletId, outletBrandId);
 
         const outletPayload: any = {
             ...outlet.toObject(),
-            operatingHours: operatingHours.map(h => ({
-                dayOfWeek: h.day_of_week,
-                open: h.open_time,
-                close: h.close_time,
-                isClosed: h.is_closed
-            }))
+            operatingHours: mapOperatingHoursToResponse(operatingHours),
+            is_following: !!userFollow,
+            followers_count: followersCount
         };
 
         // Only attach subscription details for authorized outlet/brand/admin users.
@@ -179,17 +329,6 @@ export const getOutletById = async (req: AuthRequest, res: Response) => {
             outletPayload.free_tier = summary.free_tier;
             outletPayload.had_paid_plan_before = summary.had_paid_plan_before;
         }
-
-        // Check if user follows the outlet
-        if ((req as any).user?.id) {
-            const userId = (req as any).user.id;
-            const follow = await Follow.findOne({ user: userId, outlet: actualOutletId });
-            outletPayload.is_following = !!follow;
-        }
-
-        // Get total follower count
-        const followersCount = await Follow.countDocuments({ outlet: actualOutletId });
-        outletPayload.followers_count = followersCount;
 
         return sendSuccess(res, {
             outlet: outletPayload
@@ -253,17 +392,11 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
 
         const coverImageInput = coverImageFromMedia ?? coverImageFromBody;
         if (typeof coverImageInput === 'string') {
-            let coverImageUrl = coverImageInput;
-
-            if (coverImageInput.startsWith('data:')) {
-                const uploadResult = await saveBase64Image(coverImageInput, 'outlets');
-                coverImageUrl = uploadResult.url;
-            } else if (
-                coverImageInput !== '' &&
-                !coverImageInput.startsWith('http://') &&
-                !coverImageInput.startsWith('https://') &&
-                !coverImageInput.startsWith('/uploads/')
-            ) {
+            let coverImageUrl: string;
+            
+            try {
+                coverImageUrl = coverImageInput === '' ? '' : await handleImageUpload(coverImageInput, 'outlets');
+            } catch (error) {
                 return sendError(res, 'Invalid cover image URL', 400);
             }
 
@@ -286,11 +419,7 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             delete updateData.operatingHours;
 
             // Save to OperatingHours collection
-            await updateOperatingHoursFromEndpoint(
-                outletId,
-                'Asia/Kolkata', // Default timezone
-                operatingHours
-            );
+            await updateOperatingHoursFromEndpoint(outletId, DEFAULT_TIMEZONE, operatingHours);
         }
 
         // Handle amenities
@@ -344,7 +473,7 @@ export const saveCompliance = async (req: Request, res: Response) => {
 export const getCompliance = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const compliance = await Compliance.findOne({ outlet_id: outletId });
+        const compliance = await Compliance.findOne({ outlet_id: outletId }).lean();
 
         return sendSuccess(res, {
             fssaiNumber: compliance?.fssai_number || '',
@@ -362,7 +491,7 @@ export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const { category, image, url, photoUrl, imageUrl } = req.body;
 
-        if (!category || !['interior', 'exterior', 'food'].includes(category)) {
+        if (!category || !validateGalleryCategory(category)) {
             return sendError(res, 'Invalid category. Must be interior, exterior, or food', null, 400);
         }
 
@@ -370,17 +499,18 @@ export const uploadPhotoGallery = async (req: AuthRequest, res: Response) => {
             || (typeof photoUrl === 'string' ? photoUrl : undefined)
             || (typeof imageUrl === 'string' ? imageUrl : undefined);
 
-        let finalUrl: string | undefined;
+        let finalUrl: string;
 
-        if (typeof image === 'string' && image.startsWith('data:')) {
-            // Upload image to server in category-specific folder (legacy base64 flow)
-            const folderPath = `gallery/${category}` as 'gallery/interior' | 'gallery/exterior' | 'gallery/food';
-            const uploadResult = await saveBase64Image(image, folderPath, `${category}-${Date.now()}`);
-            finalUrl = uploadResult.url;
-        } else if (inputUrl && (inputUrl.startsWith('http://') || inputUrl.startsWith('https://') || inputUrl.startsWith('/uploads/'))) {
-            // New flow: client uploads to Cloudinary and sends us the hosted URL
-            finalUrl = inputUrl;
-        } else {
+        try {
+            if (typeof image === 'string' && image.startsWith('data:')) {
+                const folderPath = `gallery/${category}` as 'gallery/interior' | 'gallery/exterior' | 'gallery/food';
+                finalUrl = await handleImageUpload(image, folderPath, `${category}-${Date.now()}`);
+            } else if (inputUrl) {
+                finalUrl = await handleImageUpload(inputUrl, `gallery/${category}`);
+            } else {
+                return sendError(res, 'Invalid image data', null, 400);
+            }
+        } catch (error) {
             return sendError(res, 'Invalid image data', null, 400);
         }
 
@@ -417,7 +547,7 @@ export const deletePhotoGallery = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const { category, photoUrl } = req.body;
 
-        if (!category || !['interior', 'exterior', 'food'].includes(category)) {
+        if (!category || !validateGalleryCategory(category)) {
             return sendError(res, 'Invalid category', null, 400);
         }
 
@@ -507,12 +637,7 @@ export const getProfileAbout = async (req: Request, res: Response) => {
             address: outlet.address,
             operatingHours: {
                 timezone: outlet.timezone,
-                days: operatingHours.map(h => ({
-                    dayOfWeek: h.day_of_week,
-                    open: h.open_time,
-                    close: h.close_time,
-                    isClosed: h.is_closed
-                }))
+                days: mapOperatingHoursToResponse(operatingHours)
             },
             amenities: [],
             otherOutlets: []
@@ -534,11 +659,8 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
         } = req.query;
 
         // Validate brandId
-        if (!mongoose.Types.ObjectId.isValid(brandId)) {
-            return res.status(400).json({
-                status: false,
-                message: 'Invalid brand ID'
-            });
+        if (!validateMongoId(brandId)) {
+            return sendError(res, 'Invalid brand ID', null, 400);
         }
 
         const hasLocation = latitude && longitude;
@@ -554,7 +676,7 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
         };
 
         // Exclude specific outlet if provided
-        if (excludeOutletId && mongoose.Types.ObjectId.isValid(excludeOutletId as string)) {
+        if (excludeOutletId && validateMongoId(excludeOutletId as string)) {
             query._id = { $ne: new mongoose.Types.ObjectId(excludeOutletId as string) };
         }
 
@@ -563,18 +685,7 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
             .select('name slug address location contact media restaurant_type vendor_types social_media avg_rating total_reviews')
             .lean();
 
-        // Helper function to calculate distance
-        const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-            const R = 6371; // Radius of the earth in km
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a =
-                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c; // Distance in km
-        };
+
 
         // Format outlets and calculate distance if location provided
         let formattedOutlets = outlets.map((outlet: any) => {
@@ -602,7 +713,7 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
             // Calculate distance if user location is provided
             if (hasLocation && lat !== null && lng !== null && outlet.location?.coordinates) {
                 const [outletLng, outletLat] = outlet.location.coordinates;
-                const distance = calculateDistance(lat, lng, outletLat, outletLng);
+                const distance = calculateDistanceKm(lat, lng, outletLat, outletLng);
                 formatted.distance = distance.toFixed(1);
                 formatted._distanceValue = distance; // For sorting
             }
@@ -628,22 +739,15 @@ export const getBrandOutlets = async (req: Request, res: Response) => {
         const total = formattedOutlets.length;
         const limitedOutlets = limitNum ? formattedOutlets.slice(0, limitNum) : formattedOutlets;
 
-        return res.json({
-            status: true,
-            data: {
-                outlets: limitedOutlets,
-                total: total,
-                showing: limitedOutlets.length,
-                hasMore: total > limitedOutlets.length
-            },
-            message: `Found ${total} outlet(s) for this brand`
-        });
+        return sendSuccess(res, {
+            outlets: limitedOutlets,
+            total: total,
+            showing: limitedOutlets.length,
+            hasMore: total > limitedOutlets.length
+        }, `Found ${total} outlet(s) for this brand`);
     } catch (error: any) {
         console.error('getBrandOutlets error:', error);
-        return res.status(500).json({
-            status: false,
-            message: error.message || 'Failed to fetch brand outlets'
-        });
+        return sendError(res, error.message || 'Failed to fetch brand outlets');
     }
 };
 
@@ -653,13 +757,13 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
         const {
             latitude,
             longitude,
-            radius = 10000, // Default 10km in meters
-            page = 1,
-            limit = 20,
+            radius = DEFAULT_RADIUS_METERS,
+            page = DEFAULT_PAGE,
+            limit = DEFAULT_LIMIT,
             cuisines,
             priceRange,
             minRating,
-            sortBy = 'distance', // distance, rating, popularity
+            sortBy = 'distance',
             isVeg,
             search
         } = req.query;
@@ -671,29 +775,12 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
         const lat = parseFloat(latitude as string);
         const lng = parseFloat(longitude as string);
         const radiusMeters = parseInt(radius as string);
-        const pageNum = parseInt(page as string);
-        const limitNum = parseInt(limit as string);
-        const skip = (pageNum - 1) * limitNum;
+        const { page: pageNum, limit: limitNum, skip } = getPaginationParams(req.query);
 
         // Build match query for outlets
-        const outletMatchQuery: any = {
-            'location.coordinates': { $exists: true, $ne: [] },
-            // Only filter by approval_status if it exists (for legacy data compatibility)
-            $and: [
-                {
-                    $or: [
-                        { approval_status: 'APPROVED' },
-                        { approval_status: { $exists: false } }
-                    ]
-                },
-                {
-                    $or: [
-                        { status: 'ACTIVE' },
-                        { status: { $exists: false } }
-                    ]
-                }
-            ]
-        };
+        const outletMatchQuery: any = buildActiveOutletQuery({
+            'location.coordinates': { $exists: true, $ne: [] }
+        });
 
         if (priceRange) {
             outletMatchQuery.price_range = { $in: (priceRange as string).split(',').map(Number) };
@@ -741,23 +828,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
                 $unwind: '$brand'
             },
             {
-                $match: {
-                    $and: [
-                        {
-                            $or: [
-                                { 'brand.verification_status': 'approved' },
-                                { 'brand.verification_status': 'verified' },
-                                { 'brand.verification_status': { $exists: false } }
-                            ]
-                        },
-                        {
-                            $or: [
-                                { 'brand.is_active': true },
-                                { 'brand.is_active': { $exists: false } }
-                            ]
-                        }
-                    ]
-                }
+                $match: buildActiveBrandMatch()
             }
         ];
 
@@ -912,7 +983,7 @@ export const getNearbyOutlets = async (req: Request, res: Response) => {
 // Get featured outlets near location
 export const getFeaturedOutlets = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = 10 } = req.query;
+        const { latitude, longitude, limit = DEFAULT_FEATURED_LIMIT } = req.query;
 
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
@@ -943,24 +1014,17 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
 
                 if (outlet.location?.coordinates?.length === 2) {
                     const [lng2, lat2] = outlet.location.coordinates;
-                    const distance = calculateDistance(lat, lng, lat2, lng2);
+                    const distance = calculateDistanceKm(lat, lng, lat2, lng2) * 1000;
 
                     return {
                         ...outlet,
                         distance,
-                        brand: {
-                            _id: brand._id,
-                            name: brand.name,
-                            slug: brand.slug,
-                            logo_url: brand.logo_url,
-                            cuisines: brand.cuisines,
-                            is_featured: brand.is_featured
-                        }
+                        brand: mapBrandToResponse(brand)
                     };
                 }
                 return null;
             })
-            .filter(outlet => outlet !== null && outlet.distance <= 50000) // 50km radius
+            .filter(outlet => outlet !== null && outlet.distance <= FALLBACK_RADIUS_METERS)
             .sort((a: any, b: any) => a.distance - b.distance)
             .slice(0, limitNum);
 
@@ -1007,22 +1071,6 @@ export const getFeaturedOutlets = async (req: Request, res: Response) => {
         return sendError(res, error.message);
     }
 };
-
-// Helper function to calculate distance
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) *
-        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-}
 
 // Toggle featured status (Admin only)
 export const toggleFeaturedStatus = async (req: AuthRequest, res: Response) => {
@@ -1071,8 +1119,7 @@ export const addInstagramReel = async (req: AuthRequest, res: Response) => {
         const { url, title, thumbnail } = req.body;
 
         // Validate URL format
-        const instagramReelRegex = /^https?:\/\/(www\.)?instagram\.com\/(reel|reels)\/[A-Za-z0-9_-]+\/?(\?.*)?$/;
-        if (!url || !instagramReelRegex.test(url)) {
+        if (!url || !INSTAGRAM_REEL_REGEX.test(url)) {
             return sendError(res, 'Invalid Instagram Reel URL format', null, 400);
         }
 
@@ -1088,8 +1135,8 @@ export const addInstagramReel = async (req: AuthRequest, res: Response) => {
 
         // Check limit (max 8 reels)
         const currentReels = outlet.instagram_reels || [];
-        if (currentReels.length >= 8) {
-            return sendError(res, 'Maximum 8 Instagram Reels allowed', null, 400);
+        if (currentReels.length >= MAX_INSTAGRAM_REELS) {
+            return sendError(res, `Maximum ${MAX_INSTAGRAM_REELS} Instagram Reels allowed`, null, 400);
         }
 
         // Check for duplicate URLs

@@ -4,51 +4,90 @@ import { Follow } from '../models/Follow.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
+import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
+
+// Constants
+const AVATAR_UPLOAD_FOLDER = 'avatars';
+const OUTLET_UPLOAD_FOLDER = 'outlets';
+const BASE64_IMAGE_PREFIX = 'data:image';
+const HTTP_PREFIX = 'http://';
+const HTTPS_PREFIX = 'https://';
+const UPLOADS_PREFIX = '/uploads/';
+const ERROR_MESSAGES = {
+    UNAUTHORIZED: 'User not authenticated',
+    USER_NOT_FOUND: 'User not found',
+    PROFILE_FETCH_FAILED: 'Failed to fetch user profile',
+    PROFILE_UPDATE_FAILED: 'Failed to update profile',
+    AVATAR_UPLOAD_FAILED: 'Failed to upload avatar image',
+    INVALID_AVATAR: 'Invalid avatar_url',
+    AVATAR_STRING_REQUIRED: 'avatar_url must be a string',
+    NO_FIELDS_TO_UPDATE: 'Please provide at least one field to update',
+    INVALID_IMAGE_DATA: 'Please provide image (base64) or imageUrl (hosted URL)',
+    INVALID_IMAGE_FORMAT: 'Please provide a valid base64 image or a hosted URL',
+} as const;
+const SUCCESS_MESSAGES = {
+    PROFILE_RETRIEVED: 'User profile retrieved successfully',
+    PROFILE_UPDATED: 'Profile updated successfully',
+    AVATAR_UPLOADED: 'Avatar uploaded successfully',
+} as const;
+
+// Helper Functions
+const extractAvatarUrl = (body: any): unknown => {
+    return body?.avatar_url ?? body?.avatarUrl ?? body?.imageUrl ?? body?.url;
+};
+
+const extractImageInput = (body: any): string | undefined => {
+    const { image, imageUrl, url } = body;
+    return imageUrl || url || image;
+};
+
+const isBase64Image = (input: string): boolean => {
+    return input.startsWith(BASE64_IMAGE_PREFIX);
+};
+
+const isValidUrl = (input: string): boolean => {
+    return input.startsWith(HTTP_PREFIX) || input.startsWith(HTTPS_PREFIX) || input.startsWith(UPLOADS_PREFIX);
+};
+
+const processImageInput = async (input: string, folder: string): Promise<string> => {
+    if (isBase64Image(input)) {
+        const uploadResult = await saveBase64Image(input, folder);
+        return uploadResult.url;
+    } else if (isValidUrl(input)) {
+        return input;
+    }
+    throw new Error(ERROR_MESSAGES.INVALID_IMAGE_FORMAT);
+};
+
+const getUserWithFollowingCount = async (userId: string) => {
+    const user = await User.findById(userId).select('-password_hash');
+    if (!user) return null;
+
+    const followingCount = await Follow.countDocuments({ user: userId });
+    return {
+        ...user.toObject(),
+        following_count: followingCount
+    };
+};
 
 export const getUserProfile = async (req: AuthRequest, res: Response) => {
     try {
         const userId = req.user?.id;
 
         if (!userId) {
-            return res.status(401).json({
-                status: false,
-                data: null,
-                message: 'Unauthorized',
-                error: 'User not authenticated'
-            });
+            return sendAuthError(res, 'INVALID_CREDENTIALS', ERROR_MESSAGES.UNAUTHORIZED);
         }
 
-        const user = await User.findById(userId).select('-password_hash');
+        const userData = await getUserWithFollowingCount(userId);
 
-        if (!user) {
-            return res.status(404).json({
-                status: false,
-                data: null,
-                message: 'User not found',
-                error: null
-            });
+        if (!userData) {
+            return sendNotFoundError(res, 'USER_NOT_FOUND', ERROR_MESSAGES.USER_NOT_FOUND);
         }
 
-        // Get following count
-        const followingCount = await Follow.countDocuments({ user: userId });
-
-        res.json({
-            status: true,
-            data: {
-                ...user.toObject(),
-                following_count: followingCount
-            },
-            message: 'User profile retrieved successfully',
-            error: null
-        });
+        return sendSuccess(res, userData, SUCCESS_MESSAGES.PROFILE_RETRIEVED);
     } catch (error: any) {
         console.error('Error fetching user profile:', error);
-        res.status(500).json({
-            status: false,
-            data: null,
-            message: 'Failed to fetch user profile',
-            error: error.message
-        });
+        return sendError(res, ERROR_MESSAGES.PROFILE_FETCH_FAILED, error.message, 500);
     }
 };
 
@@ -57,20 +96,11 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         const userId = req.user?.id;
 
         if (!userId) {
-            return res.status(401).json({
-                status: false,
-                data: null,
-                message: 'Unauthorized',
-                error: 'User not authenticated'
-            });
+            return sendAuthError(res, 'INVALID_CREDENTIALS', ERROR_MESSAGES.UNAUTHORIZED);
         }
 
         const { full_name, email, bio } = req.body;
-        const avatar_url: unknown =
-            (req.body?.avatar_url as unknown) ??
-            (req.body?.avatarUrl as unknown) ??
-            (req.body?.imageUrl as unknown) ??
-            (req.body?.url as unknown);
+        const avatar_url = extractAvatarUrl(req.body);
 
         const updateData: any = {};
 
@@ -78,38 +108,23 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
         if (typeof avatar_url === 'string') {
-            if (avatar_url.startsWith('data:image')) {
+            if (isBase64Image(avatar_url)) {
                 try {
-                    const uploadResult = await saveBase64Image(avatar_url, 'avatars');
+                    const uploadResult = await saveBase64Image(avatar_url, AVATAR_UPLOAD_FOLDER);
                     updateData.avatar_url = uploadResult.url;
                 } catch (uploadError) {
                     console.error('Error uploading avatar:', uploadError);
-                    return res.status(400).json({
-                        status: false,
-                        data: null,
-                        message: 'Failed to upload avatar image',
-                        error: 'Image upload failed'
-                    });
+                    return sendError(res, ERROR_MESSAGES.AVATAR_UPLOAD_FAILED, 'Image upload failed', 400);
                 }
             } else {
                 updateData.avatar_url = avatar_url;
             }
         } else if (avatar_url !== undefined) {
-            return res.status(400).json({
-                status: false,
-                data: null,
-                message: 'Invalid avatar_url',
-                error: 'avatar_url must be a string'
-            });
+            return sendError(res, ERROR_MESSAGES.INVALID_AVATAR, ERROR_MESSAGES.AVATAR_STRING_REQUIRED, 400);
         }
 
         if (Object.keys(updateData).length === 0) {
-            return res.status(400).json({
-                status: false,
-                data: null,
-                message: 'No valid fields to update',
-                error: 'Please provide at least one field to update'
-            });
+            return sendError(res, 'No valid fields to update', ERROR_MESSAGES.NO_FIELDS_TO_UPDATE, 400);
         }
 
         // Get existing user to check for old avatar
@@ -123,12 +138,7 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         ).select('-password_hash');
 
         if (!updatedUser) {
-            return res.status(404).json({
-                status: false,
-                data: null,
-                message: 'User not found',
-                error: null
-            });
+            return sendNotFoundError(res, 'USER_NOT_FOUND', ERROR_MESSAGES.USER_NOT_FOUND);
         }
 
         // Delete old avatar from Cloudinary if avatar was updated
@@ -136,20 +146,10 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             await safeDeleteFromCloudinary(oldAvatarUrl, updateData.avatar_url);
         }
 
-        res.json({
-            status: true,
-            data: updatedUser,
-            message: 'Profile updated successfully',
-            error: null
-        });
+        return sendSuccess(res, updatedUser, SUCCESS_MESSAGES.PROFILE_UPDATED);
     } catch (error: any) {
         console.error('Error updating user profile:', error);
-        res.status(500).json({
-            status: false,
-            data: null,
-            message: 'Failed to update profile',
-            error: error.message
-        });
+        return sendError(res, ERROR_MESSAGES.PROFILE_UPDATE_FAILED, error.message, 500);
     }
 };
 
@@ -158,39 +158,20 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
         const userId = req.user?.id;
 
         if (!userId) {
-            return res.status(401).json({
-                status: false,
-                data: null,
-                message: 'Unauthorized',
-                error: 'User not authenticated'
-            });
+            return sendAuthError(res, 'INVALID_CREDENTIALS', ERROR_MESSAGES.UNAUTHORIZED);
         }
 
-        const { image, imageUrl, url } = req.body as { image?: string; imageUrl?: string; url?: string };
-        const input = imageUrl || url || image;
+        const input = extractImageInput(req.body);
 
         if (!input || typeof input !== 'string') {
-            return res.status(400).json({
-                status: false,
-                data: null,
-                message: 'Invalid image data',
-                error: 'Please provide image (base64) or imageUrl (hosted URL)'
-            });
+            return sendError(res, 'Invalid image data', ERROR_MESSAGES.INVALID_IMAGE_DATA, 400);
         }
 
         let avatarUrl: string;
-        if (input.startsWith('data:image')) {
-            const uploadResult = await saveBase64Image(input, 'outlets');
-            avatarUrl = uploadResult.url;
-        } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
-            avatarUrl = input;
-        } else {
-            return res.status(400).json({
-                status: false,
-                data: null,
-                message: 'Invalid image data',
-                error: 'Please provide a valid base64 image or a hosted URL'
-            });
+        try {
+            avatarUrl = await processImageInput(input, OUTLET_UPLOAD_FOLDER);
+        } catch (error) {
+            return sendError(res, 'Invalid image data', ERROR_MESSAGES.INVALID_IMAGE_FORMAT, 400);
         }
 
         // Get existing user to check for old avatar
@@ -208,22 +189,12 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
             await safeDeleteFromCloudinary(oldAvatarUrl, avatarUrl);
         }
 
-        res.json({
-            status: true,
-            data: {
-                avatar_url: avatarUrl,
-                user: updatedUser
-            },
-            message: 'Avatar uploaded successfully',
-            error: null
-        });
+        return sendSuccess(res, {
+            avatar_url: avatarUrl,
+            user: updatedUser
+        }, SUCCESS_MESSAGES.AVATAR_UPLOADED);
     } catch (error: any) {
         console.error('Error uploading avatar:', error);
-        res.status(500).json({
-            status: false,
-            data: null,
-            message: 'Failed to upload avatar',
-            error: error.message
-        });
+        return sendError(res, ERROR_MESSAGES.AVATAR_UPLOAD_FAILED, error.message, 500);
     }
 };

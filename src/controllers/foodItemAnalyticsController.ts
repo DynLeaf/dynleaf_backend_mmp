@@ -10,6 +10,29 @@ import {
 import { FoodItemAnalyticsSummary } from '../models/FoodItemAnalyticsSummary.js';
 import { sendError, sendSuccess } from '../utils/response.js';
 
+// Constants
+const ANALYTICS_LIMITS = {
+  DEFAULT_LIMIT: 20,
+  MAX_LIMIT: 200,
+  MIN_LIMIT: 1,
+  DEFAULT_DATE_RANGE_DAYS: 30,
+  DEDUPE_MINUTES_IMPRESSION: 10,
+} as const;
+
+const ALLOWED_SOURCES: FoodItemAnalyticsSource[] = [
+  'menu',
+  'explore',
+  'home',
+  'search',
+  'shared',
+  'promo',
+  'notification',
+  'other',
+];
+
+const SORT_OPTIONS = ['impressions', 'views', 'add_to_cart', 'orders', 'view_to_cart', 'cart_to_order'] as const;
+
+// Helper Functions
 const detectDeviceType = (userAgentRaw: string): 'mobile' | 'desktop' | 'tablet' => {
   const userAgent = userAgentRaw || '';
   if (/mobile/i.test(userAgent) && !/tablet|ipad/i.test(userAgent)) return 'mobile';
@@ -23,16 +46,31 @@ const getIpAddress = (req: Request) =>
 const isValidObjectId = (value: unknown): value is string =>
   typeof value === 'string' && mongoose.Types.ObjectId.isValid(value);
 
-const allowedSources: FoodItemAnalyticsSource[] = [
-  'menu',
-  'explore',
-  'home',
-  'search',
-  'shared',
-  'promo',
-  'notification',
-  'other',
-];
+const normalizeLimit = (limit: unknown): number => {
+  const parsed = Math.max(parseInt(String(limit || ANALYTICS_LIMITS.DEFAULT_LIMIT), 10) || ANALYTICS_LIMITS.DEFAULT_LIMIT, ANALYTICS_LIMITS.MIN_LIMIT);
+  return Math.min(parsed, ANALYTICS_LIMITS.MAX_LIMIT);
+};
+
+const resolveSource = (source: unknown): FoodItemAnalyticsSource => {
+  return ALLOWED_SOURCES.includes(source as any) ? (source as FoodItemAnalyticsSource) : 'other';
+};
+
+// Date Utilities
+const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+const startOfNextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
+const utcDateKey = (d: Date) => d.toISOString().slice(0, 10);
+
+const parseDateRange = (date_from?: unknown, date_to?: unknown) => {
+  const fallbackFrom = new Date(Date.now() - ANALYTICS_LIMITS.DEFAULT_DATE_RANGE_DAYS * 24 * 60 * 60 * 1000);
+  const fallbackTo = new Date();
+  const rawFrom = typeof date_from === 'string' ? new Date(date_from) : fallbackFrom;
+  const rawTo = typeof date_to === 'string' ? new Date(date_to) : fallbackTo;
+  const dateFrom = isNaN(rawFrom.getTime()) ? fallbackFrom : rawFrom;
+  const dateTo = isNaN(rawTo.getTime()) ? fallbackTo : rawTo;
+  const rangeStart = startOfUtcDay(dateFrom);
+  const rangeEndExclusive = startOfNextUtcDay(dateTo);
+  return { rangeStart, rangeEndExclusive };
+};
 
 type TrackFoodItemBody = {
   outlet_id?: string;
@@ -54,10 +92,7 @@ async function trackFoodItemEvent(
     if (!isValidObjectId(outlet_id)) return sendError(res, 'Invalid outlet_id', null, 400);
     if (!isValidObjectId(food_item_id)) return sendError(res, 'Invalid food_item_id', null, 400);
 
-    const resolvedSource: FoodItemAnalyticsSource = allowedSources.includes(source as any)
-      ? (source as FoodItemAnalyticsSource)
-      : 'other';
-
+    const resolvedSource = resolveSource(source);
     const sid = session_id || 'anonymous';
 
     // Validate item belongs to outlet and fetch category_id (no brand_id stored).
@@ -107,7 +142,7 @@ async function trackFoodItemEvent(
 }
 
 export const trackFoodItemImpression = async (req: Request, res: Response) =>
-  trackFoodItemEvent(req, res, 'item_impression', { dedupeMinutes: 10 });
+  trackFoodItemEvent(req, res, 'item_impression', { dedupeMinutes: ANALYTICS_LIMITS.DEDUPE_MINUTES_IMPRESSION });
 
 export const trackFoodItemView = async (req: Request, res: Response) =>
   trackFoodItemEvent(req, res, 'item_view');
@@ -118,30 +153,50 @@ export const trackFoodItemAddToCart = async (req: Request, res: Response) =>
 export const trackFoodItemOrderCreated = async (req: Request, res: Response) =>
   trackFoodItemEvent(req, res, 'order_created');
 
-const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-const startOfNextUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1));
-const utcDateKey = (d: Date) => d.toISOString().slice(0, 10);
-
-const parseDateRange = (date_from?: unknown, date_to?: unknown) => {
-  const fallbackFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const fallbackTo = new Date();
-  const rawFrom = typeof date_from === 'string' ? new Date(date_from) : fallbackFrom;
-  const rawTo = typeof date_to === 'string' ? new Date(date_to) : fallbackTo;
-  const dateFrom = isNaN(rawFrom.getTime()) ? fallbackFrom : rawFrom;
-  const dateTo = isNaN(rawTo.getTime()) ? fallbackTo : rawTo;
-  const rangeStart = startOfUtcDay(dateFrom);
-  const rangeEndExclusive = startOfNextUtcDay(dateTo);
-  return { rangeStart, rangeEndExclusive };
-};
-
-type SortBy = 'impressions' | 'views' | 'add_to_cart' | 'orders' | 'view_to_cart' | 'cart_to_order';
+type SortBy = typeof SORT_OPTIONS[number];
 
 const toSortBy = (value: unknown): SortBy => {
   const v = typeof value === 'string' ? value : '';
-  if (v === 'impressions' || v === 'views' || v === 'add_to_cart' || v === 'orders' || v === 'view_to_cart' || v === 'cart_to_order') {
-    return v;
-  }
-  return 'views';
+  return SORT_OPTIONS.includes(v as any) ? (v as SortBy) : 'views';
+};
+
+const calculateConversionRates = (views: number, add_to_cart: number, orders: number) => {
+  const view_to_cart_rate = views > 0 ? (add_to_cart / views) * 100 : 0;
+  const cart_to_order_rate = add_to_cart > 0 ? (orders / add_to_cart) * 100 : 0;
+  return {
+    view_to_cart_rate: parseFloat(view_to_cart_rate.toFixed(2)),
+    cart_to_order_rate: parseFloat(cart_to_order_rate.toFixed(2)),
+  };
+};
+
+const mapAnalyticsItem = (item: any) => {
+  const rates = calculateConversionRates(item.metrics.views, item.metrics.add_to_cart, item.metrics.orders);
+  return {
+    ...item,
+    metrics: {
+      ...item.metrics,
+      ...rates,
+    },
+  };
+};
+
+const createMetricsBucket = (category_id?: mongoose.Types.ObjectId) => ({
+  impressions: 0,
+  views: 0,
+  add_to_cart: 0,
+  orders: 0,
+  unique_sessions: 0,
+  ...(category_id && { category_id }),
+});
+
+const sortItems = (items: any[], sortBy: SortBy) => {
+  const score = (i: any) => {
+    const m = i.metrics || {};
+    if (sortBy === 'view_to_cart') return m.view_to_cart_rate || 0;
+    if (sortBy === 'cart_to_order') return m.cart_to_order_rate || 0;
+    return m[sortBy] || 0;
+  };
+  return items.sort((a, b) => score(b) - score(a));
 };
 
 async function aggregateFromEvents(match: Record<string, any>) {
@@ -200,8 +255,7 @@ async function aggregateFromEvents(match: Record<string, any>) {
   }
 
   return Array.from(byItem.values()).map((b) => {
-    const view_to_cart_rate = b.views > 0 ? (b.add_to_cart / b.views) * 100 : 0;
-    const cart_to_order_rate = b.add_to_cart > 0 ? (b.orders / b.add_to_cart) * 100 : 0;
+    const rates = calculateConversionRates(b.views, b.add_to_cart, b.orders);
     return {
       food_item_id: b.food_item_id,
       category_id: b.category_id,
@@ -211,21 +265,10 @@ async function aggregateFromEvents(match: Record<string, any>) {
         add_to_cart: b.add_to_cart,
         orders: b.orders,
         unique_sessions: b.unique_sessions.size,
-        view_to_cart_rate: parseFloat(view_to_cart_rate.toFixed(2)),
-        cart_to_order_rate: parseFloat(cart_to_order_rate.toFixed(2)),
+        ...rates,
       },
     };
   });
-}
-
-function sortItems(items: any[], sortBy: SortBy) {
-  const score = (i: any) => {
-    const m = i.metrics || {};
-    if (sortBy === 'view_to_cart') return m.view_to_cart_rate || 0;
-    if (sortBy === 'cart_to_order') return m.cart_to_order_rate || 0;
-    return m[sortBy] || 0;
-  };
-  return items.sort((a, b) => score(b) - score(a));
 }
 
 export const getFoodItemAnalyticsByOutlet = async (req: Request, res: Response) => {
@@ -263,13 +306,7 @@ export const getFoodItemAnalyticsByOutlet = async (req: Request, res: Response) 
       const existing = byItem.get(key) || {
         food_item_id: s.food_item_id,
         category_id: s.category_id,
-        metrics: {
-          impressions: 0,
-          views: 0,
-          add_to_cart: 0,
-          orders: 0,
-          unique_sessions: 0,
-        },
+        metrics: createMetricsBucket(),
       };
 
       existing.metrics.impressions += s.metrics.impressions || 0;
@@ -335,7 +372,7 @@ export const getFoodItemAnalyticsByBrand = async (req: Request, res: Response) =
 
     const { date_from, date_to, source, sortBy, limit } = req.query;
     const { rangeStart, rangeEndExclusive } = parseDateRange(date_from, date_to);
-    const lim = Math.min(Math.max(parseInt(String(limit || '20'), 10) || 20, 1), 200);
+    const lim = normalizeLimit(limit);
     const sort = toSortBy(sortBy);
 
     // Source filter => raw events.
@@ -362,7 +399,7 @@ export const getFoodItemAnalyticsByBrand = async (req: Request, res: Response) =
       const existing = byItem.get(key) || {
         food_item_id: s.food_item_id,
         category_id: s.category_id,
-        metrics: { impressions: 0, views: 0, add_to_cart: 0, orders: 0, unique_sessions: 0 },
+        metrics: createMetricsBucket(),
       };
       existing.metrics.impressions += s.metrics.impressions || 0;
       existing.metrics.views += s.metrics.views || 0;
@@ -382,7 +419,7 @@ export const getFoodItemAnalyticsByBrand = async (req: Request, res: Response) =
         const existing = byItem.get(key) || {
           food_item_id: li.food_item_id,
           category_id: li.category_id,
-          metrics: { impressions: 0, views: 0, add_to_cart: 0, orders: 0, unique_sessions: 0 },
+          metrics: createMetricsBucket(),
         };
         existing.metrics.impressions += li.metrics.impressions;
         existing.metrics.views += li.metrics.views;
@@ -393,18 +430,7 @@ export const getFoodItemAnalyticsByBrand = async (req: Request, res: Response) =
       }
     }
 
-    const items = Array.from(byItem.values()).map((i) => {
-      const view_to_cart_rate = i.metrics.views > 0 ? (i.metrics.add_to_cart / i.metrics.views) * 100 : 0;
-      const cart_to_order_rate = i.metrics.add_to_cart > 0 ? (i.metrics.orders / i.metrics.add_to_cart) * 100 : 0;
-      return {
-        ...i,
-        metrics: {
-          ...i.metrics,
-          view_to_cart_rate: parseFloat(view_to_cart_rate.toFixed(2)),
-          cart_to_order_rate: parseFloat(cart_to_order_rate.toFixed(2)),
-        },
-      };
-    });
+    const items = Array.from(byItem.values()).map(mapAnalyticsItem);
 
     return sendSuccess(res, {
       brand_id: brandId,
@@ -424,7 +450,7 @@ export const getFoodItemAnalyticsByCategory = async (req: Request, res: Response
 
     const { outlet_id, date_from, date_to, source, sortBy, limit } = req.query;
     const { rangeStart, rangeEndExclusive } = parseDateRange(date_from, date_to);
-    const lim = Math.min(Math.max(parseInt(String(limit || '20'), 10) || 20, 1), 200);
+    const lim = normalizeLimit(limit);
     const sort = toSortBy(sortBy);
 
     const matchBase: any = {

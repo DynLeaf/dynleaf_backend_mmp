@@ -9,9 +9,41 @@ import { Compliance } from '../models/Compliance.js';
 import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
 
+// Constants
+const VALID_MENU_STRATEGIES = ['brand', 'outlet'];
+const MIN_STEP = 1;
+const MAX_STEP = 6;
+const COORDINATE_LIMITS = {
+  LAT_MIN: -90,
+  LAT_MAX: 90,
+  LNG_MIN: -180,
+  LNG_MAX: 180
+};
+
 interface AuthRequest extends Request {
     user?: any;
 }
+
+// Helper functions
+const validateMenuStrategy = (strategy: string): boolean => {
+  return VALID_MENU_STRATEGIES.includes(strategy);
+};
+
+const validateRequiredFields = (brand: any, outlet: any): string | null => {
+  if (!brand || !brand.name) return 'Brand name is required';
+  if (!outlet || !outlet.name) return 'Outlet name is required';
+  if (!outlet.address1 || !outlet.city || !outlet.state) return 'Complete address is required';
+  return null;
+};
+
+const validateCoordinates = (lat: number, lng: number): string | null => {
+  if (isNaN(lat) || isNaN(lng)) return 'Invalid coordinates: must be valid numbers';
+  if (lat < COORDINATE_LIMITS.LAT_MIN || lat > COORDINATE_LIMITS.LAT_MAX || 
+      lng < COORDINATE_LIMITS.LNG_MIN || lng > COORDINATE_LIMITS.LNG_MAX) {
+    return 'Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180';
+  }
+  return null;
+};
 
 /**
  * Submit complete onboarding
@@ -29,17 +61,13 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         validateOptionalHttpUrl('Google review link', outlet?.socialLinks?.google_review);
 
         // Validate required fields
-        if (!brand || !brand.name) {
-            return sendError(res, 'Brand name is required', 400);
+        const fieldError = validateRequiredFields(brand, outlet);
+        if (fieldError) {
+            return sendError(res, fieldError, null, 400);
         }
-        if (!outlet || !outlet.name) {
-            return sendError(res, 'Outlet name is required', 400);
-        }
-        if (!menuStrategy || !['brand', 'outlet'].includes(menuStrategy)) {
-            return sendError(res, 'Valid menu strategy is required (brand or outlet)', 400);
-        }
-        if (!outlet.address1 || !outlet.city || !outlet.state) {
-            return sendError(res, 'Complete address is required', 400);
+        
+        if (!menuStrategy || !validateMenuStrategy(menuStrategy)) {
+            return sendError(res, 'Valid menu strategy is required (brand or outlet)', null, 400);
         }
 
         // Step 1: Create or get brand
@@ -93,25 +121,20 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         console.log('📍 Outlet coordinates - Latitude:', outlet.latitude, 'Longitude:', outlet.longitude);
         
         // Validate coordinates if present
-        if (outlet.latitude && outlet.longitude) {
-            const lat = parseFloat(outlet.latitude);
-            const lng = parseFloat(outlet.longitude);
-            
-            if (isNaN(lat) || isNaN(lng)) {
-                return res.status(400).json({ message: 'Invalid coordinates: must be valid numbers' });
-            }
-            
-            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-                return res.status(400).json({ 
-                    message: 'Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180' 
-                });
-            }
-            
-            console.log('✅ Coordinates validated:', { latitude: lat, longitude: lng });
-        } else {
+        if (!outlet.latitude || !outlet.longitude) {
             console.warn('⚠️  No coordinates provided for outlet');
-            return res.status(400).json({ message: 'Location coordinates are required. Please select a valid location.' });
+            return sendError(res, 'Location coordinates are required. Please select a valid location.', null, 400);
         }
+        
+        const lat = parseFloat(outlet.latitude);
+        const lng = parseFloat(outlet.longitude);
+        
+        const coordError = validateCoordinates(lat, lng);
+        if (coordError) {
+            return sendError(res, coordError, null, 400);
+        }
+        
+        console.log('✅ Coordinates validated:', { latitude: lat, longitude: lng });
 
         const newOutlet = await outletService.createOutlet(req.user.id, brandId, {
             name: outlet.name,
@@ -321,8 +344,8 @@ export const saveOnboardingStep = async (req: AuthRequest, res: Response) => {
         const stepData = req.body;
         const stepNumber = parseInt(stepNum);
 
-        if (isNaN(stepNumber) || stepNumber < 1 || stepNumber > 6) {
-            return sendError(res, 'Invalid step number. Must be between 1 and 6', null, 400);
+        if (isNaN(stepNumber) || stepNumber < MIN_STEP || stepNumber > MAX_STEP) {
+            return sendError(res, `Invalid step number. Must be between ${MIN_STEP} and ${MAX_STEP}`, null, 400);
         }
 
         // Validate stepData is provided

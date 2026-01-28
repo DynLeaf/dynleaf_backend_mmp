@@ -13,25 +13,70 @@ interface AuthRequest extends Request {
     user?: any;
 }
 
+// Helper functions
+const handleLogoUpload = async (logo: string, name: string): Promise<string> => {
+    if (!logo) return logo;
+    if (logo.startsWith('data:')) {
+        const uploadResult = await saveBase64Image(logo, 'brands', name);
+        return uploadResult.url;
+    }
+    return logo;
+};
+
+const mapOperationModelToModes = (operationModel: string) => ({
+    corporate: operationModel === 'corporate' || operationModel === 'hybrid',
+    franchise: operationModel === 'franchise' || operationModel === 'hybrid'
+});
+
+const parseIntOrDefault = (value: any, defaultValue: number): number => {
+    const parsed = parseInt(value as string);
+    return isNaN(parsed) ? defaultValue : parsed;
+};
+
+const parseFloatSafe = (value: any): number => {
+    const parsed = parseFloat(value as string);
+    return isNaN(parsed) ? 0 : parsed;
+};
+
+const calculatePagination = (page: number, limit: number, total: number) => ({
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+    hasMore: page * limit < total
+});
+
+const isApprovedStatus = (status: string): boolean => {
+    return status?.toLowerCase() === 'approved';
+};
+
+const buildUpdateData = (params: any, brand: any) => {
+    const { name, description, logoUrl, cuisines, website, instagram, operationModel } = params;
+    const updateData: any = {};
+    
+    if (name) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (logoUrl) updateData.logo_url = logoUrl;
+    if (cuisines) updateData.cuisines = cuisines;
+    
+    const social_media = { ...(brand.social_media || {}) };
+    if (website !== undefined) social_media.website = website;
+    if (instagram !== undefined) social_media.instagram = instagram;
+    updateData.social_media = social_media;
+    
+    if (operationModel) {
+        updateData.operating_modes = mapOperationModelToModes(operationModel);
+    }
+    
+    return updateData;
+};
+
 export const createBrand = async (req: AuthRequest, res: Response) => {
     try {
         const { name, logo, description, operationModel, cuisines, website, email } = req.body;
 
-
-
-        // Handle logo upload if base64
-        let logoUrl = logo;
-        if (logo && logo.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(logo, 'brands', name);
-            logoUrl = uploadResult.url;
-        } else if (logo) {
-        }
-
-        // Map operation model to operating_modes
-        const operatingModes = {
-            corporate: operationModel === 'corporate' || operationModel === 'hybrid',
-            franchise: operationModel === 'franchise' || operationModel === 'hybrid'
-        };
+        const logoUrl = await handleLogoUpload(logo, name);
+        const operatingModes = mapOperationModelToModes(operationModel);
 
         const brand = await brandService.createBrand(req.user.id, {
             name,
@@ -98,50 +143,26 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         const { brandId } = req.params;
         const { name, logo, description, cuisines, website, instagram, operationModel } = req.body;
 
-
-
-        // Handle logo upload if base64
-        let logoUrl = logo;
-        if (logo && logo.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(logo, 'brands', name);
-            logoUrl = uploadResult.url;
-        } else if (logo) {
-        }
+        const logoUrl = await handleLogoUpload(logo, name);
 
         const brand = await Brand.findById(brandId);
         if (!brand) {
             return sendError(res, 'Brand not found', null, 404);
         }
 
-        // Check ownership (admin_user_id is the owner)
         if (brand.admin_user_id.toString() !== req.user.id.toString()) {
             return sendError(res, 'Unauthorized to update this brand', null, 403);
         }
 
-        const updateData: any = {};
-        if (name) updateData.name = name;
-        if (description !== undefined) updateData.description = description;
-        if (logoUrl) updateData.logo_url = logoUrl;
-        if (cuisines) updateData.cuisines = cuisines;
+        const updateData = buildUpdateData(
+            { name, description, logoUrl, cuisines, website, instagram, operationModel },
+            brand
+        );
 
-        const social_media: any = { ...(brand.social_media || {}) };
-        if (website !== undefined) social_media.website = website;
-        if (instagram !== undefined) social_media.instagram = instagram;
-        updateData.social_media = social_media;
-
-        if (operationModel) {
-            updateData.operating_modes = {
-                corporate: operationModel === 'corporate' || operationModel === 'hybrid',
-                franchise: operationModel === 'franchise' || operationModel === 'hybrid'
-            };
-        }
-
-        // If brand is already approved, create/update a request instead of updating directly.
-        // Pending/unapproved brands can be edited directly.
         const currentStatus = brand.verification_status?.toLowerCase();
         console.log(`[UpdateBrand] Brand ${brandId} status: ${brand.verification_status} (normalized: ${currentStatus})`);
 
-        if (currentStatus === 'approved') {
+        if (isApprovedStatus(currentStatus)) {
             console.log(`[UpdateBrand] Creating/Updating BrandUpdateRequest for approved brand ${brandId}`);
             try {
                 const newData = {
@@ -256,13 +277,13 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
         const {
             latitude,
             longitude,
-            radius = 10000, // Default 10km in meters
+            radius = 10000,
             page = 1,
             limit = 20,
             cuisines,
             priceRange,
             minRating,
-            sortBy = 'distance', // distance, rating, popularity
+            sortBy = 'distance',
             isVeg
         } = req.query;
 
@@ -270,11 +291,11 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
 
-        const lat = parseFloat(latitude as string);
-        const lng = parseFloat(longitude as string);
-        const radiusMeters = parseInt(radius as string);
-        const pageNum = parseInt(page as string);
-        const limitNum = parseInt(limit as string);
+        const lat = parseFloatSafe(latitude);
+        const lng = parseFloatSafe(longitude);
+        const radiusMeters = parseIntOrDefault(radius, 10000);
+        const pageNum = parseIntOrDefault(page, 1);
+        const limitNum = parseIntOrDefault(limit, 20);
         const skip = (pageNum - 1) * limitNum;
 
         // Build match query for outlets
@@ -393,16 +414,12 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
 
         const brands = await Outlet.aggregate(nearbyOutletsPipeline);
 
-        // Count total for pagination
-        const countPipeline = nearbyOutletsPipeline.slice(0, -3); // Remove skip, limit, project
+        const countPipeline = nearbyOutletsPipeline.slice(0, -3);
         countPipeline.push({ $count: 'total' });
         const countResult = await Outlet.aggregate(countPipeline);
         const total = countResult.length > 0 ? countResult[0].total : 0;
 
-        // If no nearby restaurants, fall back to state-based search
         if (brands.length === 0 && latitude && longitude) {
-            // Reverse geocode to get state (you can use a service or store state in user profile)
-            // For now, return all active brands
             const fallbackBrands = await Brand.find({
                 verification_status: 'approved',
                 is_active: true
@@ -419,26 +436,14 @@ export const getNearbyBrands = async (req: Request, res: Response) => {
 
             return sendSuccess(res, {
                 brands: fallbackBrands.map(b => ({ ...b, distance: null, outlet_count: 0 })),
-                pagination: {
-                    page: pageNum,
-                    limit: limitNum,
-                    total: fallbackTotal,
-                    totalPages: Math.ceil(fallbackTotal / limitNum),
-                    hasMore: pageNum * limitNum < fallbackTotal
-                },
+                pagination: calculatePagination(pageNum, limitNum, fallbackTotal),
                 message: 'No nearby restaurants found. Showing all available restaurants.'
             });
         }
 
         return sendSuccess(res, {
             brands,
-            pagination: {
-                page: pageNum,
-                limit: limitNum,
-                total,
-                totalPages: Math.ceil(total / limitNum),
-                hasMore: pageNum * limitNum < total
-            }
+            pagination: calculatePagination(pageNum, limitNum, total)
         });
     } catch (error: any) {
         console.error('getNearbyBrands error:', error);
@@ -455,7 +460,7 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
             return sendError(res, 'Latitude and longitude are required', null, 400);
         }
 
-        const limitNum = parseInt(limit as string);
+        const limitNum = parseIntOrDefault(limit, 10);
 
         const pipeline = [
             {
@@ -517,14 +522,14 @@ export const getBrandById = async (req: Request, res: Response) => {
         const { brandId } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(brandId)) {
-            return sendError(res, 'Invalid brand ID', 400);
+            return sendError(res, 'Invalid brand ID', null, 400);
         }
 
         const brand = await Brand.findById(brandId)
             .select('name slug logo_url description cuisines social_media verification_status');
 
         if (!brand) {
-            return sendError(res, 'Brand not found', 404);
+            return sendError(res, 'Brand not found', null, 404);
         }
 
         // Get the nearest outlet for this brand

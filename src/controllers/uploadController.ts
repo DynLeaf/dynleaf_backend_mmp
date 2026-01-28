@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthRequest } from '../middleware/authMiddleware.js';
+import { sendSuccess, sendError } from '../utils/response.js';
 
 type UploadAssetType =
     | 'brand_logo'
@@ -13,6 +14,13 @@ type UploadAssetType =
     | 'story'
     | 'avatar'
     | 'reel_thumbnail';
+
+// Constants
+const CLOUDINARY_ENV_VARS = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'] as const;
+const VALID_ASSET_TYPES = [
+  'brand_logo', 'outlet_cover', 'gallery_interior', 'gallery_exterior',
+  'gallery_food', 'menu_item', 'story', 'avatar', 'reel_thumbnail'
+] as const;
 
 const assetTypeToFolder: Record<UploadAssetType, string> = {
     brand_logo: 'brands',
@@ -67,47 +75,44 @@ const signCloudinaryParams = (params: Record<string, string | number>, apiSecret
     return sha1(paramString + apiSecret);
 };
 
+// Helper functions
+const validateCloudinaryConfig = (cloudName?: string, apiKey?: string, apiSecret?: string): boolean => {
+  return !!(cloudName && apiKey && apiSecret);
+};
+
+const isValidAssetType = (assetType: any): assetType is UploadAssetType => {
+  return assetType && (VALID_ASSET_TYPES as readonly string[]).includes(assetType);
+};
+
+const determineResourceType = (assetType: UploadAssetType, mimeType?: string): 'image' | 'video' | 'auto' => {
+  if (assetType === 'story' && mimeType) {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    return 'auto';
+  }
+  return assetTypeToResourceType[assetType];
+};
+
 export const getCloudinarySignature = async (req: AuthRequest, res: Response) => {
     try {
         const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
         const apiKey = process.env.CLOUDINARY_API_KEY;
         const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-        if (!cloudName || !apiKey || !apiSecret) {
-            return res.status(500).json({
-                status: false,
-                data: null,
-                message: 'Cloudinary is not configured on server',
-                error: 'Missing CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET'
-            });
+        if (!validateCloudinaryConfig(cloudName, apiKey, apiSecret)) {
+            return sendError(res, 'Cloudinary is not configured on server', 
+                'Missing CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET', 500);
         }
 
         const { assetType, mimeType } = (req.body || {}) as { assetType?: UploadAssetType; mimeType?: string };
 
-        if (!assetType || !(assetType in assetTypeToFolder)) {
-            return res.status(400).json({
-                status: false,
-                data: null,
-                message: 'Invalid assetType',
-                error:
-                    "assetType must be one of: 'brand_logo','outlet_cover','gallery_interior','gallery_exterior','gallery_food','menu_item','story','avatar'"
-            });
+        if (!isValidAssetType(assetType)) {
+            return sendError(res, 'Invalid assetType',
+                `assetType must be one of: ${VALID_ASSET_TYPES.join(', ')}`, 400);
         }
 
-        const folder = assetTypeToFolder[assetType as UploadAssetType];
-        let resourceType = assetTypeToResourceType[assetType as UploadAssetType];
-
-        // For story uploads, determine whether it's image or video when possible.
-        // This prevents applying image-only transformations to videos.
-        if (assetType === 'story' && typeof mimeType === 'string' && mimeType.length > 0) {
-            if (mimeType.startsWith('image/')) {
-                resourceType = 'image';
-            } else if (mimeType.startsWith('video/')) {
-                resourceType = 'video';
-            } else {
-                resourceType = 'auto';
-            }
-        }
+        const folder = assetTypeToFolder[assetType];
+        const resourceType = determineResourceType(assetType, mimeType);
 
         const transformation =
             resourceType === 'image' ? assetTypeToUploadTransformation[assetType as UploadAssetType] : undefined;
@@ -126,30 +131,20 @@ export const getCloudinarySignature = async (req: AuthRequest, res: Response) =>
             signatureParams.transformation = transformation;
         }
 
-        const signature = signCloudinaryParams(signatureParams, apiSecret);
+        const signature = signCloudinaryParams(signatureParams, apiSecret!);
 
-        return res.json({
-            status: true,
-            data: {
-                cloudName,
-                apiKey,
-                timestamp,
-                signature,
-                folder,
-                publicId,
-                resourceType,
-                transformation,
-                uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
-            },
-            message: 'Signature generated',
-            error: null
-        });
+        return sendSuccess(res, {
+            cloudName,
+            apiKey,
+            timestamp,
+            signature,
+            folder,
+            publicId,
+            resourceType,
+            transformation,
+            uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
+        }, 'Signature generated');
     } catch (error: any) {
-        return res.status(500).json({
-            status: false,
-            data: null,
-            message: 'Failed to generate signature',
-            error: error?.message || 'Unknown error'
-        });
+        return sendError(res, 'Failed to generate signature', error?.message || 'Unknown error');
     }
 };

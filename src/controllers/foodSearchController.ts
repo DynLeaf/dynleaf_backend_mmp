@@ -1,6 +1,48 @@
 import { Request, Response } from 'express';
 import { OutletMenuItem } from '../models/OutletMenuItem.js';
 import { FoodItem } from '../models/FoodItem.js';
+import { sendSuccess, sendError } from '../utils/response.js';
+
+// Constants
+const DEFAULT_RADIUS = 50000; // 50km
+const DEFAULT_LIMIT = 20;
+const DEFAULT_SORT = 'distance';
+const VALID_SORT_OPTIONS = ['distance', 'popular', 'rating', 'price_low', 'price_high'];
+
+// Helper functions
+const validateCoordinates = (latitude: any, longitude: any): { isValid: boolean; lat?: number; lng?: number; error?: string } => {
+  if (!latitude || !longitude) {
+    return { isValid: false, error: 'Latitude and longitude are required' };
+  }
+  
+  const lat = parseFloat(latitude as string);
+  const lng = parseFloat(longitude as string);
+  
+  if (isNaN(lat) || isNaN(lng)) {
+    return { isValid: false, error: 'Invalid coordinates format' };
+  }
+  
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return { isValid: false, error: 'Coordinates out of valid range' };
+  }
+  
+  return { isValid: true, lat, lng };
+};
+
+const getSortStage = (sortBy: string): any => {
+  switch (sortBy) {
+    case 'popular':
+      return { orders_at_outlet: -1, distance: 1 };
+    case 'rating':
+      return { rating_at_outlet: -1, distance: 1 };
+    case 'price_low':
+      return { final_price: 1, distance: 1 };
+    case 'price_high':
+      return { final_price: -1, distance: 1 };
+    default:
+      return { distance: 1 };
+  }
+};
 
 /**
  * NEW: Get nearby food items using OutletMenuItem
@@ -15,22 +57,19 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     const {
       latitude,
       longitude,
-      radius = 50000, // 50km default
-      limit = 20,
+      radius = DEFAULT_RADIUS,
+      limit = DEFAULT_LIMIT,
       isVeg,
       minRating,
-      sortBy = 'distance' // distance, popular, rating, price_low, price_high
+      sortBy = DEFAULT_SORT
     } = req.query;
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        status: false,
-        message: 'Latitude and longitude are required'
-      });
+    const coordValidation = validateCoordinates(latitude, longitude);
+    if (!coordValidation.isValid) {
+      return sendError(res, coordValidation.error!, null, 400);
     }
 
-    const lat = parseFloat(latitude as string);
-    const lng = parseFloat(longitude as string);
+    const { lat, lng } = coordValidation;
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
@@ -145,23 +184,7 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     });
 
     // Sorting
-    let sortStage: any = {};
-    switch (sortBy) {
-      case 'popular':
-        sortStage = { orders_at_outlet: -1, distance: 1 };
-        break;
-      case 'rating':
-        sortStage = { rating_at_outlet: -1, distance: 1 };
-        break;
-      case 'price_low':
-        sortStage = { final_price: 1, distance: 1 };
-        break;
-      case 'price_high':
-        sortStage = { final_price: -1, distance: 1 };
-        break;
-      default: // distance
-        sortStage = { distance: 1 };
-    }
+    const sortStage = getSortStage(sortBy as string);
     pipeline.push({ $sort: sortStage });
 
     // Limit results
@@ -236,28 +259,22 @@ export const getNearbyFood = async (req: Request, res: Response) => {
 
     console.log(`✅ Found ${results.length} nearby food items`);
 
-    res.json({
-      status: true,
-      data: {
-        items: results,
-        metadata: {
-          total: results.length,
-          search_radius_km: radiusNum / 1000,
-          center: { latitude: lat, longitude: lng },
-          filters: {
-            isVeg: isVeg || 'all',
-            minRating: minRating || 'none',
-            sortBy
-          }
+    return sendSuccess(res, {
+      items: results,
+      metadata: {
+        total: results.length,
+        search_radius_km: radiusNum / 1000,
+        center: { latitude: lat!, longitude: lng! },
+        filters: {
+          isVeg: isVeg || 'all',
+          minRating: minRating || 'none',
+          sortBy
         }
       }
     });
   } catch (error: any) {
     console.error('Error in getNearbyFood:', error);
-    res.status(500).json({
-      status: false,
-      message: error.message || 'Failed to fetch nearby food'
-    });
+    return sendError(res, error.message || 'Failed to fetch nearby food');
   }
 };
 
@@ -272,20 +289,17 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     const {
       latitude,
       longitude,
-      radius = 50000,
-      limit = 20,
+      radius = DEFAULT_RADIUS,
+      limit = DEFAULT_LIMIT,
       isVeg
     } = req.query;
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        status: false,
-        message: 'Latitude and longitude are required'
-      });
+    const coordValidation = validateCoordinates(latitude, longitude);
+    if (!coordValidation.isValid) {
+      return sendError(res, coordValidation.error!, null, 400);
     }
 
-    const lat = parseFloat(latitude as string);
-    const lng = parseFloat(longitude as string);
+    const { lat, lng } = coordValidation;
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
@@ -402,17 +416,9 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
 
     console.log(`🔥 Found ${results.length} trending dishes`);
 
-    res.json({
-      status: true,
-      data: {
-        dishes: results
-      }
-    });
+    return sendSuccess(res, { dishes: results });
   } catch (error: any) {
     console.error('Error in getTrendingDishesNew:', error);
-    res.status(500).json({
-      status: false,
-      message: error.message || 'Failed to fetch trending dishes'
-    });
+    return sendError(res, error.message || 'Failed to fetch trending dishes');
   }
 };
