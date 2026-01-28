@@ -207,6 +207,11 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         // Validate optional review link if present
         validateOptionalHttpUrl('Google review link', updateData?.social_media?.google_review);
 
+        // Validate delivery platform URLs
+        validateOptionalHttpUrl('Swiggy delivery URL', updateData?.swiggyDeliveryUrl);
+        validateOptionalHttpUrl('Zomato delivery URL', updateData?.zomatoDeliveryUrl);
+        validateOptionalHttpUrl('Reservation URL', updateData?.reservationUrl);
+
         // Delivery status + ordering details
         if (updateData.deliveryEnabled !== undefined) {
             updateData.flags = { ...(updateData.flags || {}), accepts_online_orders: Boolean(updateData.deliveryEnabled) };
@@ -219,6 +224,26 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         if (updateData.orderLink !== undefined) {
             updateData.order_link = updateData.orderLink;
             delete updateData.orderLink;
+        }
+
+        // Delivery platforms
+        if (updateData.swiggyDeliveryUrl !== undefined) {
+            updateData.swiggy_delivery_url = updateData.swiggyDeliveryUrl;
+            delete updateData.swiggyDeliveryUrl;
+        }
+        if (updateData.zomatoDeliveryUrl !== undefined) {
+            updateData.zomato_delivery_url = updateData.zomatoDeliveryUrl;
+            delete updateData.zomatoDeliveryUrl;
+        }
+
+        // Reservation booking
+        if (updateData.reservationPhone !== undefined) {
+            updateData.reservation_phone = updateData.reservationPhone;
+            delete updateData.reservationPhone;
+        }
+        if (updateData.reservationUrl !== undefined) {
+            updateData.reservation_url = updateData.reservationUrl;
+            delete updateData.reservationUrl;
         }
 
         // Handle cover image updates

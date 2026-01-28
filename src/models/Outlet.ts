@@ -57,6 +57,10 @@ export interface IOutlet extends Document {
     qr_code_url?: string;
     order_phone?: string;
     order_link?: string;
+    swiggy_delivery_url?: string;
+    zomato_delivery_url?: string;
+    reservation_phone?: string;
+    reservation_url?: string;
     flags?: {
         is_featured: boolean;
         is_trending: boolean;
@@ -153,6 +157,10 @@ const outletSchema = new Schema<IOutlet>({
     qr_code_url: String,
     order_phone: String,
     order_link: String,
+    swiggy_delivery_url: String,
+    zomato_delivery_url: String,
+    reservation_phone: String,
+    reservation_url: String,
     flags: {
         is_featured: { type: Boolean, default: false },
         is_trending: { type: Boolean, default: false },
