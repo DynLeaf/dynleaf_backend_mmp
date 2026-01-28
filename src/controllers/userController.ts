@@ -7,8 +7,10 @@ import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
 
 // Constants
-const AVATAR_UPLOAD_FOLDER = 'avatars';
-const OUTLET_UPLOAD_FOLDER = 'outlets';
+type UploadFolder = 'brands' | 'outlets' | 'avatars' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food' | 'menu' | 'temp' | 'stories';
+
+const AVATAR_UPLOAD_FOLDER: UploadFolder = 'avatars';
+const OUTLET_UPLOAD_FOLDER: UploadFolder = 'outlets';
 const BASE64_IMAGE_PREFIX = 'data:image';
 const HTTP_PREFIX = 'http://';
 const HTTPS_PREFIX = 'https://';
@@ -49,7 +51,7 @@ const isValidUrl = (input: string): boolean => {
     return input.startsWith(HTTP_PREFIX) || input.startsWith(HTTPS_PREFIX) || input.startsWith(UPLOADS_PREFIX);
 };
 
-const processImageInput = async (input: string, folder: string): Promise<string> => {
+const processImageInput = async (input: string, folder: UploadFolder): Promise<string> => {
     if (isBase64Image(input)) {
         const uploadResult = await saveBase64Image(input, folder);
         return uploadResult.url;
@@ -169,7 +171,7 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
 
         let avatarUrl: string;
         try {
-            avatarUrl = await processImageInput(input, OUTLET_UPLOAD_FOLDER);
+            avatarUrl = await processImageInput(input, AVATAR_UPLOAD_FOLDER);
         } catch (error) {
             return sendError(res, 'Invalid image data', ERROR_MESSAGES.INVALID_IMAGE_FORMAT, 400);
         }
