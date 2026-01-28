@@ -3,6 +3,7 @@ import { AuthRequest } from './authMiddleware.js';
 import { Outlet } from '../models/Outlet.js';
 import { Subscription } from '../models/Subscription.js';
 import { SUBSCRIPTION_FEATURES, getSubscriptionPlan, isUnlimited } from '../config/subscriptionPlans.js';
+import { sendError, ErrorCode } from '../utils/response.js';
 
 export const requireSubscriptionFeature = (feature: string) => {
     return async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -10,72 +11,74 @@ export const requireSubscriptionFeature = (feature: string) => {
             const outletId = req.params.outletId || req.params.id || req.body.outlet_id;
 
             if (!outletId) {
-                return res.status(400).json({ 
-                    error: 'Outlet ID is required',
-                    code: 'OUTLET_ID_MISSING'
-                });
+                return sendError(
+                    res,
+                    'Outlet ID is required',
+                    'OUTLET_ID_MISSING',
+                    400
+                );
             }
 
             const outlet = await Outlet.findById(outletId);
             
             if (!outlet) {
-                return res.status(404).json({ 
-                    error: 'Outlet not found',
-                    code: 'OUTLET_NOT_FOUND'
-                });
+                return sendError(
+                    res,
+                    'Outlet not found',
+                    ErrorCode.OUTLET_NOT_FOUND,
+                    404
+                );
             }
 
             if (!outlet.subscription_id) {
-                return res.status(403).json({ 
-                    error: 'No subscription found',
-                    message: 'This outlet does not have an active subscription. Please contact admin.',
-                    code: 'NO_SUBSCRIPTION',
-                    requiredFeature: feature
-                });
+                return sendError(
+                    res,
+                    'This outlet does not have an active subscription. Please contact admin.',
+                    'NO_SUBSCRIPTION',
+                    403
+                );
             }
 
             const subscription = await Subscription.findById(outlet.subscription_id);
 
             if (!subscription) {
-                return res.status(403).json({ 
-                    error: 'Subscription not found',
-                    message: 'Subscription record not found. Please contact admin.',
-                    code: 'SUBSCRIPTION_NOT_FOUND',
-                    requiredFeature: feature
-                });
+                return sendError(
+                    res,
+                    'Subscription record not found. Please contact admin.',
+                    'SUBSCRIPTION_NOT_FOUND',
+                    403
+                );
             }
 
             if (subscription.status !== 'active' && subscription.status !== 'trial') {
-                return res.status(403).json({ 
-                    error: 'Subscription inactive',
-                    message: `Subscription status is ${subscription.status}. Please contact admin.`,
-                    code: 'SUBSCRIPTION_INACTIVE',
-                    subscriptionStatus: subscription.status,
-                    requiredFeature: feature
-                });
+                return sendError(
+                    res,
+                    `Subscription status is ${subscription.status}. Please contact admin.`,
+                    'SUBSCRIPTION_INACTIVE',
+                    403
+                );
             }
 
             if (!subscription.features.includes(feature)) {
                 const plan = getSubscriptionPlan(subscription.plan);
-                return res.status(403).json({ 
-                    error: 'Feature not available',
-                    message: `Your ${plan?.displayName || subscription.plan} plan does not include ${feature}`,
-                    code: 'FEATURE_NOT_AVAILABLE',
-                    currentPlan: subscription.plan,
-                    requiredFeature: feature
-                });
+                return sendError(
+                    res,
+                    `Your ${plan?.displayName || subscription.plan} plan does not include ${feature}`,
+                    'FEATURE_NOT_AVAILABLE',
+                    403
+                );
             }
 
             if (subscription.end_date && new Date() > subscription.end_date) {
                 subscription.status = 'expired';
                 await subscription.save();
                 
-                return res.status(403).json({ 
-                    error: 'Subscription expired',
-                    message: 'Your subscription has expired. Please contact admin to renew.',
-                    code: 'SUBSCRIPTION_EXPIRED',
-                    expiredAt: subscription.end_date
-                });
+                return sendError(
+                    res,
+                    'Your subscription has expired. Please contact admin to renew.',
+                    'SUBSCRIPTION_EXPIRED',
+                    403
+                );
             }
 
             if (subscription.status === 'trial' && subscription.trial_ends_at) {
@@ -83,12 +86,12 @@ export const requireSubscriptionFeature = (feature: string) => {
                     subscription.status = 'expired';
                     await subscription.save();
                     
-                    return res.status(403).json({ 
-                        error: 'Trial expired',
-                        message: 'Your trial period has ended. Please contact admin to activate a subscription.',
-                        code: 'TRIAL_EXPIRED',
-                        expiredAt: subscription.trial_ends_at
-                    });
+                    return sendError(
+                        res,
+                        'Your trial period has ended. Please contact admin to activate a subscription.',
+                        'TRIAL_EXPIRED',
+                        403
+                    );
                 }
             }
 
@@ -97,11 +100,12 @@ export const requireSubscriptionFeature = (feature: string) => {
             next();
         } catch (error: any) {
             console.error('Subscription middleware error:', error);
-            return res.status(500).json({ 
-                error: 'Server error',
-                message: 'Failed to verify subscription',
-                code: 'SUBSCRIPTION_CHECK_ERROR'
-            });
+            return sendError(
+                res,
+                'Failed to verify subscription',
+                'SUBSCRIPTION_CHECK_ERROR',
+                500
+            );
         }
     };
 };
@@ -113,19 +117,23 @@ export const checkFeatureLimit = (limitKey: 'offers' | 'menu_items' | 'photo_gal
             const subscription = req.subscription;
             
             if (!outlet || !subscription) {
-                return res.status(403).json({ 
-                    error: 'Subscription required',
-                    code: 'NO_SUBSCRIPTION'
-                });
+                return sendError(
+                    res,
+                    'Subscription required to access this feature',
+                    'SUBSCRIPTION_REQUIRED',
+                    403
+                );
             }
 
             const plan = getSubscriptionPlan(subscription.plan);
             
             if (!plan) {
-                return res.status(500).json({ 
-                    error: 'Invalid subscription plan',
-                    code: 'INVALID_PLAN'
-                });
+                return sendError(
+                    res,
+                    'Invalid subscription plan',
+                    'INVALID_PLAN',
+                    500
+                );
             }
 
             const limit = plan.limits[limitKey];
@@ -166,24 +174,23 @@ export const checkFeatureLimit = (limitKey: 'offers' | 'menu_items' | 'photo_gal
             }
 
             if (currentCount >= limit) {
-                return res.status(403).json({ 
-                    error: 'Limit reached',
-                    message: `Your ${plan.displayName} plan allows up to ${limit} ${limitKey.replace('_', ' ')}. You have reached this limit.`,
-                    code: 'LIMIT_REACHED',
-                    limit,
-                    current: currentCount,
-                    limitType: limitKey
-                });
+                return sendError(
+                    res,
+                    `Your ${plan.displayName} plan allows up to ${limit} ${limitKey.replace('_', ' ')}. You have reached this limit.`,
+                    'LIMIT_REACHED',
+                    403
+                );
             }
 
             next();
         } catch (error: any) {
             console.error('Feature limit check error:', error);
-            return res.status(500).json({ 
-                error: 'Server error',
-                message: 'Failed to check feature limit',
-                code: 'LIMIT_CHECK_ERROR'
-            });
+            return sendError(
+                res,
+                'Failed to check feature limit',
+                'LIMIT_CHECK_ERROR',
+                500
+            );
         }
     };
 };
@@ -193,39 +200,43 @@ export const requireActiveSubscription = async (req: AuthRequest, res: Response,
         const outletId = req.params.outletId || req.params.id || req.body.outlet_id;
 
         if (!outletId) {
-            return res.status(400).json({ 
-                error: 'Outlet ID is required',
-                code: 'OUTLET_ID_MISSING'
-            });
+            return sendError(
+                res,
+                'Outlet ID is required',
+                'OUTLET_ID_MISSING',
+                400
+            );
         }
 
         const outlet = await Outlet.findById(outletId);
         
         if (!outlet) {
-            return res.status(404).json({ 
-                error: 'Outlet not found',
-                code: 'OUTLET_NOT_FOUND'
-            });
+            return sendError(
+                res,
+                'Outlet not found',
+                ErrorCode.OUTLET_NOT_FOUND,
+                404
+            );
         }
 
         if (!outlet.subscription_id) {
-            return res.status(403).json({ 
-                error: 'Active subscription required',
-                message: 'This feature requires an active subscription',
-                code: 'SUBSCRIPTION_REQUIRED',
-                currentStatus: 'none'
-            });
+            return sendError(
+                res,
+                'This feature requires an active subscription',
+                'SUBSCRIPTION_REQUIRED',
+                403
+            );
         }
 
         const subscription = await Subscription.findById(outlet.subscription_id);
 
         if (!subscription || (subscription.status !== 'active' && subscription.status !== 'trial')) {
-            return res.status(403).json({ 
-                error: 'Active subscription required',
-                message: 'This feature requires an active subscription',
-                code: 'SUBSCRIPTION_REQUIRED',
-                currentStatus: subscription?.status || 'none'
-            });
+            return sendError(
+                res,
+                'This feature requires an active subscription',
+                'SUBSCRIPTION_REQUIRED',
+                403
+            );
         }
 
         req.outlet = outlet;
@@ -233,9 +244,11 @@ export const requireActiveSubscription = async (req: AuthRequest, res: Response,
         next();
     } catch (error: any) {
         console.error('Active subscription check error:', error);
-        return res.status(500).json({ 
-            error: 'Server error',
-            code: 'SUBSCRIPTION_CHECK_ERROR'
-        });
+        return sendError(
+            res,
+            'Failed to check subscription status',
+            'SUBSCRIPTION_CHECK_ERROR',
+            500
+        );
     }
 };
