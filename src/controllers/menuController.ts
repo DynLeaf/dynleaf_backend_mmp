@@ -703,7 +703,14 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
-        const { latitude, longitude, limit = String(DEFAULT_TRENDING_LIMIT), page = String(DEFAULT_TRENDING_PAGE), radius = String(DEFAULT_RADIUS) } = req.query;
+
+        const {
+            latitude,
+            longitude,
+            limit = String(DEFAULT_TRENDING_LIMIT),
+            page = String(DEFAULT_TRENDING_PAGE),
+            radius = String(DEFAULT_RADIUS)
+        } = req.query;
 
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
@@ -711,25 +718,84 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
         const lat = parseFloat(latitude as string);
         const lng = parseFloat(longitude as string);
+
         const pageNum = parseInt(page as string) || DEFAULT_TRENDING_PAGE;
         const limitNum = parseInt(limit as string) || DEFAULT_TRENDING_LIMIT;
-        const skip = (pageNum - 1) * limitNum;
         const radiusNum = parseInt(radius as string) || DEFAULT_RADIUS;
 
-        console.log(`🔥 Trending: [${lat}, ${lng}], Rad: ${radiusNum}m, Page: ${pageNum}`);
+        const skip = (pageNum - 1) * limitNum;
+
+
+        /* ----------------------------------
+           AGGREGATION PIPELINE
+        -----------------------------------*/
 
         const pipeline: any[] = [
-            // 1. GeoNear: Find candidates within max radius
+
+            /* 1️⃣ GEO */
             {
                 $geoNear: {
                     near: { type: 'Point', coordinates: [lng, lat] },
                     distanceField: 'distance',
                     maxDistance: radiusNum,
-                    query: { is_active: true, is_available: true },
-                    spherical: true
+                    spherical: true,
+                    query: {
+                        is_active: true,
+                        is_available: true
+                    }
                 }
             },
-            // 2. Calculate Signals: Net Votes & Distance Bucket
+
+            /* 2️⃣ PRESERVE IMPORTANT FIELDS ✅ */
+            {
+                $project: {
+
+                    name: 1,
+                    slug: 1,
+                    description: 1,
+                    image_url: 1,
+                    images: 1,
+
+                    price: 1,
+                    original_price: 1,
+                    discount_percentage: 1,
+
+                    item_type: 1,
+                    food_type: 1,
+                    is_veg: 1,
+
+                    is_available: 1,
+                    is_active: 1,
+
+                    preparation_time: 1,
+                    spice_level: 1,
+                    allergens: 1,
+                    ingredients: 1,
+                    cuisines: 1,
+                    tags: 1,
+                    calories: 1,
+                    serves: 1,
+
+                    variants: 1,        // ✅ KEEP VARIANTS
+                    addon_ids: 1,       // ✅ KEEP ADDONS
+
+                    category_id: 1,
+                    outlet_id: 1,
+
+                    avg_rating: 1,
+                    total_reviews: 1,
+                    upvote_count: 1,
+                    downvote_count: 1,
+                    view_count: 1,
+                    order_count: 1,
+
+                    distance: 1,
+
+                    location: 1
+                }
+            },
+
+            /* 3️⃣ SCORE */
             {
                 $addFields: {
                     net_votes: {
@@ -738,13 +804,15 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                             { $ifNull: ['$downvote_count', 0] }
                         ]
                     },
-                    // Bucketize distance into 10km chunks (0-10km=0, 10-20km=1)
                     distance_bucket: {
-                        $floor: { $divide: ['$distance', DISTANCE_BUCKET_SIZE] }
+                        $floor: {
+                            $divide: ['$distance', DISTANCE_BUCKET_SIZE]
+                        }
                     }
                 }
             },
-            // 3. Join with Outlet to ensure Active/Approved
+
+            /* 4️⃣ OUTLET */
             {
                 $lookup: {
                     from: 'outlets',
@@ -753,29 +821,47 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                     as: 'outlet'
                 }
             },
+
             { $unwind: '$outlet' },
+
             {
                 $match: {
                     'outlet.status': 'ACTIVE',
                     'outlet.approval_status': 'APPROVED'
                 }
             },
-            // 4. Sort: Nearest Bucket -> High Votes -> High Views
+
+            /* 5️⃣ ADDONS LOOKUP ✅ */
             {
-                $sort: {
-                    distance_bucket: 1, // Priority 1: Distance Chunks
-                    net_votes: -1,      // Priority 2: Popularity (Sentiment)
-                    view_count: -1      // Priority 3: Popularity (Visibility)
+                $lookup: {
+                    from: 'addons',
+                    localField: 'addon_ids',
+                    foreignField: '_id',
+                    as: 'addons'
                 }
             },
-            // 5. Faceted Pagination
+
+            /* 6️⃣ SORT */
+            {
+                $sort: {
+                    distance_bucket: 1,
+                    net_votes: -1,
+                    view_count: -1
+                }
+            },
+
+            /* 7️⃣ PAGINATION */
             {
                 $facet: {
-                    metadata: [{ $count: "total" }],
+
+                    metadata: [{ $count: 'total' }],
+
                     data: [
+
                         { $skip: skip },
                         { $limit: limitNum },
-                        // Populate details only for the page we return
+
+                        /* CATEGORY */
                         {
                             $lookup: {
                                 from: 'categories',
@@ -784,26 +870,11 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                                 as: 'category'
                             }
                         },
+
                         {
-                            $unwind: { path: '$category', preserveNullAndEmptyArrays: true }
-                        },
-                        {
-                            $lookup: {
-                                from: 'brands',
-                                localField: 'outlet.brand_id',
-                                foreignField: '_id',
-                                as: 'brand'
-                            }
-                        },
-                        {
-                            $unwind: { path: '$brand', preserveNullAndEmptyArrays: true }
-                        },
-                        {
-                            $lookup: {
-                                from: 'foodvariants',
-                                localField: '_id',
-                                foreignField: 'food_item_id',
-                                as: 'variants'
+                            $unwind: {
+                                path: '$category',
+                                preserveNullAndEmptyArrays: true
                             }
                         },
                         {
@@ -815,16 +886,13 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                                         $match: {
                                             $expr: {
                                                 $and: [
-                                                    { $in: ['$$outletId', '$outlet_ids'] },
+                                                    { $in: ['$$outletId', { $ifNull: ['$outlet_ids', []] }] },
                                                     { $eq: ['$is_active', true] },
                                                     { $eq: ['$show_on_menu', true] },
                                                     {
                                                         $or: [
-                                                            // Specific item match
                                                             { $in: ['$$itemId', { $ifNull: ['$applicable_food_item_ids', []] }] },
-                                                            // Specific category match
                                                             { $in: ['$$categoryId', { $ifNull: ['$applicable_category_ids', []] }] },
-                                                            // Store-wide (no specific restrictions)
                                                             {
                                                                 $and: [
                                                                     { $eq: [{ $size: { $ifNull: ['$applicable_food_item_ids', []] } }, 0] },
@@ -841,107 +909,125 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                                 as: 'offers'
                             }
                         }
+
                     ]
                 }
             }
+
         ];
 
-        // Conditional Lookup for User Vote if Logged In
-        if ((req as any).user && (req as any).user.id) {
+
+        /* ----------------------------------
+           USER VOTES
+        -----------------------------------*/
+
+        if ((req as any).user?.id) {
+
             const userId = (req as any).user.id;
-            pipeline.splice(5, 0, {
+
+            pipeline.splice(6, 0, {
+
                 $lookup: {
+
                     from: 'dishvotes',
+
                     let: { foodItemId: '$_id' },
+
                     pipeline: [
                         {
                             $match: {
                                 $expr: {
                                     $and: [
                                         { $eq: ['$food_item_id', '$$foodItemId'] },
-                                        { $eq: ['$user_id', new mongoose.Types.ObjectId(userId)] }
+                                        {
+                                            $eq: [
+                                                '$user_id',
+                                                new mongoose.Types.ObjectId(userId)
+                                            ]
+                                        }
                                     ]
                                 }
                             }
                         },
                         { $project: { vote_type: 1, _id: 0 } }
                     ],
+
                     as: 'user_vote'
                 }
             });
         }
 
+
+        /* ----------------------------------
+           EXECUTE
+        -----------------------------------*/
+
         const result = await FoodItem.aggregate(pipeline);
-        const metadata = result[0].metadata[0] || { total: 0 };
-        const dishes = result[0].data || [];
 
-        console.log(`🍽️ Returned ${dishes.length} trending dishes (Total: ${metadata.total})`);
-        console.log(`📊 Dishes with variants: ${dishes.filter((d: any) => d.variants && d.variants.length > 0).length}/${dishes.length}`);
-
-        // Variants are already populated via $lookup in aggregation pipeline
-        // Debug: Check if brand/outlet have slugs
-        if (dishes.length > 0) {
-            const firstDish = dishes[0];
-            console.log('🔍 First dish brand:', firstDish.brand);
-            console.log('🔍 First dish outlet:', firstDish.outlet);
-            console.log('🔍 Brand slug:', firstDish.brand?.slug);
-            console.log('🔍 Outlet slug:', firstDish.outlet?.slug);
-        }
+        const metadata = result[0]?.metadata[0] || { total: 0 };
+        const dishes = result[0]?.data || [];
 
 
-        const formattedItems = dishes.map((item: any) => ({
+        /* ----------------------------------
+           FORMAT RESPONSE
+        -----------------------------------*/
+
+        const formatted = dishes.map((item: any) => ({
             id: item._id,
             name: item.name,
             description: item.description,
             image: item.image_url,
-            // Full Dish Details for Modal
+            images: item.images || [],
+
             price: item.price,
-            basePrice: item.price,
+            original_price: item.original_price,
+            discountPercentage: item.discount_percentage,
+
             isVeg: item.is_veg,
             itemType: item.item_type,
             foodType: item.food_type,
-            isActive: item.is_active,
+
             tags: item.tags || [],
             ingredients: item.ingredients || [],
             preparationTime: item.preparation_time,
             calories: item.calories,
             spiceLevel: item.spice_level,
             allergens: item.allergens || [],
-            variants: (item.variants || []).map((v: any) => ({
-                id: v._id,
-                name: v.name,
-                price: v.price || item.price + (v.price_delta || 0)
-            })),
-            addons: (item.addons || []).map((a: any) => ({
-                id: a._id,
-                name: a.name,
-                price: a.price
-            })),
-            discountPercentage: item.discount_percentage,
+            serves: item.serves,
 
-            rating: item.avg_rating || 4.5,
+            isAvailable: item.is_available,
+
+            /* ✅ VARIANTS */
+            variants: item.variants || [],
+
+            /* ✅ ADDONS */
+            addons: item.addons || [],
+
+            rating: item.avg_rating || 0,
             reviewCount: item.total_reviews || 0,
             upvote_count: item.upvote_count || 0,
-            votes: item.upvote_count || 0, // Legacy fallback
+            votes: item.upvote_count || 0, // Frontend expectation
 
             stats: {
-                netVotes: item.net_votes,
+                netVotes: item.net_votes || 0,
+                votes: item.upvote_count || 0,
                 views: item.view_count || 0,
                 orders: item.order_count || 0
             },
-            restaurant: {
-                id: item.brand?._id || item.outlet?.brand_id,
-                name: item.brand?.name || item.outlet?.name,
-                logo: item.brand?.logo_url || item.outlet?.media?.cover_image_url
-            },
+
+            // Navigation helpers
+            restaurantId: item.outlet?._id || item.outlet_id,
+            restaurantSlug: item.outlet?.slug,
+
             outlet: {
                 id: item.outlet._id,
                 name: item.outlet.name,
-                distance: Math.round(item.distance),
-                bucket: item.distance_bucket
+                slug: item.outlet.slug,
+                distance: Math.round(item.distance)
             },
+
             category: item.category?.name,
-            categoryId: item.category?._id,
+            user_vote_type: item.user_vote?.[0]?.vote_type || null,
 
             // Map offers 
             offers: (item.offers || []).map((o: any) => ({
@@ -960,35 +1046,35 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                 show_on_menu: o.show_on_menu,
                 applicable_food_item_ids: o.applicable_food_item_ids,
                 applicable_category_ids: o.applicable_category_ids
-            })),
-
-            // ✅ CRITICAL: Add restaurantSlug for navigation
-            restaurantSlug: item.outlet?.slug || item.brand?.slug || null,
-            restaurantId: item.outlet._id,
-
-            // Check for user vote (aggregated in pipeline below if user is logged in)
-            user_vote_type: item.user_vote?.[0]?.vote_type || null
+            }))
         }));
 
+
+        /* ----------------------------------
+           RESPONSE
+        -----------------------------------*/
+        console.log("formated", formatted);
+
         return sendSuccess(res, {
-            dishes: formattedItems,
+
+            dishes: formatted,
+
             metadata: {
-                pagination: {
-                    page: pageNum,
-                    limit: limitNum,
-                    total: metadata.total,
-                    totalPages: Math.ceil(metadata.total / limitNum)
-                },
-                searchRadius: radiusNum,
-                strategy: 'bucket_score_optimized'
+                page: pageNum,
+                limit: limitNum,
+                total: metadata.total,
+                totalPages: Math.ceil(metadata.total / limitNum)
             }
         });
 
     } catch (error: any) {
+
         console.error('getTrendingDishes error:', error);
-        return sendError(res, error.message);
+
+        return sendError(res, error.message || 'Failed to fetch trending dishes');
     }
 };
+
 
 export const getFoodItemById = async (req: Request, res: Response) => {
     try {
