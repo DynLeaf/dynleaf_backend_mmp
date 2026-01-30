@@ -563,8 +563,11 @@ export const createCombo = async (req: Request, res: Response) => {
             quantity: i.quantity
         }));
 
+
         const { originalPrice, discountedPrice } = await computeComboPricing(normalizedItems, discountPercentage);
-        const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
+
+        // ALWAYS use the price sent from frontend (never recalculate from percentage)
+        const finalPrice = Math.round(price || 0);
 
         const outlet = await getActiveOutlet(brandId);
 
@@ -577,8 +580,8 @@ export const createCombo = async (req: Request, res: Response) => {
                 food_item_id: i.foodItemId,
                 quantity: i.quantity
             })),
-            discount_percentage: discountPercentage,
-            original_price: originalPrice,
+            discount_percentage: Math.round(discountPercentage || 0),
+            original_price: Math.round(originalPrice),
             price: finalPrice,
             manual_price_override: manualPriceOverride,
             is_active: isActive
@@ -625,7 +628,7 @@ export const updateCombo = async (req: Request, res: Response) => {
         if (name !== undefined) updates.name = name;
         if (description !== undefined) updates.description = description;
         if (imageUrl !== undefined) updates.image_url = imageUrl;
-        if (discountPercentage !== undefined) updates.discount_percentage = discountPercentage;
+        if (discountPercentage !== undefined) updates.discount_percentage = Math.round(discountPercentage);
         if (manualPriceOverride !== undefined) updates.manual_price_override = manualPriceOverride;
         if (isActive !== undefined) updates.is_active = isActive;
 
@@ -656,11 +659,14 @@ export const updateCombo = async (req: Request, res: Response) => {
                 quantity: i.quantity
             }));
         const effectiveDiscount = discountPercentage !== undefined ? discountPercentage : existing.discount_percentage;
-        const effectiveManualOverride = manualPriceOverride !== undefined ? manualPriceOverride : existing.manual_price_override;
 
         const { originalPrice, discountedPrice } = await computeComboPricing(effectiveItems, effectiveDiscount);
-        updates.original_price = originalPrice;
-        updates.price = effectiveManualOverride ? (price ?? existing.price) : discountedPrice;
+        updates.original_price = Math.round(originalPrice);
+
+        // ALWAYS use the price sent from frontend when provided (never recalculate from percentage)
+        if (price !== undefined) {
+            updates.price = Math.round(price);
+        }
 
         const combo = await Combo.findByIdAndUpdate(comboId, updates, { new: true });
 
