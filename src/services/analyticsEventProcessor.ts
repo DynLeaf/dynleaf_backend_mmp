@@ -128,7 +128,13 @@ export class AnalyticsEventProcessor {
                 : undefined;
 
             if (!foodItemObjectId || !outletObjectId) {
-                console.warn('[EventProcessor] Invalid IDs for food item event');
+                console.warn('[EventProcessor] Invalid IDs for food item event:', {
+                    food_item_id: payload.food_item_id,
+                    outlet_id: payload.outlet_id,
+                    food_item_valid: mongoose.Types.ObjectId.isValid(payload.food_item_id),
+                    outlet_valid: mongoose.Types.ObjectId.isValid(payload.outlet_id),
+                    eventType: event.type
+                });
                 return true; // Don't fail, just skip
             }
 
@@ -175,7 +181,12 @@ export class AnalyticsEventProcessor {
             }
 
             if (!outletObjectId) {
-                console.warn('[EventProcessor] Invalid outlet ID');
+                console.warn('[EventProcessor] Invalid outlet ID:', {
+                    received: payload.outlet_id,
+                    type: typeof payload.outlet_id,
+                    isValid: mongoose.Types.ObjectId.isValid(payload.outlet_id),
+                    eventType: event.type
+                });
                 return true;
             }
 

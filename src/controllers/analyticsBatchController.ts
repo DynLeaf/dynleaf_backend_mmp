@@ -175,6 +175,73 @@ const createOfferBulkOps = (updates: Record<string, any>) => {
     }));
 };
 
+// ============================================================================
+// DAILY UNIQUENESS CHECKING
+// ============================================================================
+
+/**
+ * Get today's date range (start and end of day in UTC)
+ */
+const getTodayDateRange = () => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+
+    return { start, end };
+};
+
+/**
+ * Check if menu view already exists for this session today
+ * Prevents duplicate menu_view tracking for same session on same day
+ */
+const checkMenuViewExistsToday = async (
+    outletId: mongoose.Types.ObjectId,
+    sessionId: string
+): Promise<boolean> => {
+    try {
+        const { start, end } = getTodayDateRange();
+
+        const existing = await OutletAnalyticsEvent.findOne({
+            outlet_id: outletId,
+            session_id: sessionId,
+            event_type: 'menu_view',
+            timestamp: { $gte: start, $lte: end }
+        }).lean();
+
+        return !!existing;
+    } catch (error) {
+        console.error('[Analytics] Error checking menu view existence:', error);
+        return false; // Allow tracking on error
+    }
+};
+
+/**
+ * Check if item view already exists for this session today
+ * Prevents duplicate item_view tracking for same session per item on same day
+ */
+const checkItemViewExistsToday = async (
+    foodItemId: mongoose.Types.ObjectId,
+    sessionId: string
+): Promise<boolean> => {
+    try {
+        const { start, end } = getTodayDateRange();
+
+        const existing = await FoodItemAnalyticsEvent.findOne({
+            food_item_id: foodItemId,
+            session_id: sessionId,
+            event_type: 'item_view',
+            timestamp: { $gte: start, $lte: end }
+        }).lean();
+
+        return !!existing;
+    } catch (error) {
+        console.error('[Analytics] Error checking item view existence:', error);
+        return false; // Allow tracking on error
+    }
+};
+
 export const processAnalyticsBatch = async (req: Request, res: Response) => {
     try {
         const { events, metadata } = req.body;
@@ -195,10 +262,38 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
 
             if (isItemEvent(type)) {
                 const itemEvent = createFoodItemEvent(baseData, payload, type);
-                if (itemEvent) foodItemEvents.push(itemEvent);
+                if (itemEvent) {
+                    // Check for daily uniqueness for item_view events
+                    if (type === 'item_view') {
+                        const exists = await checkItemViewExistsToday(
+                            itemEvent.food_item_id,
+                            itemEvent.session_id
+                        );
+                        if (exists) {
+                            console.log(`[Analytics] ✓ Skipping duplicate item_view - session ${itemEvent.session_id.substring(0, 15)}... already viewed item ${itemEvent.food_item_id} today`);
+                            continue;
+                        }
+                        console.log(`[Analytics] ✓ New item_view - tracking for session ${itemEvent.session_id.substring(0, 15)}... item ${itemEvent.food_item_id}`);
+                    }
+                    foodItemEvents.push(itemEvent);
+                }
             } else if (isOutletEvent(type)) {
                 const outletEvent = createOutletEvent(baseData, payload, type);
-                if (outletEvent) outletEvents.push(outletEvent);
+                if (outletEvent) {
+                    // Check for daily uniqueness for menu_view events
+                    if (type === 'menu_view') {
+                        const exists = await checkMenuViewExistsToday(
+                            outletEvent.outlet_id,
+                            outletEvent.session_id
+                        );
+                        if (exists) {
+                            console.log(`[Analytics] ✓ Skipping duplicate menu_view - session ${outletEvent.session_id.substring(0, 15)}... already viewed outlet ${outletEvent.outlet_id} today`);
+                            continue;
+                        }
+                        console.log(`[Analytics] ✓ New menu_view - tracking for session ${outletEvent.session_id.substring(0, 15)}... outlet ${outletEvent.outlet_id}`);
+                    }
+                    outletEvents.push(outletEvent);
+                }
             } else if (isPromoEvent(type)) {
                 const promoEvent = createPromoEvent(baseData, payload, type);
                 if (promoEvent) promotionEvents.push(promoEvent);
