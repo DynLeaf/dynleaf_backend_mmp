@@ -784,8 +784,114 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                     throw new Error('Invalid item payload');
                 }
 
+                // Handle combo import
                 if (parseBoolean(item.isCombo, false)) {
-                    throw new Error('Combo import is not supported in this endpoint');
+                    console.log('[Import] ========== Processing combo ==========');
+                    console.log('[Import] Name:', name);
+                    console.log('[Import] ComboType from import:', item.comboType);
+                    console.log('[Import] Items array:', JSON.stringify(item.items));
+                    console.log('[Import] CustomItems array:', JSON.stringify(item.customItems));
+
+                    // Validate required fields for combo
+                    if (!name) {
+                        throw new Error('Combo name is required');
+                    }
+
+                    const comboPrice = parsePriceNumber(item.price);
+                    if (comboPrice === null || comboPrice < 0) {
+                        throw new Error('Valid combo price is required');
+                    }
+
+                    // Determine combo type
+                    let comboType = item.comboType || 'offer';
+                    const items = Array.isArray(item.items) ? item.items : [];
+                    const customItems = Array.isArray(item.customItems) ? item.customItems : [];
+
+                    // If items are provided, validate they exist
+                    let validatedItems: any[] = [];
+                    if (items.length > 0) {
+                        for (const comboItem of items) {
+                            const foodItemId = comboItem.food_item_id || comboItem.foodItemId;
+                            if (!foodItemId) {
+                                // Items don't have IDs, treat as custom items
+                                comboType = 'regular';
+                                break;
+                            }
+
+                            const exists = await FoodItem.findOne({ _id: foodItemId, outlet_id: outletId });
+                            if (!exists) {
+                                // Item doesn't exist, treat as regular combo
+                                comboType = 'regular';
+                                break;
+                            }
+
+                            validatedItems.push({
+                                food_item_id: foodItemId,
+                                quantity: comboItem.quantity || 1
+                            });
+                        }
+                    }
+
+                    // If it's regular combo or items validation failed, use custom items
+                    let finalCustomItems: any[] = [];
+                    if (comboType === 'regular' || validatedItems.length === 0) {
+                        comboType = 'regular';
+
+                        if (customItems.length > 0) {
+                            finalCustomItems = customItems.map((ci: any) => ({
+                                item_name: ci.itemName || ci.item_name || 'Item',
+                                item_image: ci.itemImage || ci.item_image || '',
+                                item_quantity: ci.itemQuantity || ci.item_quantity || 1
+                            }));
+                        } else if (items.length > 0) {
+                            // Convert items to custom items
+                            finalCustomItems = items.map((i: any) => ({
+                                item_name: i.name || i.itemName || 'Item',
+                                item_image: i.imageUrl || i.image_url || '',
+                                item_quantity: i.quantity || 1
+                            }));
+                        }
+                    }
+
+                    if (!dryRun) {
+                        const comboPayload: any = {
+                            outlet_id: outletId,
+                            combo_type: comboType,
+                            name,
+                            description: normalizeString(item.description) || '',
+                            image_url: normalizeString(item.imageUrl) || '',
+                            price: comboPrice,
+                            display_order: item.displayOrder ?? index + 1,
+                            is_active: parseBoolean(item.isActive, true)
+                        };
+
+                        if (comboType === 'offer') {
+                            comboPayload.items = validatedItems;
+                            comboPayload.discount_percentage = item.discountPercentage || 0;
+                            comboPayload.original_price = item.originalPrice || comboPrice;
+                            comboPayload.manual_price_override = parseBoolean(item.manualPriceOverride, false);
+                        } else {
+                            comboPayload.custom_items = finalCustomItems;
+                            comboPayload.items = [];
+                            comboPayload.discount_percentage = 0;
+                            comboPayload.original_price = 0;
+                            comboPayload.manual_price_override = false;
+                        }
+
+                        if (comboType === 'regular' && finalCustomItems.length === 0) {
+                            throw new Error('Regular combo must have at least one custom item');
+                        }
+
+                        console.log(`[Import] Creating ${comboType} combo:`, name, 'custom_items:', finalCustomItems.length);
+
+                        const createdCombo = await Combo.create(comboPayload) as any;
+                        created++;
+                        results.push({ index, status: 'created', id: String(createdCombo._id), name });
+                    } else {
+                        created++;
+                        results.push({ index, status: 'created', name });
+                    }
+                    continue;
                 }
 
                 if (!name) {
@@ -1009,10 +1115,16 @@ export const exportMenuForOutlet = async (req: Request, res: Response) => {
             })),
             combos: combos.map((c: any) => ({
                 id: String(c._id),
+                comboType: c.combo_type || 'offer',
                 name: c.name,
                 description: c.description,
                 imageUrl: c.image_url,
-                items: c.items,
+                items: c.items || [],
+                customItems: (c.custom_items || []).map((item: any) => ({
+                    itemName: item.item_name,
+                    itemImage: item.item_image,
+                    itemQuantity: item.item_quantity
+                })),
                 discountPercentage: c.discount_percentage,
                 originalPrice: c.original_price,
                 price: c.price,
@@ -1563,7 +1675,19 @@ export const deleteAddOnForOutlet = async (req: Request, res: Response) => {
 export const createComboForOutlet = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { name, description, imageUrl, items, discountPercentage = 0, manualPriceOverride = false, price, isActive, displayOrder } = req.body;
+        const {
+            name,
+            description,
+            imageUrl,
+            items,
+            customItems, // New field for regular combos
+            comboType = 'offer', // New field to distinguish combo type
+            discountPercentage = 0,
+            manualPriceOverride = false,
+            price,
+            isActive,
+            displayOrder
+        } = req.body;
 
         // Verify outlet exists
         const outlet = await Outlet.findById(outletId);
@@ -1575,66 +1699,138 @@ export const createComboForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Combo name is required', null, 400);
         }
 
-        const normalizedItems = (items || []).map((i: any) => ({
-            foodItemId: i.foodItemId ?? i.itemId,
-            quantity: i.quantity
-        }));
-
-        if (normalizedItems.length === 0) {
-            return sendError(res, 'Combo must include at least one item', null, 400);
+        // Validate combo type
+        if (!['offer', 'regular'].includes(comboType)) {
+            return sendError(res, 'Invalid combo type. Must be "offer" or "regular"', null, 400);
         }
 
-        // Calculate pricing
-        const foodItemIds = normalizedItems.map((i: any) => i.foodItemId);
-        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
-        const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
+        let finalPrice = 0;
+        let originalPrice = 0;
+        let normalizedItems: any[] = [];
+        let normalizedCustomItems: any[] = [];
 
-        const missingIds = normalizedItems
-            .map((i: any) => i.foodItemId)
-            .filter((id: any) => id && !priceById.has(String(id)));
-        if (missingIds.length > 0) {
-            return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
+        if (comboType === 'offer') {
+            // OFFER COMBO: Validate existing items
+            if (!items || !Array.isArray(items) || items.length === 0) {
+                return sendError(res, 'Offer combo must include at least one existing item', null, 400);
+            }
+
+            normalizedItems = items.map((i: any) => ({
+                foodItemId: i.foodItemId ?? i.itemId,
+                quantity: i.quantity
+            }));
+
+            // Calculate pricing for offer combos
+            const foodItemIds = normalizedItems.map((i: any) => i.foodItemId);
+            const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
+            const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
+
+            const missingIds = normalizedItems
+                .map((i: any) => i.foodItemId)
+                .filter((id: any) => id && !priceById.has(String(id)));
+            if (missingIds.length > 0) {
+                return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
+            }
+
+            originalPrice = normalizedItems.reduce((sum: number, i: any) => {
+                const basePrice = priceById.get(i.foodItemId) ?? 0;
+                return sum + basePrice * i.quantity;
+            }, 0);
+
+            const discountedPrice = Math.max(0, originalPrice * (1 - (discountPercentage || 0) / 100));
+            finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
+
+        } else if (comboType === 'regular') {
+            // REGULAR COMBO: Validate custom items
+            if (!customItems || !Array.isArray(customItems) || customItems.length === 0) {
+                return sendError(res, 'Regular combo must include at least one custom item', null, 400);
+            }
+
+            normalizedCustomItems = customItems.map((i: any) => ({
+                itemName: i.itemName ?? i.item_name,
+                itemImage: i.itemImage ?? i.item_image,
+                itemQuantity: i.itemQuantity ?? i.item_quantity
+            }));
+
+            // Validate each custom item
+            for (const item of normalizedCustomItems) {
+                if (!item.itemName || typeof item.itemName !== 'string' || item.itemName.trim().length === 0) {
+                    return sendError(res, 'Each custom item must have a valid name', null, 400);
+                }
+                if (!item.itemQuantity || item.itemQuantity < 1) {
+                    return sendError(res, 'Each custom item must have a quantity of at least 1', null, 400);
+                }
+            }
+
+            // For regular combos, price is mandatory and set directly
+            if (!price || price <= 0) {
+                return sendError(res, 'Regular combo must have a valid price', null, 400);
+            }
+
+            finalPrice = price;
+            originalPrice = 0; // No original price for regular combos
         }
 
-        const originalPrice = normalizedItems.reduce((sum: number, i: any) => {
-            const basePrice = priceById.get(i.foodItemId) ?? 0;
-            return sum + basePrice * i.quantity;
-        }, 0);
-
-        const discountedPrice = Math.max(0, originalPrice * (1 - (discountPercentage || 0) / 100));
-        const finalPrice = manualPriceOverride ? (price ?? discountedPrice) : discountedPrice;
-
-        // Combos are outlet-level
-        const combo: any = await Combo.create({
+        // Create combo with appropriate fields based on type
+        const comboData: any = {
             outlet_id: outletId,
+            combo_type: comboType,
             name,
             description,
             image_url: imageUrl,
-            items: normalizedItems.map((i: { foodItemId: string; quantity: number }) => ({
-                food_item_id: i.foodItemId,
-                quantity: i.quantity
-            })),
-            discount_percentage: discountPercentage,
-            original_price: originalPrice,
             price: finalPrice,
-            manual_price_override: manualPriceOverride,
             display_order: displayOrder ?? 0,
             is_active: isActive !== false
-        });
+        };
 
-        return sendSuccess(res, {
+        if (comboType === 'offer') {
+            comboData.items = normalizedItems.map((i: { foodItemId: string; quantity: number }) => ({
+                food_item_id: i.foodItemId,
+                quantity: i.quantity
+            }));
+            comboData.discount_percentage = discountPercentage;
+            comboData.original_price = originalPrice;
+            comboData.manual_price_override = manualPriceOverride;
+        } else {
+            comboData.custom_items = normalizedCustomItems.map((i: any) => ({
+                item_name: i.itemName,
+                item_image: i.itemImage,
+                item_quantity: i.itemQuantity
+            }));
+            comboData.items = []; // Empty for regular combos
+            comboData.discount_percentage = 0;
+            comboData.original_price = 0;
+            comboData.manual_price_override = false;
+        }
+
+        const combo: any = await Combo.create(comboData);
+
+        // Format response based on combo type
+        const response: any = {
             id: combo._id,
+            comboType: combo.combo_type,
             name: combo.name,
             description: combo.description,
             imageUrl: combo.image_url,
-            items: combo.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
-            discountPercentage: combo.discount_percentage,
-            originalPrice: combo.original_price,
             price: combo.price,
-            manualPriceOverride: combo.manual_price_override,
             isActive: combo.is_active,
             displayOrder: combo.display_order
-        }, null, 201);
+        };
+
+        if (comboType === 'offer') {
+            response.items = combo.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity }));
+            response.discountPercentage = combo.discount_percentage;
+            response.originalPrice = combo.original_price;
+            response.manualPriceOverride = combo.manual_price_override;
+        } else {
+            response.customItems = combo.custom_items.map((i: any) => ({
+                itemName: i.item_name,
+                itemImage: i.item_image,
+                itemQuantity: i.item_quantity
+            }));
+        }
+
+        return sendSuccess(res, response, null, 201);
     } catch (error: any) {
         return sendError(res, error.message);
     }
@@ -1654,10 +1850,16 @@ export const listCombosForOutlet = async (req: Request, res: Response) => {
 
         return sendSuccess(res, combos.map(c => ({
             id: c._id,
+            comboType: c.combo_type || 'offer',
             name: c.name,
             description: c.description,
             imageUrl: c.image_url,
             items: c.items.map(i => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
+            customItems: (c.custom_items || []).map(i => ({
+                itemName: i.item_name,
+                itemImage: i.item_image,
+                itemQuantity: i.item_quantity
+            })),
             discountPercentage: c.discount_percentage,
             originalPrice: c.original_price,
             price: c.price,
@@ -1718,7 +1920,7 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
         const effectiveItems = isItemsProvided
             ? normalizedItems
             : combo.items.map((i: any) => ({
-                foodItemId: i.food_item_id.toString(),
+                foodItemId: i.food_item_id?.toString(),
                 quantity: i.quantity
             }));
         const effectiveDiscount = discountPercentage !== undefined ? discountPercentage : combo.discount_percentage;

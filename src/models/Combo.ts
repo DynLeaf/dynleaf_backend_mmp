@@ -1,16 +1,24 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IComboItem {
-    food_item_id: mongoose.Types.ObjectId;
+    food_item_id?: mongoose.Types.ObjectId; // Optional for regular combos with custom items
     quantity: number;
+}
+
+export interface ICustomItem {
+    item_name: string;
+    item_image?: string;
+    item_quantity: number;
 }
 
 export interface ICombo extends Document {
     outlet_id: mongoose.Types.ObjectId;
+    combo_type: 'offer' | 'regular'; // New field to distinguish combo types
     name: string;
     description?: string;
     image_url?: string;
-    items: IComboItem[];
+    items: IComboItem[]; // For offer combos - references to existing items
+    custom_items?: ICustomItem[]; // For regular combos - custom items stored directly
     discount_percentage: number;
     original_price: number;
     price: number;
@@ -20,16 +28,24 @@ export interface ICombo extends Document {
 }
 
 const comboItemSchema = new Schema<IComboItem>({
-    food_item_id: { type: Schema.Types.ObjectId, ref: 'FoodItem', required: true },
+    food_item_id: { type: Schema.Types.ObjectId, ref: 'FoodItem', required: false }, // Made optional
     quantity: { type: Number, required: true, min: 1 }
+}, { _id: false });
+
+const customItemSchema = new Schema<ICustomItem>({
+    item_name: { type: String, required: true },
+    item_image: { type: String, required: false },
+    item_quantity: { type: Number, required: true, min: 1 }
 }, { _id: false });
 
 const comboSchema = new Schema<ICombo>({
     outlet_id: { type: Schema.Types.ObjectId, ref: 'Outlet', required: true, index: true },
+    combo_type: { type: String, enum: ['offer', 'regular'], default: 'offer', required: true }, // Default to 'offer' for backward compatibility
     name: { type: String, required: true },
     description: { type: String },
     image_url: { type: String },
-    items: { type: [comboItemSchema], default: [] },
+    items: { type: [comboItemSchema], default: [] }, // For offer combos
+    custom_items: { type: [customItemSchema], default: [] }, // For regular combos
     discount_percentage: { type: Number, default: 0, min: 0, max: 100 },
     original_price: { type: Number, default: 0, min: 0 },
     price: { type: Number, default: 0, min: 0 },

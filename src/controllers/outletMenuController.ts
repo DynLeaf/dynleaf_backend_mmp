@@ -133,30 +133,46 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       .lean();
     console.log(`🍴 [getOutletMenu] Combos fetched: ${combos.length}`);
 
-    // Format combos
-    const formattedCombos = combos.map((combo: any) => ({
-      _id: combo._id,
-      name: combo.name,
-      slug: combo.slug,
-      description: combo.description,
-      image_url: combo.image_url,
-      items: combo.items.map((item: any) => ({
-        food_item_id: item.food_item_id?._id,
-        name: item.food_item_id?.name,
-        image_url: item.food_item_id?.image_url,
-        food_type: item.food_item_id?.food_type,
-        quantity: item.quantity,
-        individual_price: item.food_item_id?.price
-      })),
-      combo_price: combo.price, // Map 'price' from DB to 'combo_price' for frontend
-      original_price: combo.original_price,
-      discount_percentage: combo.discount_percentage,
-      food_type: combo.food_type,
-      is_available: combo.is_active, // Map 'is_active' from DB to 'is_available' for frontend
-      avg_rating: combo.avg_rating,
-      total_votes: combo.total_votes,
-      order_count: combo.order_count
-    }));
+    // Format combos - handle both offer and regular types
+    const formattedCombos = combos.map((combo: any) => {
+      const baseCombo: any = {
+        _id: combo._id,
+        combo_type: combo.combo_type || 'offer', // Default to 'offer' for backward compatibility
+        name: combo.name,
+        slug: combo.slug,
+        description: combo.description,
+        image_url: combo.image_url,
+        combo_price: combo.price,
+        is_available: combo.is_active,
+        avg_rating: combo.avg_rating,
+        total_votes: combo.total_votes,
+        order_count: combo.order_count
+      };
+
+      if (combo.combo_type === 'regular') {
+        // Regular combo: return custom items
+        baseCombo.custom_items = (combo.custom_items || []).map((item: any) => ({
+          item_name: item.item_name,
+          item_image: item.item_image,
+          item_quantity: item.item_quantity
+        }));
+      } else {
+        // Offer combo: return referenced items with details
+        baseCombo.items = (combo.items || []).map((item: any) => ({
+          food_item_id: item.food_item_id?._id,
+          name: item.food_item_id?.name,
+          image_url: item.food_item_id?.image_url,
+          food_type: item.food_item_id?.food_type,
+          quantity: item.quantity,
+          individual_price: item.food_item_id?.price
+        }));
+        baseCombo.original_price = combo.original_price;
+        baseCombo.discount_percentage = combo.discount_percentage;
+        baseCombo.food_type = combo.food_type;
+      }
+
+      return baseCombo;
+    });
 
     // Get user votes if authenticated (for optimistic UI)
     let userVotes: Map<string, 'up' | 'down'> = new Map();
