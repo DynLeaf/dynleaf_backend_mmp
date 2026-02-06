@@ -17,6 +17,7 @@
  */
 
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
+import crypto from 'crypto';
 
 // ============================================================================
 // Constants
@@ -469,6 +470,21 @@ class GeminiService {
   }
 
   /**
+   * Generate a unique hash for image data to use as cache key
+   * This prevents cache collisions that occur when using substring
+   */
+  private generateImageHash(imageBase64: string): string {
+    // Extract base64 data without the data URI prefix
+    const base64Data = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+
+    // Generate SHA-256 hash of the image data
+    const hash = crypto.createHash('sha256').update(base64Data).digest('hex');
+
+    // Return first 16 characters of hash (sufficient for uniqueness)
+    return hash.substring(0, 16);
+  }
+
+  /**
    * Get AI-generated insights for a dish
    */
   async getDishInsights(dishName: string, description?: string): Promise<DishInsight> {
@@ -568,15 +584,17 @@ Respond in JSON format:
         throw new Error(`Rate limit exceeded. Retry after ${limitCheck.retryAfter} seconds`);
       }
 
-      // Check cache
-      const cacheKey = `menu:${imageBase64.substring(0, 50)}`;
+      // Generate unique hash for cache key (prevents collision)
+      const imageHash = this.generateImageHash(imageBase64);
+      const cacheKey = `menu:${imageHash}`;
+
       const cached = this.cache.get<MenuExtractionResult>(cacheKey);
       if (cached) {
-        console.log(`[GeminiService][${requestId}] Cache hit for menu extraction`);
+        console.log(`[GeminiService][${requestId}] Cache hit for menu extraction (hash: ${imageHash})`);
         return cached;
       }
 
-      console.log(`[GeminiService][${requestId}] Extracting menu from image`);
+      console.log(`[GeminiService][${requestId}] Extracting menu from image (hash: ${imageHash})`);
 
       if (!this.isInitialized || !this.client) {
         throw new Error('Gemini service not initialized');
