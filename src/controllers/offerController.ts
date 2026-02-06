@@ -168,6 +168,38 @@ export const getOfferById = async (req: AuthRequest, res: Response) => {
     }
 };
 
+// Get offer by ID directly (for sharing/direct links)
+export const getOfferByIdDirect = async (req: AuthRequest, res: Response) => {
+    try {
+        const { offerId } = req.params;
+
+        const offer = await Offer.findOne({ _id: offerId })
+            .populate('brand_id', 'name logo_url')
+            .populate('outlet_ids', 'name slug location')
+            .lean();
+
+        if (!offer) {
+            return sendError(res, 'Offer not found', null, STATUS_CODE_NOT_FOUND);
+        }
+
+        // If offer has multiple outlets, just return the first one as primary
+        const primaryOutlet = Array.isArray((offer as any).outlet_ids) 
+            ? (offer as any).outlet_ids[0] 
+            : (offer as any).outlet_ids;
+
+        return sendSuccess(res, { 
+            offer: {
+                ...offer,
+                outlet: primaryOutlet,
+                brand: (offer as any).brand_id
+            }
+        });
+    } catch (error: any) {
+        console.error('Get offer by ID direct error:', error);
+        return sendError(res, error.message);
+    }
+};
+
 export const updateOffer = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId, offerId } = req.params;

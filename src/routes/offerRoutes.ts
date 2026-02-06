@@ -7,6 +7,12 @@ import { SUBSCRIPTION_FEATURES } from '../config/subscriptionPlans.js';
 
 const router = express.Router();
 
+// Get offer by ID directly (for sharing/direct links) - PUBLIC
+router.get(
+    '/offers/:offerId',
+    offerController.getOfferByIdDirect
+);
+
 // Get my subscription info (owner-facing)
 router.get(
     '/:outletId/my-subscription',
