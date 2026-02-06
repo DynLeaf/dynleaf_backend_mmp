@@ -4,25 +4,30 @@ import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { OutletAnalyticsSummary } from '../models/OutletAnalyticsSummary.js';
 
 export function startOutletAnalyticsAggregation() {
-  // Run daily at 2:10 AM (a bit after promotions)
-  cron.schedule('10 2 * * *', async () => {
+  // Run daily at 11:59 PM
+  cron.schedule('59 23 * * *', async () => {
+    console.log('[CRON] ========================================');
     console.log('[CRON] Starting daily outlet analytics aggregation...');
+    console.log('[CRON] Time:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+    console.log('[CRON] ========================================');
 
     try {
       const now = new Date();
-      const yesterdayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+      // Aggregate TODAY's data
       const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      const tomorrowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 
-      console.log(`[CRON] Aggregating outlet events for ${yesterdayUtc.toISOString().split('T')[0]} (UTC)`);
+      console.log(`[CRON] Aggregating data for: ${todayUtc.toISOString().split('T')[0]}`);
 
       const outlets = await Outlet.find({});
+      console.log(`[CRON] Processing ${outlets.length} outlets...`);
 
       for (const outlet of outlets) {
         const groups = await OutletAnalyticsEvent.aggregate([
           {
             $match: {
               outlet_id: outlet._id,
-              timestamp: { $gte: yesterdayUtc, $lt: todayUtc },
+              timestamp: { $gte: todayUtc, $lt: tomorrowUtc },
             },
           },
           {
@@ -31,6 +36,13 @@ export function startOutletAnalyticsAggregation() {
                 event_type: '$event_type',
                 device_type: '$device_type',
                 hour: { $hour: '$timestamp' },
+                is_qr: {
+                  $cond: [
+                    { $in: ['$source', ['qr', 'QR', 'qrcode', 'qr_code', 'qr_scan']] },
+                    true,
+                    false,
+                  ],
+                },
               },
               count: { $sum: 1 },
               unique_sessions: { $addToSet: '$session_id' },
@@ -50,6 +62,15 @@ export function startOutletAnalyticsAggregation() {
 
         const menu_views = groups
           .filter((g: any) => g._id.event_type === 'menu_view')
+          .reduce((sum: number, g: any) => sum + g.count, 0);
+
+        // QR-specific metrics
+        const qr_profile_views = groups
+          .filter((g: any) => g._id.event_type === 'profile_view' && g._id.is_qr === true)
+          .reduce((sum: number, g: any) => sum + g.count, 0);
+
+        const qr_menu_views = groups
+          .filter((g: any) => g._id.event_type === 'menu_view' && g._id.is_qr === true)
           .reduce((sum: number, g: any) => sum + g.count, 0);
 
         const allUniqueSessions = new Set(groups.flatMap((g: any) => g.unique_sessions));
@@ -76,13 +97,15 @@ export function startOutletAnalyticsAggregation() {
         });
 
         await OutletAnalyticsSummary.findOneAndUpdate(
-          { outlet_id: outlet._id, date: yesterdayUtc },
+          { outlet_id: outlet._id, date: todayUtc },
           {
             $set: {
               metrics: {
                 outlet_visits,
                 profile_views,
                 menu_views,
+                qr_menu_views,
+                qr_profile_views,
                 unique_sessions: allUniqueSessions.size,
                 view_to_menu_rate: parseFloat(view_to_menu_rate.toFixed(2)),
               },
@@ -92,13 +115,18 @@ export function startOutletAnalyticsAggregation() {
           },
           { upsert: true, new: true }
         );
+
+        console.log(`[CRON] ✓ Processed outlet: ${outlet.name}`);
       }
 
-      console.log('[CRON] Daily outlet analytics aggregation completed successfully');
+      console.log('[CRON] ========================================');
+      console.log('[CRON] Daily aggregation completed successfully!');
+      console.log('[CRON] ========================================');
     } catch (error) {
-      console.error('[CRON] Error during outlet aggregation:', error);
+      console.error('[CRON] Error during aggregation:', error);
     }
   });
 
-  console.log('[CRON] Outlet analytics aggregation job scheduled (daily at 2:10 AM)');
+  console.log('[CRON] ✅ Outlet analytics aggregation job scheduled (daily at 11:59 PM)');
+  console.log('[CRON] Production schedule active');
 }

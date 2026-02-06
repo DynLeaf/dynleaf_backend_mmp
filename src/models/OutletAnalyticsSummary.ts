@@ -8,6 +8,8 @@ export interface IOutletAnalyticsSummary extends Document {
     outlet_visits: number;
     profile_views: number;
     menu_views: number;
+    qr_menu_views: number; // Menu views via QR scans
+    qr_profile_views: number; // Profile views via QR scans
     unique_sessions: number;
     view_to_menu_rate: number; // menu_views / profile_views
   };
@@ -39,6 +41,8 @@ const outletAnalyticsSummarySchema = new Schema<IOutletAnalyticsSummary>(
       outlet_visits: { type: Number, default: 0 },
       profile_views: { type: Number, default: 0 },
       menu_views: { type: Number, default: 0 },
+      qr_menu_views: { type: Number, default: 0 },
+      qr_profile_views: { type: Number, default: 0 },
       unique_sessions: { type: Number, default: 0 },
       view_to_menu_rate: { type: Number, default: 0 },
     },

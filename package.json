@@ -32,6 +32,9 @@
     "list:admins": "tsx src/scripts/listAdmins.ts",
     "create:geo-indexes": "tsx src/scripts/createGeoIndexes.ts",
     "seed:dummy-geo": "tsx src/scripts/seedDummyGeoData.ts",
+    "migrate:historical-analytics": "tsx src/scripts/migrateHistoricalOutletAnalytics.ts",
+    "migrate:food-analytics": "tsx src/scripts/migrateFoodItemAnalytics.ts",
+    "check:analytics-db": "tsx src/scripts/checkDatabaseAnalytics.ts",
     "build": "tsc -p tsconfig.build.json"
   },
   "keywords": [],

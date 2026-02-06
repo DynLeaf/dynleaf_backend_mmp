@@ -14,6 +14,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
+import * as adminOutletAnalyticsController from "../controllers/adminOutletAnalyticsController.js";
 import * as pushNotificationController from "../controllers/pushNotificationController.js";
 
 const router = express.Router();
@@ -782,7 +783,7 @@ router.patch("/compliance/:id/toggle-verification", adminAuth, async (req: AuthR
 router.patch("/compliance/:id", adminAuth, async (req: AuthRequest, res) => {
   try {
     const { fssai_number, gst_number, gst_percentage } = req.body;
-    
+
     const compliance = await Compliance.findById(req.params.id);
     if (!compliance) {
       return sendError(res, "Compliance not found", null, 404);
@@ -1399,6 +1400,18 @@ router.get('/analytics/users', adminAuth, adminAnalyticsController.getAdminUsers
 router.get('/analytics/growth', adminAuth, adminAnalyticsController.getAdminGrowthAnalytics);
 router.get('/analytics/engagement', adminAuth, adminAnalyticsController.getAdminEngagementAnalytics);
 router.get('/analytics/discovery', adminAnalyticsController.getAdminDiscoveryAnalytics);
+
+// ============================================
+// Restructured Outlet Analytics Routes
+// ============================================
+// Overview with summary cards
+router.get('/analytics/outlets/overview', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsOverview);
+// Paginated list of outlets with analytics
+router.get('/analytics/outlets/list', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsList);
+// Individual outlet summary
+router.get('/analytics/outlets/:id/summary', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsSummary);
+// Food items analytics for an outlet
+router.get('/analytics/outlets/:id/food-items', adminAuth, adminOutletAnalyticsController.getOutletFoodItemsAnalytics);
 
 // ============================================
 // Push Notification Management Routes
