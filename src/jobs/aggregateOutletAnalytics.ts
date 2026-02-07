@@ -4,8 +4,8 @@ import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
 import { OutletAnalyticsSummary } from '../models/OutletAnalyticsSummary.js';
 
 export function startOutletAnalyticsAggregation() {
-  // Run daily at 11:59 PM
-  cron.schedule('59 23 * * *', async () => {
+  // Run daily at 12:00 AM (midnight) to aggregate YESTERDAY's complete data
+  cron.schedule('0 0 * * *', async () => {
     console.log('[CRON] ========================================');
     console.log('[CRON] Starting daily outlet analytics aggregation...');
     console.log('[CRON] Time:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
@@ -13,11 +13,11 @@ export function startOutletAnalyticsAggregation() {
 
     try {
       const now = new Date();
-      // Aggregate TODAY's data
+      // Aggregate YESTERDAY's data (the day that just completed)
+      const yesterdayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
       const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-      const tomorrowUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 
-      console.log(`[CRON] Aggregating data for: ${todayUtc.toISOString().split('T')[0]}`);
+      console.log(`[CRON] Aggregating data for: ${yesterdayUtc.toISOString().split('T')[0]}`);
 
       const outlets = await Outlet.find({});
       console.log(`[CRON] Processing ${outlets.length} outlets...`);
@@ -27,7 +27,7 @@ export function startOutletAnalyticsAggregation() {
           {
             $match: {
               outlet_id: outlet._id,
-              timestamp: { $gte: todayUtc, $lt: tomorrowUtc },
+              timestamp: { $gte: yesterdayUtc, $lt: todayUtc },
             },
           },
           {
@@ -97,7 +97,7 @@ export function startOutletAnalyticsAggregation() {
         });
 
         await OutletAnalyticsSummary.findOneAndUpdate(
-          { outlet_id: outlet._id, date: todayUtc },
+          { outlet_id: outlet._id, date: yesterdayUtc },
           {
             $set: {
               metrics: {
@@ -127,6 +127,6 @@ export function startOutletAnalyticsAggregation() {
     }
   });
 
-  console.log('[CRON] ✅ Outlet analytics aggregation job scheduled (daily at 11:59 PM)');
-  console.log('[CRON] Production schedule active');
+  console.log('[CRON] ✅ Outlet analytics aggregation job scheduled (daily at 12:00 AM midnight)');
+  console.log('[CRON] Aggregates previous day\'s complete data (00:00 to 23:59:59)');
 }
