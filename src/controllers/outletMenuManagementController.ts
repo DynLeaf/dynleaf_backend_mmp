@@ -1887,80 +1887,169 @@ export const updateComboForOutlet = async (req: Request, res: Response) => {
             return sendError(res, 'Combo not found for this outlet', 404);
         }
 
-        const { name, description, imageUrl, items, discountPercentage, manualPriceOverride, price, isActive, is_active } = req.body;
+        const {
+            name,
+            description,
+            imageUrl,
+            items,
+            customItems,
+            comboType,
+            discountPercentage,
+            manualPriceOverride,
+            price,
+            isActive,
+            is_active
+        } = req.body;
 
-        const updates: any = {};
-        if (name !== undefined) updates.name = name;
-        if (description !== undefined) updates.description = description;
-        if (imageUrl !== undefined) updates.image_url = imageUrl;
-        if (discountPercentage !== undefined) updates.discount_percentage = discountPercentage;
-        if (manualPriceOverride !== undefined) updates.manual_price_override = manualPriceOverride;
-        if (isActive !== undefined) updates.is_active = isActive;
-        if (is_active !== undefined) updates.is_active = is_active;
-
-        const isItemsProvided = items !== undefined;
-        const normalizedItems: Array<{ foodItemId: string; quantity: number }> = isItemsProvided
-            ? (items || []).map((i: any) => ({
-                foodItemId: i.foodItemId ?? i.itemId,
-                quantity: i.quantity
-            }))
-            : [];
-
-        if (isItemsProvided && normalizedItems.length === 0) {
-            return sendError(res, 'Combo must include at least one item', null, 400);
+        const updates: Record<string, any> = {};
+        if (name !== undefined) {
+            updates.name = name;
+        }
+        if (description !== undefined) {
+            updates.description = description;
+        }
+        if (imageUrl !== undefined) {
+            updates.image_url = imageUrl;
+        }
+        if (isActive !== undefined) {
+            updates.is_active = isActive;
+        }
+        if (is_active !== undefined) {
+            updates.is_active = is_active;
         }
 
-        if (isItemsProvided) {
-            updates.items = normalizedItems.map((i: any) => ({
-                food_item_id: i.foodItemId,
-                quantity: i.quantity
-            }));
+        // Determine the effective combo type (use existing combo type if not provided)
+        const effectiveComboType = comboType || combo.combo_type || 'offer';
+
+        if (effectiveComboType === 'regular') {
+            // REGULAR COMBO UPDATE
+            if (customItems !== undefined) {
+                if (!Array.isArray(customItems) || customItems.length === 0) {
+                    return sendError(res, 'Regular combo must include at least one custom item', null, 400);
+                }
+
+                const normalizedCustomItems = customItems.map((i: any) => ({
+                    itemName: i.itemName ?? i.item_name,
+                    itemImage: i.itemImage ?? i.item_image,
+                    itemQuantity: i.itemQuantity ?? i.item_quantity
+                }));
+
+                // Validate each custom item
+                for (const item of normalizedCustomItems) {
+                    if (!item.itemName || typeof item.itemName !== 'string' || item.itemName.trim().length === 0) {
+                        return sendError(res, 'Each custom item must have a valid name', null, 400);
+                    }
+                    if (!item.itemQuantity || item.itemQuantity < 1) {
+                        return sendError(res, 'Each custom item must have a quantity of at least 1', null, 400);
+                    }
+                }
+
+                updates.custom_items = normalizedCustomItems.map((i: any) => ({
+                    item_name: i.itemName,
+                    item_image: i.itemImage,
+                    item_quantity: i.itemQuantity
+                }));
+            }
+
+            // For regular combos, price is set directly
+            if (price !== undefined) {
+                if (price <= 0) {
+                    return sendError(res, 'Regular combo must have a valid price', null, 400);
+                }
+                updates.price = price;
+            }
+
+            // Clear offer-specific fields for regular combos
+            updates.items = [];
+            updates.discount_percentage = 0;
+            updates.original_price = 0;
+            updates.manual_price_override = false;
+
+        } else {
+            // OFFER COMBO UPDATE (existing logic)
+            if (discountPercentage !== undefined) updates.discount_percentage = discountPercentage;
+            if (manualPriceOverride !== undefined) updates.manual_price_override = manualPriceOverride;
+
+            const isItemsProvided = items !== undefined;
+            const normalizedItems: Array<{ foodItemId: string; quantity: number }> = isItemsProvided
+                ? (items || []).map((i: any) => ({
+                    foodItemId: i.foodItemId ?? i.itemId,
+                    quantity: i.quantity
+                }))
+                : [];
+
+            if (isItemsProvided && normalizedItems.length === 0) {
+                return sendError(res, 'Offer combo must include at least one item', null, 400);
+            }
+
+            if (isItemsProvided) {
+                updates.items = normalizedItems.map((i: any) => ({
+                    food_item_id: i.foodItemId,
+                    quantity: i.quantity
+                }));
+            }
+
+            const effectiveItems = isItemsProvided
+                ? normalizedItems
+                : combo.items.map((i: any) => ({
+                    foodItemId: i.food_item_id?.toString(),
+                    quantity: i.quantity
+                }));
+            const effectiveDiscount = discountPercentage !== undefined ? discountPercentage : combo.discount_percentage;
+            const effectiveManualOverride = manualPriceOverride !== undefined ? manualPriceOverride : combo.manual_price_override;
+
+            // Recalculate pricing for offer combos
+            const foodItemIds = effectiveItems.map((i: any) => i.foodItemId);
+            const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
+            const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
+
+            const missingIds = effectiveItems
+                .map(i => i.foodItemId)
+                .filter((id: any) => id && !priceById.has(String(id)));
+            if (missingIds.length > 0) {
+                return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
+            }
+
+            const originalPrice = effectiveItems.reduce((sum: number, i: any) => {
+                const basePrice = priceById.get(i.foodItemId) ?? 0;
+                return sum + basePrice * i.quantity;
+            }, 0);
+
+            const discountedPrice = Math.max(0, originalPrice * (1 - (effectiveDiscount || 0) / 100));
+            updates.original_price = originalPrice;
+            updates.price = effectiveManualOverride ? (price ?? combo.price) : discountedPrice;
+
+            // Clear regular combo fields
+            updates.custom_items = [];
         }
-
-        const effectiveItems = isItemsProvided
-            ? normalizedItems
-            : combo.items.map((i: any) => ({
-                foodItemId: i.food_item_id?.toString(),
-                quantity: i.quantity
-            }));
-        const effectiveDiscount = discountPercentage !== undefined ? discountPercentage : combo.discount_percentage;
-        const effectiveManualOverride = manualPriceOverride !== undefined ? manualPriceOverride : combo.manual_price_override;
-
-        // Recalculate pricing
-        const foodItemIds = effectiveItems.map((i: any) => i.foodItemId);
-        const foodItems = await FoodItem.find({ _id: { $in: foodItemIds }, outlet_id: outletId });
-        const priceById = new Map(foodItems.map(fi => [fi._id.toString(), fi.price]));
-
-        const missingIds = effectiveItems
-            .map(i => i.foodItemId)
-            .filter((id: any) => id && !priceById.has(String(id)));
-        if (missingIds.length > 0) {
-            return sendError(res, 'Some combo items were not found for this outlet', { missingIds }, 400);
-        }
-
-        const originalPrice = effectiveItems.reduce((sum: number, i: any) => {
-            const basePrice = priceById.get(i.foodItemId) ?? 0;
-            return sum + basePrice * i.quantity;
-        }, 0);
-
-        const discountedPrice = Math.max(0, originalPrice * (1 - (effectiveDiscount || 0) / 100));
-        updates.original_price = originalPrice;
-        updates.price = effectiveManualOverride ? (price ?? combo.price) : discountedPrice;
 
         const updatedCombo = await Combo.findByIdAndUpdate(comboId, updates, { new: true });
 
-        return sendSuccess(res, {
+        // Format response based on combo type
+        const response: any = {
             id: updatedCombo?._id,
+            comboType: updatedCombo?.combo_type,
             name: updatedCombo?.name,
             description: updatedCombo?.description,
             imageUrl: updatedCombo?.image_url,
-            items: updatedCombo?.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity })),
-            discountPercentage: updatedCombo?.discount_percentage,
-            originalPrice: updatedCombo?.original_price,
             price: updatedCombo?.price,
-            manualPriceOverride: updatedCombo?.manual_price_override,
             isActive: updatedCombo?.is_active
-        });
+        };
+
+        if (effectiveComboType === 'offer') {
+            response.items = updatedCombo?.items.map((i: any) => ({ foodItemId: i.food_item_id, quantity: i.quantity }));
+            response.discountPercentage = updatedCombo?.discount_percentage;
+            response.originalPrice = updatedCombo?.original_price;
+            response.manualPriceOverride = updatedCombo?.manual_price_override;
+        } else {
+            response.customItems = (updatedCombo?.custom_items || []).map((i: any) => ({
+                itemName: i.item_name,
+                itemImage: i.item_image,
+                itemQuantity: i.item_quantity
+            }));
+        }
+
+        return sendSuccess(res, response);
     } catch (error: any) {
         return sendError(res, error.message);
     }
