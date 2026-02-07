@@ -25,6 +25,9 @@ export interface IFoodItemAnalyticsSummary extends Document {
 
   source_breakdown: Record<string, number>;
 
+  // Vote count snapshot from FoodItem model
+  vote_count?: number;
+
   hourly_breakdown: Array<{
     hour: number;
     impressions: number;
@@ -69,6 +72,8 @@ const foodItemAnalyticsSummarySchema = new Schema<IFoodItemAnalyticsSummary>(
     },
 
     source_breakdown: { type: Schema.Types.Mixed, default: {} },
+
+    vote_count: { type: Number, default: 0 },
 
     hourly_breakdown: [
       {

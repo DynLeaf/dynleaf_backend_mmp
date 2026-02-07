@@ -15,6 +15,7 @@ import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
 import * as adminOutletAnalyticsController from "../controllers/adminOutletAnalyticsController.js";
+import * as adminFoodAnalyticsController from "../controllers/adminFoodAnalyticsController.js";
 import * as pushNotificationController from "../controllers/pushNotificationController.js";
 
 const router = express.Router();
@@ -1412,6 +1413,19 @@ router.get('/analytics/outlets/list', adminAuth, adminOutletAnalyticsController.
 router.get('/analytics/outlets/:id/summary', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsSummary);
 // Food items analytics for an outlet
 router.get('/analytics/outlets/:id/food-items', adminAuth, adminOutletAnalyticsController.getOutletFoodItemsAnalytics);
+
+// ============================================
+// Food Analytics Routes
+// ============================================
+// Food overview for main analytics page
+router.get('/analytics/food/overview', adminAuth, adminFoodAnalyticsController.getFoodOverview);
+// Food summary cards
+router.get('/analytics/food/summary', adminAuth, adminFoodAnalyticsController.getFoodSummary);
+// Top viewed food items (paginated)
+router.get('/analytics/food/top-viewed', adminAuth, adminFoodAnalyticsController.getTopViewedFood);
+// Most voted food items (paginated)
+router.get('/analytics/food/most-voted', adminAuth, adminFoodAnalyticsController.getMostVotedFood);
+
 
 // ============================================
 // Push Notification Management Routes
