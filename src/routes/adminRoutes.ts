@@ -17,6 +17,7 @@ import * as adminAnalyticsController from "../controllers/adminAnalyticsControll
 import * as adminOutletAnalyticsController from "../controllers/adminOutletAnalyticsController.js";
 import * as adminFoodAnalyticsController from "../controllers/adminFoodAnalyticsController.js";
 import * as pushNotificationController from "../controllers/pushNotificationController.js";
+import * as qrManagementController from "../controllers/qrManagementController.js";
 
 const router = express.Router();
 
@@ -1425,6 +1426,20 @@ router.get('/analytics/food/summary', adminAuth, adminFoodAnalyticsController.ge
 router.get('/analytics/food/top-viewed', adminAuth, adminFoodAnalyticsController.getTopViewedFood);
 // Most voted food items (paginated)
 router.get('/analytics/food/most-voted', adminAuth, adminFoodAnalyticsController.getMostVotedFood);
+
+
+// ============================================
+// QR Management Routes
+// ============================================
+
+// Get all approved outlets for QR management
+router.get('/qr/outlets', adminAuth, qrManagementController.getApprovedOutlets);
+
+//  Get QR configuration for a specific outlet
+router.get('/qr/outlets/:outletId/config', adminAuth, qrManagementController.getOutletQRConfig);
+
+// Update/Set table count for an outlet
+router.post('/qr/outlets/:outletId/generate', adminAuth, qrManagementController.updateOutletQRConfig);
 
 
 // ============================================
