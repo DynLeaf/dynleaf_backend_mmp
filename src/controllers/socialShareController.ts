@@ -108,7 +108,9 @@ export const getSocialMeta = async (req: Request, res: Response) => {
             ? brandLogo
             : `${apiBaseUrl}${brandLogo.startsWith('/') ? '' : '/'}${brandLogo}`;
 
-        const pageUrl = `${frontendBaseUrl}${pageUrlPath}`;
+        // Preserve source query parameter for analytics tracking
+        const sourceParam = req.query.source ? `?source=${encodeURIComponent(req.query.source as string)}` : '';
+        const pageUrl = `${frontendBaseUrl}${pageUrlPath}${sourceParam}`;
 
         // Sanitize strings for HTML output to prevent XSS
         const escapeHtml = (str: string) => {
