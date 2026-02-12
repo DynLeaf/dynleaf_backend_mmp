@@ -12,6 +12,36 @@ export interface IOutletAnalyticsSummary extends Document {
     qr_profile_views: number; // Profile views via QR scans
     unique_sessions: number;
     view_to_menu_rate: number; // menu_views / profile_views
+
+    // Source breakdown for profile views
+    profile_view_sources: {
+      qr_scan: number;
+      whatsapp: number;
+      link: number;
+      telegram: number;
+      twitter: number;
+      share: number;
+      search: number;
+      home: number;
+      menu_page: number;
+      direct_url: number;
+      other: number;
+    };
+
+    // Source breakdown for menu views
+    menu_view_sources: {
+      qr_scan: number;
+      whatsapp: number;
+      link: number;
+      telegram: number;
+      twitter: number;
+      share: number;
+      search: number;
+      home: number;
+      profile_page: number;
+      direct_url: number;
+      other: number;
+    };
   };
 
   device_breakdown: {
@@ -45,6 +75,34 @@ const outletAnalyticsSummarySchema = new Schema<IOutletAnalyticsSummary>(
       qr_profile_views: { type: Number, default: 0 },
       unique_sessions: { type: Number, default: 0 },
       view_to_menu_rate: { type: Number, default: 0 },
+
+      profile_view_sources: {
+        qr_scan: { type: Number, default: 0 },
+        whatsapp: { type: Number, default: 0 },
+        link: { type: Number, default: 0 },
+        telegram: { type: Number, default: 0 },
+        twitter: { type: Number, default: 0 },
+        share: { type: Number, default: 0 },
+        search: { type: Number, default: 0 },
+        home: { type: Number, default: 0 },
+        menu_page: { type: Number, default: 0 },
+        direct_url: { type: Number, default: 0 },
+        other: { type: Number, default: 0 },
+      },
+
+      menu_view_sources: {
+        qr_scan: { type: Number, default: 0 },
+        whatsapp: { type: Number, default: 0 },
+        link: { type: Number, default: 0 },
+        telegram: { type: Number, default: 0 },
+        twitter: { type: Number, default: 0 },
+        share: { type: Number, default: 0 },
+        search: { type: Number, default: 0 },
+        home: { type: Number, default: 0 },
+        profile_page: { type: Number, default: 0 },
+        direct_url: { type: Number, default: 0 },
+        other: { type: Number, default: 0 },
+      },
     },
 
     device_breakdown: {

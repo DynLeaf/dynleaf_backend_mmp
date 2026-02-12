@@ -191,6 +191,32 @@ export const getOutletAnalyticsSummary = async (req: Request, res: Response) => 
                     total_profile_views: { $sum: '$metrics.profile_views' },
                     total_profile_views_qr: { $sum: '$metrics.qr_profile_views' },
                     unique_sessions: { $sum: '$metrics.unique_sessions' },
+
+                    // Profile view sources
+                    profile_view_sources_qr_scan: { $sum: '$metrics.profile_view_sources.qr_scan' },
+                    profile_view_sources_whatsapp: { $sum: '$metrics.profile_view_sources.whatsapp' },
+                    profile_view_sources_link: { $sum: '$metrics.profile_view_sources.link' },
+                    profile_view_sources_telegram: { $sum: '$metrics.profile_view_sources.telegram' },
+                    profile_view_sources_twitter: { $sum: '$metrics.profile_view_sources.twitter' },
+                    profile_view_sources_share: { $sum: '$metrics.profile_view_sources.share' },
+                    profile_view_sources_search: { $sum: '$metrics.profile_view_sources.search' },
+                    profile_view_sources_home: { $sum: '$metrics.profile_view_sources.home' },
+                    profile_view_sources_menu_page: { $sum: '$metrics.profile_view_sources.menu_page' },
+                    profile_view_sources_direct_url: { $sum: '$metrics.profile_view_sources.direct_url' },
+                    profile_view_sources_other: { $sum: '$metrics.profile_view_sources.other' },
+
+                    // Menu view sources
+                    menu_view_sources_qr_scan: { $sum: '$metrics.menu_view_sources.qr_scan' },
+                    menu_view_sources_whatsapp: { $sum: '$metrics.menu_view_sources.whatsapp' },
+                    menu_view_sources_link: { $sum: '$metrics.menu_view_sources.link' },
+                    menu_view_sources_telegram: { $sum: '$metrics.menu_view_sources.telegram' },
+                    menu_view_sources_twitter: { $sum: '$metrics.menu_view_sources.twitter' },
+                    menu_view_sources_share: { $sum: '$metrics.menu_view_sources.share' },
+                    menu_view_sources_search: { $sum: '$metrics.menu_view_sources.search' },
+                    menu_view_sources_home: { $sum: '$metrics.menu_view_sources.home' },
+                    menu_view_sources_profile_page: { $sum: '$metrics.menu_view_sources.profile_page' },
+                    menu_view_sources_direct_url: { $sum: '$metrics.menu_view_sources.direct_url' },
+                    menu_view_sources_other: { $sum: '$metrics.menu_view_sources.other' },
                 },
             },
         ]);
@@ -201,12 +227,71 @@ export const getOutletAnalyticsSummary = async (req: Request, res: Response) => 
             total_profile_views: 0,
             total_profile_views_qr: 0,
             unique_sessions: 0,
+            profile_view_sources_qr_scan: 0,
+            profile_view_sources_whatsapp: 0,
+            profile_view_sources_link: 0,
+            profile_view_sources_telegram: 0,
+            profile_view_sources_twitter: 0,
+            profile_view_sources_share: 0,
+            profile_view_sources_search: 0,
+            profile_view_sources_home: 0,
+            profile_view_sources_menu_page: 0,
+            profile_view_sources_direct_url: 0,
+            profile_view_sources_other: 0,
+            menu_view_sources_qr_scan: 0,
+            menu_view_sources_whatsapp: 0,
+            menu_view_sources_link: 0,
+            menu_view_sources_telegram: 0,
+            menu_view_sources_twitter: 0,
+            menu_view_sources_share: 0,
+            menu_view_sources_search: 0,
+            menu_view_sources_home: 0,
+            menu_view_sources_profile_page: 0,
+            menu_view_sources_direct_url: 0,
+            menu_view_sources_other: 0,
+        };
+
+        // Restructure source data for easier frontend consumption
+        const profile_view_sources = {
+            qr_scan: summary.profile_view_sources_qr_scan,
+            whatsapp: summary.profile_view_sources_whatsapp,
+            link: summary.profile_view_sources_link,
+            telegram: summary.profile_view_sources_telegram,
+            twitter: summary.profile_view_sources_twitter,
+            share: summary.profile_view_sources_share,
+            search: summary.profile_view_sources_search,
+            home: summary.profile_view_sources_home,
+            menu_page: summary.profile_view_sources_menu_page,
+            direct_url: summary.profile_view_sources_direct_url,
+            other: summary.profile_view_sources_other,
+        };
+
+        const menu_view_sources = {
+            qr_scan: summary.menu_view_sources_qr_scan,
+            whatsapp: summary.menu_view_sources_whatsapp,
+            link: summary.menu_view_sources_link,
+            telegram: summary.menu_view_sources_telegram,
+            twitter: summary.menu_view_sources_twitter,
+            share: summary.menu_view_sources_share,
+            search: summary.menu_view_sources_search,
+            home: summary.menu_view_sources_home,
+            profile_page: summary.menu_view_sources_profile_page,
+            direct_url: summary.menu_view_sources_direct_url,
+            other: summary.menu_view_sources_other,
         };
 
         return sendSuccess(res, {
             window: { range: range || '7d', start, end },
             outlet,
-            summary,
+            summary: {
+                total_menu_views: summary.total_menu_views,
+                total_menu_views_qr: summary.total_menu_views_qr,
+                total_profile_views: summary.total_profile_views,
+                total_profile_views_qr: summary.total_profile_views_qr,
+                unique_sessions: summary.unique_sessions,
+                profile_view_sources,
+                menu_view_sources,
+            },
         });
     } catch (error: any) {
         console.error('[getOutletAnalyticsSummary] Error:', error);

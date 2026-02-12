@@ -36,6 +36,7 @@ export function startOutletAnalyticsAggregation() {
                 event_type: '$event_type',
                 device_type: '$device_type',
                 hour: { $hour: '$timestamp' },
+                source: '$source', // Group by source for breakdown
                 is_qr: {
                   $cond: [
                     { $in: ['$source', ['qr', 'QR', 'qrcode', 'qr_code', 'qr_scan']] },
@@ -96,6 +97,62 @@ export function startOutletAnalyticsAggregation() {
           };
         });
 
+        // Helper function to aggregate source counts
+        const aggregateSourceCounts = (eventType: string) => {
+          const sourceGroups = groups.filter((g: any) => g._id.event_type === eventType);
+          const sourceCounts: any = {
+            qr_scan: 0,
+            whatsapp: 0,
+            link: 0,
+            telegram: 0,
+            twitter: 0,
+            share: 0,
+            search: 0,
+            home: 0,
+            menu_page: 0,
+            profile_page: 0,
+            direct_url: 0,
+            other: 0,
+          };
+
+          sourceGroups.forEach((g: any) => {
+            const source = (g._id.source || 'other').toLowerCase();
+
+            // Normalize source values
+            if (source === 'qr' || source === 'qr_scan' || source === 'qr_code' || source === 'qrcode') {
+              sourceCounts.qr_scan += g.count;
+            } else if (source === 'whatsapp') {
+              sourceCounts.whatsapp += g.count;
+            } else if (source === 'link') {
+              sourceCounts.link += g.count;
+            } else if (source === 'telegram') {
+              sourceCounts.telegram += g.count;
+            } else if (source === 'twitter' || source === 'x') {
+              sourceCounts.twitter += g.count;
+            } else if (source === 'share') {
+              sourceCounts.share += g.count;
+            } else if (source === 'search') {
+              sourceCounts.search += g.count;
+            } else if (source === 'home') {
+              sourceCounts.home += g.count;
+            } else if (source === 'menu_page') {
+              sourceCounts.menu_page += g.count;
+            } else if (source === 'profile_page') {
+              sourceCounts.profile_page += g.count;
+            } else if (source === 'direct_url') {
+              sourceCounts.direct_url += g.count;
+            } else {
+              sourceCounts.other += g.count;
+            }
+          });
+
+          return sourceCounts;
+        };
+
+        // Calculate source breakdowns
+        const profile_view_sources = aggregateSourceCounts('profile_view');
+        const menu_view_sources = aggregateSourceCounts('menu_view');
+
         await OutletAnalyticsSummary.findOneAndUpdate(
           { outlet_id: outlet._id, date: yesterdayUtc },
           {
@@ -108,6 +165,8 @@ export function startOutletAnalyticsAggregation() {
                 qr_profile_views,
                 unique_sessions: allUniqueSessions.size,
                 view_to_menu_rate: parseFloat(view_to_menu_rate.toFixed(2)),
+                profile_view_sources,
+                menu_view_sources,
               },
               device_breakdown,
               hourly_breakdown,
