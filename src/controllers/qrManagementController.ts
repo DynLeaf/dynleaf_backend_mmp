@@ -83,7 +83,10 @@ export const getOutletQRConfig = async (req: Request, res: Response) => {
         const outlet = await Outlet.findOne({
             _id: outletId,
             approval_status: 'APPROVED'
-        }).select('name slug').lean();
+        })
+            .populate('brand_id', 'name')
+            .select('name slug brand_id')
+            .lean();
 
         if (!outlet) {
             return res.status(404).json({
