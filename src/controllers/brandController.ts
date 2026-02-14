@@ -555,11 +555,17 @@ export const getBrandById = async (req: Request, res: Response) => {
 export const updateBrandTheme = async (req: AuthRequest, res: Response) => {
     try {
         const { brandId } = req.params;
-        const { primary_color } = req.body;
+        const { primary_color, secondary_color } = req.body;
 
-        // Validate hex color format
-        if (!primary_color || !/^#[0-9A-F]{6}$/i.test(primary_color)) {
-            return sendError(res, 'Invalid color format. Please provide a valid hex color (e.g., #FF5733)', null, 400);
+        // Validate hex color format (allow null/undefined for removal)
+        const hexColorRegex = /^#[0-9A-F]{6}$/i;
+
+        if (primary_color !== null && primary_color !== undefined && primary_color !== '' && !hexColorRegex.test(primary_color)) {
+            return sendError(res, 'Invalid primary color format. Must be a valid hex color (e.g., #FF5733)', null, 400);
+        }
+
+        if (secondary_color !== null && secondary_color !== undefined && secondary_color !== '' && !hexColorRegex.test(secondary_color)) {
+            return sendError(res, 'Invalid secondary color format. Must be a valid hex color (e.g., #FFFFFF)', null, 400);
         }
 
         // Find the brand
@@ -576,14 +582,22 @@ export const updateBrandTheme = async (req: AuthRequest, res: Response) => {
         // TODO: Add authorization check to ensure user owns this brand
         // For now, we'll allow any authenticated user (will be secured later)
 
-        // Update brand theme
+        // Update brand theme with both colors (empty string means color removed)
+        const updateData: any = {};
+        if (primary_color !== undefined) {
+            updateData.primary_color = primary_color || null;
+        }
+        if (secondary_color !== undefined) {
+            updateData.secondary_color = secondary_color || null;
+        }
+
         brand.brand_theme = {
             ...brand.brand_theme,
-            primary_color
+            ...updateData
         };
         await brand.save();
 
-        return sendSuccess(res, { brand_theme: brand.brand_theme }, 'Brand color updated successfully');
+        return sendSuccess(res, { brand_theme: brand.brand_theme }, 'Brand theme updated successfully');
     } catch (error: any) {
         console.error('Update brand theme error:', error);
         return sendError(res, error.message || 'Failed to update brand theme');
