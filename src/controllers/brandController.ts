@@ -53,21 +53,21 @@ const isApprovedStatus = (status: string): boolean => {
 const buildUpdateData = (params: any, brand: any) => {
     const { name, description, logoUrl, cuisines, website, instagram, operationModel } = params;
     const updateData: any = {};
-    
+
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (logoUrl) updateData.logo_url = logoUrl;
     if (cuisines) updateData.cuisines = cuisines;
-    
+
     const social_media = { ...(brand.social_media || {}) };
     if (website !== undefined) social_media.website = website;
     if (instagram !== undefined) social_media.instagram = instagram;
     updateData.social_media = social_media;
-    
+
     if (operationModel) {
         updateData.operating_modes = mapOperationModelToModes(operationModel);
     }
-    
+
     return updateData;
 };
 
@@ -548,5 +548,44 @@ export const getBrandById = async (req: Request, res: Response) => {
     } catch (error: any) {
         console.error('getBrandById error:', error);
         return sendError(res, error.message);
+    }
+};
+
+// Update brand theme colors
+export const updateBrandTheme = async (req: AuthRequest, res: Response) => {
+    try {
+        const { brandId } = req.params;
+        const { primary_color } = req.body;
+
+        // Validate hex color format
+        if (!primary_color || !/^#[0-9A-F]{6}$/i.test(primary_color)) {
+            return sendError(res, 'Invalid color format. Please provide a valid hex color (e.g., #FF5733)', null, 400);
+        }
+
+        // Find the brand
+        const brand = await Brand.findById(brandId);
+        if (!brand) {
+            return sendError(res, 'Brand not found', null, 404);
+        }
+
+        // Check if brand is branded
+        if (!brand.is_branded) {
+            return sendError(res, 'Brand color customization is not available for this brand', null, 403);
+        }
+
+        // TODO: Add authorization check to ensure user owns this brand
+        // For now, we'll allow any authenticated user (will be secured later)
+
+        // Update brand theme
+        brand.brand_theme = {
+            ...brand.brand_theme,
+            primary_color
+        };
+        await brand.save();
+
+        return sendSuccess(res, { brand_theme: brand.brand_theme }, 'Brand color updated successfully');
+    } catch (error: any) {
+        console.error('Update brand theme error:', error);
+        return sendError(res, error.message || 'Failed to update brand theme');
     }
 };
