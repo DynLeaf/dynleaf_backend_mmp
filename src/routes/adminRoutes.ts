@@ -751,6 +751,32 @@ router.patch("/brands/:id/toggle-featured", adminAuth, async (req: AuthRequest, 
   }
 });
 
+// Toggle brand branded status
+router.patch("/brands/:id/toggle-branded", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const brand = await Brand.findById(req.params.id);
+
+    if (!brand) {
+      return sendError(res, "Brand not found", null, 404);
+    }
+
+    const updatedBrand = await Brand.findByIdAndUpdate(
+      req.params.id,
+      { is_branded: !brand.is_branded },
+      { new: true, runValidators: false }
+    );
+
+    return sendSuccess(
+      res,
+      { is_branded: updatedBrand?.is_branded },
+      `Brand is now ${updatedBrand?.is_branded ? "branded" : "not branded"}`
+    );
+  } catch (error: any) {
+    console.error("Toggle branded error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // Toggle compliance verification status
 router.patch("/compliance/:id/toggle-verification", adminAuth, async (req: AuthRequest, res) => {
   try {

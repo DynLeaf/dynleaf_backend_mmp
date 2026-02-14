@@ -29,6 +29,11 @@ export interface IBrand extends Document {
     };
     is_featured: boolean;
     is_active: boolean;
+    is_branded: boolean;
+    brand_theme?: {
+        primary_color?: string;
+        secondary_color?: string;
+    };
 }
 
 const brandSchema = new Schema<IBrand>({
@@ -59,7 +64,12 @@ const brandSchema = new Schema<IBrand>({
         allow_cross_user_sync: { type: Boolean, default: false }
     },
     is_featured: { type: Boolean, default: false },
-    is_active: { type: Boolean, default: true }
+    is_active: { type: Boolean, default: true },
+    is_branded: { type: Boolean, default: false },
+    brand_theme: {
+        primary_color: String,
+        secondary_color: String
+    }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 export const Brand = mongoose.model<IBrand>('Brand', brandSchema);
