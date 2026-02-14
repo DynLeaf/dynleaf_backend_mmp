@@ -526,7 +526,7 @@ export const getBrandById = async (req: Request, res: Response) => {
         }
 
         const brand = await Brand.findById(brandId)
-            .select('name slug logo_url description cuisines social_media verification_status');
+            .select('name slug logo_url description cuisines social_media verification_status is_branded brand_theme');
 
         if (!brand) {
             return sendError(res, 'Brand not found', null, 404);
