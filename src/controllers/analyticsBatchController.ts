@@ -175,7 +175,6 @@ const createOfferBulkOps = (updates: Record<string, any>) => {
     }));
 };
 
-<<<<<<< Updated upstream
 // ============================================================================
 // DAILY UNIQUENESS CHECKING
 // ============================================================================
@@ -243,8 +242,6 @@ const checkItemViewExistsToday = async (
     }
 };
 
-=======
->>>>>>> Stashed changes
 export const processAnalyticsBatch = async (req: Request, res: Response) => {
     try {
         const { events, metadata } = req.body;
@@ -265,7 +262,6 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
 
             if (isItemEvent(type)) {
                 const itemEvent = createFoodItemEvent(baseData, payload, type);
-<<<<<<< Updated upstream
                 if (itemEvent) {
                     // Check for daily uniqueness for item_view events
                     if (type === 'item_view') {
@@ -298,12 +294,6 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
                     }
                     outletEvents.push(outletEvent);
                 }
-=======
-                if (itemEvent) foodItemEvents.push(itemEvent);
-            } else if (isOutletEvent(type)) {
-                const outletEvent = createOutletEvent(baseData, payload, type);
-                if (outletEvent) outletEvents.push(outletEvent);
->>>>>>> Stashed changes
             } else if (isPromoEvent(type)) {
                 const promoEvent = createPromoEvent(baseData, payload, type);
                 if (promoEvent) promotionEvents.push(promoEvent);
