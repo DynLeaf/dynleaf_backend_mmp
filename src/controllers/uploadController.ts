@@ -3,10 +3,7 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthRequest } from '../middleware/authMiddleware.js';
 import { sendSuccess, sendError } from '../utils/response.js';
-<<<<<<< Updated upstream
 import { getS3Service } from '../services/s3Service.js';
-=======
->>>>>>> Stashed changes
 
 type UploadAssetType =
     | 'brand_logo'

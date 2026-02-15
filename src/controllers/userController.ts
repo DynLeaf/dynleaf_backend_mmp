@@ -4,10 +4,7 @@ import { Follow } from '../models/Follow.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
-<<<<<<< Updated upstream
 import { getS3Service } from '../services/s3Service.js';
-=======
->>>>>>> Stashed changes
 
 // Constants
 type UploadFolder = 'brands' | 'outlets' | 'avatars' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food' | 'menu' | 'temp' | 'stories';
@@ -54,7 +51,6 @@ const isValidUrl = (input: string): boolean => {
     return input.startsWith(HTTP_PREFIX) || input.startsWith(HTTPS_PREFIX) || input.startsWith(UPLOADS_PREFIX);
 };
 
-<<<<<<< Updated upstream
 const processImageInput = async (input: string, folder: UploadFolder, userId: string): Promise<string> => {
     if (isBase64Image(input)) {
         try {
@@ -84,12 +80,6 @@ const processImageInput = async (input: string, folder: UploadFolder, userId: st
         } catch (error: any) {
             throw new Error(`S3 upload failed: ${error.message}`);
         }
-=======
-const processImageInput = async (input: string, folder: UploadFolder): Promise<string> => {
-    if (isBase64Image(input)) {
-        const uploadResult = await saveBase64Image(input, folder);
-        return uploadResult.url;
->>>>>>> Stashed changes
     } else if (isValidUrl(input)) {
         return input;
     }
@@ -146,7 +136,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         if (bio !== undefined) updateData.bio = bio;
         
         if (typeof avatar_url === 'string') {
-<<<<<<< Updated upstream
             // Handle different avatar input types:
             // 1. S3 key (e.g., "avatars/userId/file.webp") - store as-is
             // 2. Base64 image - upload and store key
@@ -156,12 +145,6 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
                 // Base64 image - upload to S3 and get key
                 try {
                     updateData.avatar_url = await processImageInput(avatar_url, AVATAR_UPLOAD_FOLDER, userId);
-=======
-            if (isBase64Image(avatar_url)) {
-                try {
-                    const uploadResult = await saveBase64Image(avatar_url, AVATAR_UPLOAD_FOLDER);
-                    updateData.avatar_url = uploadResult.url;
->>>>>>> Stashed changes
                 } catch (uploadError) {
                     console.error('Error uploading avatar:', uploadError);
                     return sendError(res, ERROR_MESSAGES.AVATAR_UPLOAD_FAILED, 'Image upload failed', 400);
@@ -223,11 +206,7 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
 
         let avatarUrl: string;
         try {
-<<<<<<< Updated upstream
             avatarUrl = await processImageInput(input, AVATAR_UPLOAD_FOLDER, userId);
-=======
-            avatarUrl = await processImageInput(input, AVATAR_UPLOAD_FOLDER);
->>>>>>> Stashed changes
         } catch (error) {
             return sendError(res, 'Invalid image data', ERROR_MESSAGES.INVALID_IMAGE_FORMAT, 400);
         }

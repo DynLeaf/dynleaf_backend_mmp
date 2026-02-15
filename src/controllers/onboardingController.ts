@@ -8,6 +8,7 @@ import { OnboardingSession } from '../models/OnboardingSession.js';
 import { Compliance } from '../models/Compliance.js';
 import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
+import { saveBase64Image } from '../utils/fileUpload.js';
 
 // Constants
 const VALID_MENU_STRATEGIES = ['brand', 'outlet'];

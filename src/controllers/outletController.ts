@@ -14,6 +14,7 @@ import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services
 import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
 import { safeDeleteFromCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
+import { saveBase64Image } from '../utils/fileUpload.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -79,7 +80,6 @@ const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: num
 
 const handleImageUpload = async (imageInput: string, folder: string, prefix?: string): Promise<string> => {
     if (imageInput.startsWith('data:')) {
-<<<<<<< Updated upstream
         const s3Service = getS3Service();
         const matches = imageInput.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
         if (!matches || matches.length !== 3) {
@@ -100,16 +100,6 @@ const handleImageUpload = async (imageInput: string, folder: string, prefix?: st
     if (imageInput.startsWith('http://') || imageInput.startsWith('https://') || imageInput.startsWith('/uploads/')) {
         return imageInput;
     }
-=======
-        const uploadResult = await saveBase64Image(imageInput, folder as any, prefix);
-        return uploadResult.url;
-    }
-    
-    if (imageInput.startsWith('http://') || imageInput.startsWith('https://') || imageInput.startsWith('/uploads/')) {
-        return imageInput;
-    }
-    
->>>>>>> Stashed changes
     throw new Error('Invalid image URL');
 };
 
