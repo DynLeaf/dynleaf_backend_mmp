@@ -3,6 +3,10 @@ import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthRequest } from '../middleware/authMiddleware.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+<<<<<<< Updated upstream
+import { getS3Service } from '../services/s3Service.js';
+=======
+>>>>>>> Stashed changes
 
 type UploadAssetType =
     | 'brand_logo'
@@ -148,3 +152,114 @@ export const getCloudinarySignature = async (req: AuthRequest, res: Response) =>
         return sendError(res, 'Failed to generate signature', error?.message || 'Unknown error');
     }
 };
+
+/**
+ * Generate S3 presigned URL for browser uploads
+ * Replaces Cloudinary signature generation
+ */
+export const getS3Signature = async (req: AuthRequest, res: Response) => {
+    try {
+        const s3Service = getS3Service();
+        const { assetType, mimeType } = (req.body || {}) as { assetType?: UploadAssetType; mimeType?: string };
+
+        if (!isValidAssetType(assetType)) {
+            return sendError(res, 'Invalid assetType',
+                `assetType must be one of: ${VALID_ASSET_TYPES.join(', ')}`, 400);
+        }
+
+        const userId = req.user?.id || 'anonymous';
+        
+        // Determine content type
+        const contentType = mimeType || 'application/octet-stream';
+        
+        // Set file size limits based on asset type
+        const fileSizeLimits: Record<UploadAssetType, number> = {
+            brand_logo: 104857600, // 100MB
+            outlet_cover: 104857600, // 100MB
+            gallery_interior: 104857600, // 100MB
+            gallery_exterior: 104857600, // 100MB
+            gallery_food: 104857600, // 100MB
+            menu_item: 104857600, // 100MB
+            story: 524288000, // 500MB for videos
+            avatar: 104857600, // 100MB
+            reel_thumbnail: 104857600 // 100MB
+        };
+
+        const maxFileSize = fileSizeLimits[assetType];
+
+        // Generate presigned URL for direct S3 upload
+        const presignedResponse = await s3Service.generatePresignedPostUrl(
+            assetType,
+            userId,
+            contentType,
+            maxFileSize
+        );
+
+        return sendSuccess(res, {
+            uploadUrl: presignedResponse.uploadUrl,
+            s3Key: presignedResponse.s3Key,
+            bucketName: presignedResponse.bucketName,
+            region: process.env.AWS_REGION || 'ap-south-2',
+            provider: 's3',
+            maxFileSize,
+            expiresIn: 900 // 15 minutes
+        }, 'S3 presigned URL generated');
+    } catch (error: any) {
+        return sendError(res, 'Failed to generate S3 signature', error?.message || 'Unknown error', 500);
+    }
+};
+
+/**
+ * Upload file to S3 via backend (bypasses CORS issues)
+ * Frontend sends base64-encoded file, backend uploads to S3
+ * Returns ONLY the S3 key, not the full URL
+ */
+export const uploadViaBackend = async (req: AuthRequest, res: Response) => {
+    try {
+        const s3Service = getS3Service();
+        const { assetType, fileBuffer, fileName, mimeType } = (req.body || {}) as {
+            assetType?: UploadAssetType;
+            fileBuffer?: string;
+            fileName?: string;
+            mimeType?: string;
+        };
+
+        if (!isValidAssetType(assetType)) {
+            return sendError(res, 'Invalid assetType',
+                `assetType must be one of: ${VALID_ASSET_TYPES.join(', ')}`, 400);
+        }
+
+        if (!fileBuffer || !fileName) {
+            return sendError(res, 'Missing required fields',
+                'fileBuffer and fileName are required', 400);
+        }
+
+        const userId = req.user?.id || 'anonymous';
+
+        // Convert base64 buffer to Buffer
+        const buffer = Buffer.from(fileBuffer, 'base64');
+
+        // Upload to S3
+        const uploadedFile = await s3Service.uploadBuffer(
+            buffer,
+            assetType,
+            userId,
+            fileName,
+            mimeType || 'application/octet-stream'
+        );
+
+        // Return ONLY the S3 key, not the full URL
+        // Database stores keys, URLs are generated on-demand via S3UrlGenerator
+        return sendSuccess(res, {
+            s3Key: uploadedFile.key, // Store this in database
+            assetType,
+            size: uploadedFile.size,
+            mimeType: uploadedFile.mimeType,
+            uploadedAt: new Date().toISOString()
+        }, 'File uploaded successfully via backend');
+
+    } catch (error: any) {
+        return sendError(res, 'Backend upload failed', error?.message || 'Unknown error', 500);
+    }
+};
+

@@ -26,7 +26,7 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
         let title = '';
         let description = '';
-        let brandLogo = '/dynleaf-logo.svg';
+        let brandLogo = '/dynleaf-logo.png';
         let brandName = 'DynLeaf';
         let pageUrlPath = '';
 
@@ -70,7 +70,7 @@ export const getSocialMeta = async (req: Request, res: Response) => {
 
             const brand: any = outlet.brand_id;
             brandName = outlet.name || brand?.name || 'Restaurant';
-            brandLogo = brand?.logo_url || '/dynleaf-logo.svg';
+            brandLogo = brand?.logo_url || '/dynleaf-logo.png';
 
             title = type === 'menu'
                 ? `${brandName} Menu`

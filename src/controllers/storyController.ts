@@ -6,7 +6,7 @@ import { StoryView } from '../models/StoryView.js';
 import { Outlet } from '../models/Outlet.js';
 import { Subscription } from '../models/Subscription.js';
 import { sendSuccess, sendError } from '../utils/response.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
+import { getS3Service } from '../services/s3Service.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
@@ -115,8 +115,22 @@ export const createStory = async (req: AuthRequest, res: Response) => {
         const processedSlides = await Promise.all(slides.map(async (slide: any, index: number) => {
             let mediaUrl = slide.mediaUrl;
             if (mediaUrl && mediaUrl.startsWith('data:')) {
-                const uploadResult = await saveBase64Image(mediaUrl, 'stories');
-                mediaUrl = uploadResult.url;
+                const s3Service = getS3Service();
+                const matches = mediaUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                if (!matches || matches.length !== 3) {
+                    throw new Error('Invalid base64 string');
+                }
+                const mimeType = matches[1];
+                const base64Content = matches[2];
+                const buffer = Buffer.from(base64Content, 'base64');
+                const uploadedFile = await s3Service.uploadBuffer(
+                    buffer,
+                    'story',
+                    slide.outletId || 'unknown',
+                    `story-${Date.now()}`,
+                    mimeType
+                );
+                mediaUrl = uploadedFile.key;
             }
 
             const imagePosition = normalizePoint(slide.imagePosition);

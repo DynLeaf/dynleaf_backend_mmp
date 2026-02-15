@@ -7,6 +7,8 @@ import { startOutletAnalyticsAggregation } from './jobs/aggregateOutletAnalytics
 import { startFoodItemAnalyticsAggregation } from './jobs/aggregateFoodItemAnalytics.js';
 import { fallbackRetryJob } from './jobs/fallbackRetryJob.js';
 import { InsightsCronService } from './services/insightsCronService.js';
+import { initializeS3Service } from './services/s3Service.js';
+
 const PORT = Number(process.env.PORT) || 5005;
 
 const startServer = async () => {
@@ -14,6 +16,32 @@ const startServer = async () => {
         console.log('---------------------------------------------------------');
         console.log('🚀 [DIAGNOSTIC] Backend Starting - Logic Updated Jan 24');
         console.log('---------------------------------------------------------');
+        
+        // Initialize S3 service if credentials are provided
+        if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET_NAME) {
+            try {
+                const s3Service = initializeS3Service({
+                    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+                    region: process.env.AWS_REGION || 'ap-south-2',
+                    bucketName: process.env.AWS_S3_BUCKET_NAME,
+                    cdnUrl: process.env.AWS_S3_CDN_URL
+                });
+                
+                // Validate bucket connectivity
+                const isValid = await s3Service.validateBucket();
+                if (isValid) {
+                    console.log('✅ S3 service initialized successfully');
+                } else {
+                    console.warn('⚠️ S3 bucket validation failed - uploads may not work');
+                }
+            } catch (error: any) {
+                console.warn('⚠️ Failed to initialize S3 service:', error.message);
+            }
+        } else {
+            console.warn('⚠️ AWS credentials not found - S3 uploads disabled');
+        }
+
         await connectDB();
         
 
@@ -41,3 +69,4 @@ const startServer = async () => {
 };
 
 startServer();
+

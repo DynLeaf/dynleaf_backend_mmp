@@ -464,12 +464,24 @@ export const uploadFoodItemImage = async (req: Request, res: Response) => {
 
         let finalUrl: string;
         if (input.startsWith('data:')) {
-            // Use existing file upload utility (legacy base64 flow)
-            const { saveBase64Image } = await import('../utils/fileUpload.js');
-            const uploadResult = await saveBase64Image(input, 'menu');
-            finalUrl = uploadResult.url;
+            // Upload to S3
+            const s3Service = require('../services/s3Service.js').getS3Service();
+            const matches = input.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (!matches || matches.length !== 3) {
+                return sendError(res, 'Invalid base64 string', 400);
+            }
+            const mimeType = matches[1];
+            const base64Content = matches[2];
+            const buffer = Buffer.from(base64Content, 'base64');
+            const uploadedFile = await s3Service.uploadBuffer(
+                buffer,
+                'menu',
+                foodItemId,
+                `menu-${Date.now()}`,
+                mimeType
+            );
+            finalUrl = uploadedFile.key;
         } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
-            // New flow: client uploads to Cloudinary and sends us the hosted URL
             finalUrl = input;
         } else {
             return sendError(res, 'Invalid image data', 400);
@@ -564,11 +576,14 @@ export const createCombo = async (req: Request, res: Response) => {
         }));
 
 
+<<<<<<< Updated upstream
         const { originalPrice, discountedPrice } = await computeComboPricing(normalizedItems, discountPercentage);
 
         // ALWAYS use the price sent from frontend (never recalculate from percentage)
         const finalPrice = Math.round(price || 0);
 
+=======
+>>>>>>> Stashed changes
         const outlet = await getActiveOutlet(brandId);
 
         const combo = await Combo.create({
@@ -703,6 +718,7 @@ export const deleteCombo = async (req: Request, res: Response) => {
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {
+<<<<<<< Updated upstream
 
         const {
             latitude,
@@ -711,6 +727,9 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             page = String(DEFAULT_TRENDING_PAGE),
             radius = String(DEFAULT_RADIUS)
         } = req.query;
+=======
+        const { latitude, longitude, limit = String(DEFAULT_TRENDING_LIMIT), page = String(DEFAULT_TRENDING_PAGE), radius = String(DEFAULT_RADIUS) } = req.query;
+>>>>>>> Stashed changes
 
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, 400);
@@ -718,6 +737,13 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
         const lat = parseFloat(latitude as string);
         const lng = parseFloat(longitude as string);
+<<<<<<< Updated upstream
+=======
+        const pageNum = parseInt(page as string) || DEFAULT_TRENDING_PAGE;
+        const limitNum = parseInt(limit as string) || DEFAULT_TRENDING_LIMIT;
+        const skip = (pageNum - 1) * limitNum;
+        const radiusNum = parseInt(radius as string) || DEFAULT_RADIUS;
+>>>>>>> Stashed changes
 
         const pageNum = parseInt(page as string) || DEFAULT_TRENDING_PAGE;
         const limitNum = parseInt(limit as string) || DEFAULT_TRENDING_LIMIT;
@@ -805,9 +831,13 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                         ]
                     },
                     distance_bucket: {
+<<<<<<< Updated upstream
                         $floor: {
                             $divide: ['$distance', DISTANCE_BUCKET_SIZE]
                         }
+=======
+                        $floor: { $divide: ['$distance', DISTANCE_BUCKET_SIZE] }
+>>>>>>> Stashed changes
                     }
                 }
             },
@@ -964,6 +994,7 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
 
         const result = await FoodItem.aggregate(pipeline);
 
+<<<<<<< Updated upstream
         const metadata = result[0]?.metadata[0] || { total: 0 };
         const dishes = result[0]?.data || [];
 
@@ -973,6 +1004,23 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
         -----------------------------------*/
 
         const formatted = dishes.map((item: any) => ({
+=======
+        console.log(`🍽️ Returned ${dishes.length} trending dishes (Total: ${metadata.total})`);
+        console.log(`📊 Dishes with variants: ${dishes.filter((d: any) => d.variants && d.variants.length > 0).length}/${dishes.length}`);
+
+        // Variants are already populated via $lookup in aggregation pipeline
+        // Debug: Check if brand/outlet have slugs
+        if (dishes.length > 0) {
+            const firstDish = dishes[0];
+            console.log('🔍 First dish brand:', firstDish.brand);
+            console.log('🔍 First dish outlet:', firstDish.outlet);
+            console.log('🔍 Brand slug:', firstDish.brand?.slug);
+            console.log('🔍 Outlet slug:', firstDish.outlet?.slug);
+        }
+
+
+        const formattedItems = dishes.map((item: any) => ({
+>>>>>>> Stashed changes
             id: item._id,
             name: item.name,
             description: item.description,

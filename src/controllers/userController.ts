@@ -1,10 +1,13 @@
 import { Response } from 'express';
 import { User } from '../models/User.js';
 import { Follow } from '../models/Follow.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
 import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
+<<<<<<< Updated upstream
+import { getS3Service } from '../services/s3Service.js';
+=======
+>>>>>>> Stashed changes
 
 // Constants
 type UploadFolder = 'brands' | 'outlets' | 'avatars' | 'gallery' | 'gallery/interior' | 'gallery/exterior' | 'gallery/food' | 'menu' | 'temp' | 'stories';
@@ -51,10 +54,42 @@ const isValidUrl = (input: string): boolean => {
     return input.startsWith(HTTP_PREFIX) || input.startsWith(HTTPS_PREFIX) || input.startsWith(UPLOADS_PREFIX);
 };
 
+<<<<<<< Updated upstream
+const processImageInput = async (input: string, folder: UploadFolder, userId: string): Promise<string> => {
+    if (isBase64Image(input)) {
+        try {
+            const s3Service = getS3Service();
+            
+            // Extract base64 data and mime type
+            const matches = input.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (!matches || matches.length !== 3) {
+                throw new Error('Invalid base64 string');
+            }
+
+            const mimeType = matches[1];
+            const base64Content = matches[2];
+            const buffer = Buffer.from(base64Content, 'base64');
+
+            // Upload to S3 and return the key (not the URL)
+            const uploadedFile = await s3Service.uploadBuffer(
+                buffer,
+                folder === 'avatars' ? 'avatar' : folder as any,
+                userId,
+                `upload-${Date.now()}`,
+                mimeType
+            );
+
+            // Return S3 key, not URL
+            return uploadedFile.key;
+        } catch (error: any) {
+            throw new Error(`S3 upload failed: ${error.message}`);
+        }
+=======
 const processImageInput = async (input: string, folder: UploadFolder): Promise<string> => {
     if (isBase64Image(input)) {
         const uploadResult = await saveBase64Image(input, folder);
         return uploadResult.url;
+>>>>>>> Stashed changes
     } else if (isValidUrl(input)) {
         return input;
     }
@@ -109,17 +144,34 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         if (full_name !== undefined) updateData.full_name = full_name;
         if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
+        
         if (typeof avatar_url === 'string') {
+<<<<<<< Updated upstream
+            // Handle different avatar input types:
+            // 1. S3 key (e.g., "avatars/userId/file.webp") - store as-is
+            // 2. Base64 image - upload and store key
+            // 3. Full S3 URL - extract key and store
+            
+            if (isBase64Image(avatar_url)) {
+                // Base64 image - upload to S3 and get key
+                try {
+                    updateData.avatar_url = await processImageInput(avatar_url, AVATAR_UPLOAD_FOLDER, userId);
+=======
             if (isBase64Image(avatar_url)) {
                 try {
                     const uploadResult = await saveBase64Image(avatar_url, AVATAR_UPLOAD_FOLDER);
                     updateData.avatar_url = uploadResult.url;
+>>>>>>> Stashed changes
                 } catch (uploadError) {
                     console.error('Error uploading avatar:', uploadError);
                     return sendError(res, ERROR_MESSAGES.AVATAR_UPLOAD_FAILED, 'Image upload failed', 400);
                 }
-            } else {
+            } else if (avatar_url.startsWith('avatars/') || avatar_url.includes('/')) {
+                // S3 key or URL - store directly (could be key like "avatars/123/file.webp")
+                // or full URL which gets stored as-is for backward compatibility
                 updateData.avatar_url = avatar_url;
+            } else {
+                return sendError(res, 'Invalid avatar format', 'Avatar must be base64, S3 key, or URL', 400);
             }
         } else if (avatar_url !== undefined) {
             return sendError(res, ERROR_MESSAGES.INVALID_AVATAR, ERROR_MESSAGES.AVATAR_STRING_REQUIRED, 400);
@@ -171,7 +223,11 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
 
         let avatarUrl: string;
         try {
+<<<<<<< Updated upstream
+            avatarUrl = await processImageInput(input, AVATAR_UPLOAD_FOLDER, userId);
+=======
             avatarUrl = await processImageInput(input, AVATAR_UPLOAD_FOLDER);
+>>>>>>> Stashed changes
         } catch (error) {
             return sendError(res, 'Invalid image data', ERROR_MESSAGES.INVALID_IMAGE_FORMAT, 400);
         }

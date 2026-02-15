@@ -30,6 +30,7 @@ import placesRoutes from './routes/placesRoutes.js';
 import socialShareRoutes, { restaurantShareRouter } from './routes/socialShareRoutes.js';
 import './config/firebaseAdmin.js';
 import logger from './middleware/logger.js';
+import s3ResponseEnricher from './middleware/s3ResponseEnricher.js';
 import * as promotionController from './controllers/promotionController.js';
 import errorHandler from './middleware/errorMiddleware.js';
 import path from 'path';
@@ -68,6 +69,13 @@ app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Request logger (prints method, url, status and response time)
 app.use(logger);
+
+// S3 response enricher - automatically convert S3 keys to signed URLs
+app.use(s3ResponseEnricher({
+    imageFields: ['avatar', 'avatar_url', 'profileImage', 'image', 'coverImage', 'cover_image', 'logo', 'logo_url', 'bannerImage', 'banner_image'],
+    expirySeconds: 3600, // 1 hour
+    autoEnrich: true
+}));
 
 app.get('/v1/ping-test', (req, res) => res.json({ message: 'pong-test-UPDATED-JAN-24-16-05' }));
 

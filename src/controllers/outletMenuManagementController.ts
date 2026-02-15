@@ -1501,12 +1501,24 @@ export const uploadFoodItemImageForOutlet = async (req: Request, res: Response) 
 
         let finalUrl: string;
         if (input.startsWith('data:')) {
-            // Use existing file upload utility (legacy base64 flow)
-            const { saveBase64Image } = await import('../utils/fileUpload.js');
-            const uploadResult = await saveBase64Image(input, 'menu');
-            finalUrl = uploadResult.url;
+            // Upload to S3
+            const s3Service = require('../services/s3Service.js').getS3Service();
+            const matches = input.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (!matches || matches.length !== 3) {
+                return sendError(res, 'Invalid base64 string', 400);
+            }
+            const mimeType = matches[1];
+            const base64Content = matches[2];
+            const buffer = Buffer.from(base64Content, 'base64');
+            const uploadedFile = await s3Service.uploadBuffer(
+                buffer,
+                'menu',
+                foodItemId,
+                `menu-${Date.now()}`,
+                mimeType
+            );
+            finalUrl = uploadedFile.key;
         } else if (input.startsWith('http://') || input.startsWith('https://') || input.startsWith('/uploads/')) {
-            // New flow: client uploads to Cloudinary and sends us the hosted URL
             finalUrl = input;
         } else {
             return sendError(res, 'Invalid image data', 400);

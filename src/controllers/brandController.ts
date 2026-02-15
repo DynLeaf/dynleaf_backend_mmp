@@ -4,7 +4,7 @@ import { Outlet } from '../models/Outlet.js';
 import { User } from '../models/User.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as brandService from '../services/brandService.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
+import { getS3Service } from '../services/s3Service.js';
 import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
 import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
@@ -17,8 +17,27 @@ interface AuthRequest extends Request {
 const handleLogoUpload = async (logo: string, name: string): Promise<string> => {
     if (!logo) return logo;
     if (logo.startsWith('data:')) {
+<<<<<<< Updated upstream
+        const s3Service = getS3Service();
+        const matches = logo.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (!matches || matches.length !== 3) {
+            throw new Error('Invalid base64 string');
+        }
+        const mimeType = matches[1];
+        const base64Content = matches[2];
+        const buffer = Buffer.from(base64Content, 'base64');
+        const uploadedFile = await s3Service.uploadBuffer(
+            buffer,
+            'brand_logo',
+            name,
+            `logo-${Date.now()}`,
+            mimeType
+        );
+        return uploadedFile.key;
+=======
         const uploadResult = await saveBase64Image(logo, 'brands', name);
         return uploadResult.url;
+>>>>>>> Stashed changes
     }
     return logo;
 };
@@ -53,21 +72,37 @@ const isApprovedStatus = (status: string): boolean => {
 const buildUpdateData = (params: any, brand: any) => {
     const { name, description, logoUrl, cuisines, website, instagram, operationModel } = params;
     const updateData: any = {};
+<<<<<<< Updated upstream
 
+=======
+    
+>>>>>>> Stashed changes
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (logoUrl) updateData.logo_url = logoUrl;
     if (cuisines) updateData.cuisines = cuisines;
+<<<<<<< Updated upstream
 
+=======
+    
+>>>>>>> Stashed changes
     const social_media = { ...(brand.social_media || {}) };
     if (website !== undefined) social_media.website = website;
     if (instagram !== undefined) social_media.instagram = instagram;
     updateData.social_media = social_media;
+<<<<<<< Updated upstream
 
     if (operationModel) {
         updateData.operating_modes = mapOperationModelToModes(operationModel);
     }
 
+=======
+    
+    if (operationModel) {
+        updateData.operating_modes = mapOperationModelToModes(operationModel);
+    }
+    
+>>>>>>> Stashed changes
     return updateData;
 };
 

@@ -9,7 +9,7 @@ import { User } from '../models/User.js';
 import { Follow } from '../models/Follow.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import * as outletService from '../services/outletService.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
+import { getS3Service } from '../services/s3Service.js';
 import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
 import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
@@ -79,6 +79,28 @@ const calculateDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: num
 
 const handleImageUpload = async (imageInput: string, folder: string, prefix?: string): Promise<string> => {
     if (imageInput.startsWith('data:')) {
+<<<<<<< Updated upstream
+        const s3Service = getS3Service();
+        const matches = imageInput.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (!matches || matches.length !== 3) {
+            throw new Error('Invalid base64 string');
+        }
+        const mimeType = matches[1];
+        const base64Content = matches[2];
+        const buffer = Buffer.from(base64Content, 'base64');
+        const uploadedFile = await s3Service.uploadBuffer(
+            buffer,
+            folder,
+            prefix || 'unknown',
+            `img-${Date.now()}`,
+            mimeType
+        );
+        return uploadedFile.key;
+    }
+    if (imageInput.startsWith('http://') || imageInput.startsWith('https://') || imageInput.startsWith('/uploads/')) {
+        return imageInput;
+    }
+=======
         const uploadResult = await saveBase64Image(imageInput, folder as any, prefix);
         return uploadResult.url;
     }
@@ -87,6 +109,7 @@ const handleImageUpload = async (imageInput: string, folder: string, prefix?: st
         return imageInput;
     }
     
+>>>>>>> Stashed changes
     throw new Error('Invalid image URL');
 };
 

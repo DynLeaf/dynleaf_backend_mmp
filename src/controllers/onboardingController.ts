@@ -3,7 +3,7 @@ import { sendSuccess, sendError } from '../utils/response.js';
 import * as onboardingService from '../services/onboardingService.js';
 import * as brandService from '../services/brandService.js';
 import * as outletService from '../services/outletService.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
+import { getS3Service } from '../services/s3Service.js';
 import { OnboardingSession } from '../models/OnboardingSession.js';
 import { Compliance } from '../models/Compliance.js';
 import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
@@ -77,10 +77,25 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             let logoUrl = brand.logo;
             console.log('📸 Onboarding brand logo:', logoUrl ? `${logoUrl.substring(0, 50)}...` : 'No logo');
             if (logoUrl && logoUrl.startsWith('data:')) {
-                console.log('💾 Saving brand logo to brands folder...');
-                const uploadResult = await saveBase64Image(logoUrl, 'brands', brand.name);
-                logoUrl = uploadResult.url;
-                console.log('✅ Brand logo saved, URL:', logoUrl);
+                console.log('💾 Uploading brand logo to S3...');
+                const s3Service = getS3Service();
+                // Extract base64 data and mime type
+                const matches = logoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                if (!matches || matches.length !== 3) {
+                    throw new Error('Invalid base64 string');
+                }
+                const mimeType = matches[1];
+                const base64Content = matches[2];
+                const buffer = Buffer.from(base64Content, 'base64');
+                const uploadedFile = await s3Service.uploadBuffer(
+                    buffer,
+                    'brand_logo',
+                    brand._id?.toString?.() || 'unknown',
+                    `logo-${Date.now()}`,
+                    mimeType
+                );
+                logoUrl = uploadedFile.key;
+                console.log('✅ Brand logo uploaded to S3, key:', logoUrl);
             } else if (logoUrl) {
                 console.log('⚠️ Brand logo provided but not base64, using as-is:', logoUrl);
             }
