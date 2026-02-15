@@ -94,61 +94,61 @@ const determineResourceType = (assetType: UploadAssetType, mimeType?: string): '
   return assetTypeToResourceType[assetType];
 };
 
-export const getCloudinarySignature = async (req: AuthRequest, res: Response) => {
-    try {
-        const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-        const apiKey = process.env.CLOUDINARY_API_KEY;
-        const apiSecret = process.env.CLOUDINARY_API_SECRET;
+// export const getCloudinarySignature = async (req: AuthRequest, res: Response) => {
+//     try {
+//         const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+//         const apiKey = process.env.CLOUDINARY_API_KEY;
+//         const apiSecret = process.env.CLOUDINARY_API_SECRET;
 
-        if (!validateCloudinaryConfig(cloudName, apiKey, apiSecret)) {
-            return sendError(res, 'Cloudinary is not configured on server', 
-                'Missing CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET', 500);
-        }
+//         if (!validateCloudinaryConfig(cloudName, apiKey, apiSecret)) {
+//             return sendError(res, 'Cloudinary is not configured on server', 
+//                 'Missing CLOUDINARY_CLOUD_NAME/CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET', 500);
+//         }
 
-        const { assetType, mimeType } = (req.body || {}) as { assetType?: UploadAssetType; mimeType?: string };
+//         const { assetType, mimeType } = (req.body || {}) as { assetType?: UploadAssetType; mimeType?: string };
 
-        if (!isValidAssetType(assetType)) {
-            return sendError(res, 'Invalid assetType',
-                `assetType must be one of: ${VALID_ASSET_TYPES.join(', ')}`, 400);
-        }
+//         if (!isValidAssetType(assetType)) {
+//             return sendError(res, 'Invalid assetType',
+//                 `assetType must be one of: ${VALID_ASSET_TYPES.join(', ')}`, 400);
+//         }
 
-        const folder = assetTypeToFolder[assetType];
-        const resourceType = determineResourceType(assetType, mimeType);
+//         const folder = assetTypeToFolder[assetType];
+//         const resourceType = determineResourceType(assetType, mimeType);
 
-        const transformation =
-            resourceType === 'image' ? assetTypeToUploadTransformation[assetType as UploadAssetType] : undefined;
+//         const transformation =
+//             resourceType === 'image' ? assetTypeToUploadTransformation[assetType as UploadAssetType] : undefined;
 
-        const userId = req.user?.id || 'anonymous';
-        const publicId = `${folder}/${userId}/${uuidv4()}`;
-        const timestamp = Math.floor(Date.now() / 1000);
+//         const userId = req.user?.id || 'anonymous';
+//         const publicId = `${folder}/${userId}/${uuidv4()}`;
+//         const timestamp = Math.floor(Date.now() / 1000);
 
-        const signatureParams: Record<string, string | number> = {
-            folder,
-            public_id: publicId,
-            timestamp
-        };
+//         const signatureParams: Record<string, string | number> = {
+//             folder,
+//             public_id: publicId,
+//             timestamp
+//         };
 
-        if (transformation) {
-            signatureParams.transformation = transformation;
-        }
+//         if (transformation) {
+//             signatureParams.transformation = transformation;
+//         }
 
-        const signature = signCloudinaryParams(signatureParams, apiSecret!);
+//         const signature = signCloudinaryParams(signatureParams, apiSecret!);
 
-        return sendSuccess(res, {
-            cloudName,
-            apiKey,
-            timestamp,
-            signature,
-            folder,
-            publicId,
-            resourceType,
-            transformation,
-            uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
-        }, 'Signature generated');
-    } catch (error: any) {
-        return sendError(res, 'Failed to generate signature', error?.message || 'Unknown error');
-    }
-};
+//         return sendSuccess(res, {
+//             cloudName,
+//             apiKey,
+//             timestamp,
+//             signature,
+//             folder,
+//             publicId,
+//             resourceType,
+//             transformation,
+//             uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`
+//         }, 'Signature generated');
+//     } catch (error: any) {
+//         return sendError(res, 'Failed to generate signature', error?.message || 'Unknown error');
+//     }
+// };
 
 /**
  * Generate S3 presigned URL for browser uploads
