@@ -169,17 +169,17 @@ export const getS3Signature = async (req: AuthRequest, res: Response) => {
         // Determine content type
         const contentType = mimeType || 'application/octet-stream';
         
-        // Set file size limits based on asset type
+        // Set file size limits based on asset type (compressed images should be well under these)
         const fileSizeLimits: Record<UploadAssetType, number> = {
-            brand_logo: 104857600, // 100MB
-            outlet_cover: 104857600, // 100MB
-            gallery_interior: 104857600, // 100MB
-            gallery_exterior: 104857600, // 100MB
-            gallery_food: 104857600, // 100MB
-            menu_item: 104857600, // 100MB
-            story: 524288000, // 500MB for videos
-            avatar: 104857600, // 100MB
-            reel_thumbnail: 104857600 // 100MB
+            brand_logo: 10485760, // 10MB — logos should be well compressed
+            outlet_cover: 10485760, // 10MB
+            gallery_interior: 10485760, // 10MB
+            gallery_exterior: 10485760, // 10MB
+            gallery_food: 10485760, // 10MB
+            menu_item: 20971520, // 20MB — menu scans may include PDFs
+            story: 52428800, // 50MB for story images (videos removed)
+            avatar: 5242880, // 5MB — avatars are small
+            reel_thumbnail: 5242880 // 5MB — thumbnails are small
         };
 
         const maxFileSize = fileSizeLimits[assetType];
