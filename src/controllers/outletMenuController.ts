@@ -214,6 +214,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
 
         acc[categoryId].items.push({
           _id: item._id,
+          item_number: item.item_number,
           name: item.name,
           slug: item.slug,
           description: item.description,
@@ -260,6 +261,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       // Flat list for search/special sorting
       formattedMenu = menuItems.map(item => ({
         _id: item._id,
+        item_number: item.item_number,
         name: item.name,
         slug: item.slug,
         description: item.description,

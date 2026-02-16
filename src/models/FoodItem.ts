@@ -3,6 +3,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IFoodItem extends Document {
     outlet_id: mongoose.Types.ObjectId;
     category_id?: mongoose.Types.ObjectId;
+    item_number?: string;
     name: string;
     slug?: string;
     description?: string;
@@ -98,6 +99,7 @@ export interface IFoodItem extends Document {
 const foodItemSchema = new Schema<IFoodItem>({
     outlet_id: { type: Schema.Types.ObjectId, ref: 'Outlet', required: true, index: true },
     category_id: { type: Schema.Types.ObjectId, ref: 'Category' },
+    item_number: { type: String, trim: true },
     name: { type: String, required: true, trim: true },
     slug: { type: String },
     description: { type: String },

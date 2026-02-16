@@ -317,6 +317,8 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
         const { outletId } = req.params;
         const {
             name,
+            item_number,
+            itemNumber,
             description,
             categoryId,
             itemType,
@@ -344,6 +346,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
         } = req.body;
 
         const trimmedName = typeof name === 'string' ? name.trim() : '';
+        const normalizedItemNumber = normalizeString(item_number ?? itemNumber) || undefined;
         if (!trimmedName) {
             return sendError(res, 'Item name is required', null, 400);
         }
@@ -393,6 +396,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
         const foodItemData: any = {
             outlet_id: outletId,
             category_id: categoryId,
+            item_number: normalizedItemNumber,
             name: trimmedName,
             description,
             item_type: itemType || 'food',
@@ -430,6 +434,7 @@ export const createFoodItemForOutlet = async (req: Request, res: Response) => {
         return sendSuccess(res, {
             id: foodItem._id,
             categoryId: foodItem.category_id ? foodItem.category_id.toString() : null,
+            item_number: (foodItem as any).item_number,
             addonIds: foodItem.addon_ids ? foodItem.addon_ids.map((a: any) => a.toString()) : [],
             name: foodItem.name,
             description: foodItem.description,
@@ -509,6 +514,7 @@ export const listFoodItemsForOutlet = async (req: Request, res: Response) => {
         const mappedItems = items.map(i => ({
             id: i._id,
             categoryId: i.category_id ? i.category_id.toString() : null,
+            item_number: (i as any).item_number,
             addonIds: i.addon_ids ? i.addon_ids.map(a => a.toString()) : [],
             name: i.name,
             description: i.description,
@@ -565,6 +571,16 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
             const trimmedName = typeof updates.name === 'string' ? updates.name.trim() : '';
             if (!trimmedName) return sendError(res, 'Item name is required', null, 400);
             updates.name = trimmedName;
+        }
+
+        if (body.itemNumber !== undefined && body.item_number === undefined) {
+            updates.item_number = body.itemNumber;
+            delete updates.itemNumber;
+        }
+
+        if (updates.item_number !== undefined) {
+            const normalizedItemNumber = normalizeString(updates.item_number);
+            updates.item_number = normalizedItemNumber || undefined;
         }
 
         if (body.categoryId !== undefined && body.category_id === undefined) {
@@ -696,6 +712,7 @@ export const updateFoodItemForOutlet = async (req: Request, res: Response) => {
         return sendSuccess(res, {
             id: item?._id,
             categoryId: item?.category_id ? String(item.category_id) : null,
+            item_number: (item as any)?.item_number,
             addonIds: item?.addon_ids ? item.addon_ids.map((a: any) => String(a)) : [],
             name: item?.name,
             description: item?.description,
@@ -1225,6 +1242,7 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
         const duplicatedItem = await FoodItem.create({
             outlet_id: originalItem.outlet_id,
             category_id: originalItem.category_id,
+            item_number: (originalItem as any).item_number,
             name: `${originalItem.name} (Copy)`,
             description: originalItem.description,
             item_type: originalItem.item_type,
@@ -1253,6 +1271,7 @@ export const duplicateFoodItemForOutlet = async (req: Request, res: Response) =>
         return sendSuccess(res, {
             id: duplicatedItem._id,
             categoryId: duplicatedItem.category_id ? String(duplicatedItem.category_id) : null,
+            item_number: (duplicatedItem as any).item_number,
             addonIds: duplicatedItem.addon_ids ? duplicatedItem.addon_ids.map((a: any) => String(a)) : [],
             name: duplicatedItem.name,
             description: duplicatedItem.description,
