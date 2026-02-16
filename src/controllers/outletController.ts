@@ -40,7 +40,7 @@ const validateGalleryCategory = (category: string): boolean => {
 
 const parseLocationCoordinates = (latitude?: string | number, longitude?: string | number) => {
     if (!latitude || !longitude) return null;
-    
+
     return {
         type: 'Point' as const,
         coordinates: [parseFloat(String(longitude)), parseFloat(String(latitude))]
@@ -125,7 +125,7 @@ const getPaginationParams = (query: any) => {
     const page = parseInt(query.page as string) || DEFAULT_PAGE;
     const limit = parseInt(query.limit as string) || DEFAULT_LIMIT;
     const skip = (page - 1) * limit;
-    
+
     return { page, limit, skip };
 };
 
@@ -181,7 +181,7 @@ const mapOperatingHoursToResponse = (hours: any[]) => {
 
 const mapBrandToResponse = (brand: any) => {
     if (!brand) return null;
-    
+
     return {
         _id: brand._id,
         name: brand.name,
@@ -268,8 +268,8 @@ export const getUserOutlets = async (req: AuthRequest, res: Response) => {
 
         // Fetch all operating hours in a single query (avoiding N+1)
         const outletIds = outlets.map((o: any) => o._id);
-        const allOperatingHours = await OperatingHours.find({ 
-            outlet_id: { $in: outletIds } 
+        const allOperatingHours = await OperatingHours.find({
+            outlet_id: { $in: outletIds }
         }).sort({ day_of_week: 1 }).lean();
 
         // Group operating hours by outlet_id
@@ -406,7 +406,7 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
         const coverImageInput = coverImageFromMedia ?? coverImageFromBody;
         if (typeof coverImageInput === 'string') {
             let coverImageUrl: string;
-            
+
             try {
                 coverImageUrl = coverImageInput === '' ? '' : await handleImageUpload(coverImageInput, 'outlets');
             } catch (error) {
@@ -1367,7 +1367,8 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
         const settings = outlet.menu_settings || {
             default_view_mode: 'grid',
             show_item_images: true,
-            show_category_images: true
+            show_category_images: true,
+            currency: 'INR'
         };
 
         return sendSuccess(res, settings);
@@ -1381,7 +1382,7 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
 export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { default_view_mode, show_item_images, show_category_images } = req.body;
+        const { default_view_mode, show_item_images, show_category_images, currency } = req.body;
 
         const outlet = await Outlet.findById(outletId);
         if (!outlet) {
@@ -1397,7 +1398,8 @@ export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
         outlet.menu_settings = {
             default_view_mode: default_view_mode || outlet.menu_settings?.default_view_mode || 'grid',
             show_item_images: show_item_images !== undefined ? show_item_images : (outlet.menu_settings?.show_item_images ?? true),
-            show_category_images: show_category_images !== undefined ? show_category_images : (outlet.menu_settings?.show_category_images ?? true)
+            show_category_images: show_category_images !== undefined ? show_category_images : (outlet.menu_settings?.show_category_images ?? true),
+            currency: currency || outlet.menu_settings?.currency || 'INR'
         };
 
         await outlet.save();

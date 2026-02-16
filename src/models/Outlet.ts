@@ -90,6 +90,7 @@ export interface IOutlet extends Document {
         default_view_mode: 'grid' | 'list';
         show_item_images: boolean;
         show_category_images: boolean;
+        currency: string;
     };
 }
 
@@ -199,7 +200,8 @@ const outletSchema = new Schema<IOutlet>({
     menu_settings: {
         default_view_mode: { type: String, enum: ['grid', 'list'], default: 'grid' },
         show_item_images: { type: Boolean, default: true },
-        show_category_images: { type: Boolean, default: true }
+        show_category_images: { type: Boolean, default: true },
+        currency: { type: String, default: 'INR' }
     }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

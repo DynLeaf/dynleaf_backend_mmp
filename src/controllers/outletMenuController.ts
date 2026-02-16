@@ -315,7 +315,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     const menuSettings = {
       default_view_mode: outlet.menu_settings?.default_view_mode || 'grid',
       show_item_images: outlet.menu_settings?.show_item_images !== false,
-      show_category_images: outlet.menu_settings?.show_category_images !== false
+      show_category_images: outlet.menu_settings?.show_category_images !== false,
+      currency: outlet.menu_settings?.currency || 'INR'
     };
 
     res.json({
