@@ -1368,8 +1368,14 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
             default_view_mode: 'grid',
             show_item_images: true,
             show_category_images: true,
-            currency: 'INR'
+            currency: 'INR',
+            grid_columns_mobile: 3
         };
+
+        // Backward compatibility for existing records
+        if (!settings.grid_columns_mobile || settings.grid_columns_mobile < 1 || settings.grid_columns_mobile > 4) {
+            settings.grid_columns_mobile = 3;
+        }
 
         return sendSuccess(res, settings);
     } catch (error: any) {
@@ -1382,7 +1388,7 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
 export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId } = req.params;
-        const { default_view_mode, show_item_images, show_category_images, currency } = req.body;
+        const { default_view_mode, show_item_images, show_category_images, currency, grid_columns_mobile } = req.body;
 
         const outlet = await Outlet.findById(outletId);
         if (!outlet) {
@@ -1399,7 +1405,14 @@ export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
             default_view_mode: default_view_mode || outlet.menu_settings?.default_view_mode || 'grid',
             show_item_images: show_item_images !== undefined ? show_item_images : (outlet.menu_settings?.show_item_images ?? true),
             show_category_images: show_category_images !== undefined ? show_category_images : (outlet.menu_settings?.show_category_images ?? true),
-            currency: currency || outlet.menu_settings?.currency || 'INR'
+            currency: currency || outlet.menu_settings?.currency || 'INR',
+            grid_columns_mobile: (() => {
+                const parsed = Number(grid_columns_mobile);
+                if (Number.isFinite(parsed)) {
+                    return Math.max(1, Math.min(4, Math.floor(parsed)));
+                }
+                return outlet.menu_settings?.grid_columns_mobile || 3;
+            })()
         };
 
         await outlet.save();

@@ -318,7 +318,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       default_view_mode: outlet.menu_settings?.default_view_mode || 'grid',
       show_item_images: outlet.menu_settings?.show_item_images !== false,
       show_category_images: outlet.menu_settings?.show_category_images !== false,
-      currency: outlet.menu_settings?.currency || 'INR'
+      currency: outlet.menu_settings?.currency || 'INR',
+      grid_columns_mobile: outlet.menu_settings?.grid_columns_mobile || 3
     };
 
     res.json({
