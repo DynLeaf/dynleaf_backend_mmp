@@ -1,0 +1,40 @@
+name: Deploy DynLeaf Backend (Release)
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "🚀 Starting DynLeaf production deployment..."
+
+            cd ~/dynleaf_backend_mmp
+
+            echo "📥 Pulling latest code..."
+            git fetch origin
+            git reset --hard origin/release
+
+            echo "📦 Installing dependencies..."
+            pnpm install --frozen-lockfile
+
+            echo "🏗 Building project..."
+            pnpm build
+
+            echo "♻️ Reloading PM2 (zero downtime)..."
+            pm2 reload dynleaf-api
+
+            echo "💾 Saving PM2 state..."
+            pm2 save
+
+            echo "✅ Deployment completed successfully!"
