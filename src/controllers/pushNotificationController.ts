@@ -12,6 +12,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import { v2 as cloudinary } from "cloudinary";
 import mongoose from "mongoose";
 import { sendPushNotificationCampaign } from "../services/pushNotificationService.js";
+import { getS3Service } from "../services/s3Service.js";
 
 type PushNotificationDocWithMethods = IPushNotificationDocument & {
   addEvent: (
@@ -627,49 +628,74 @@ export const getCloudinarySignatureForNotification = async (
   res: Response
 ) => {
   try {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const apiKey = process.env.CLOUDINARY_API_KEY;
-    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const s3Service = getS3Service();
+    const userId = req.user?.id || "admin";
+    const mimeType = req.body?.mimeType || "image/webp";
+    const maxFileSize = 5 * 1024 * 1024; // 5MB
 
-    if (!cloudName || !apiKey || !apiSecret) {
-      console.error("Cloudinary configuration missing:", {
-        cloudName: !!cloudName,
-        apiKey: !!apiKey,
-        apiSecret: !!apiSecret,
-      });
-      return sendError(res, "Cloudinary is not configured", 500);
-    }
-
-    const timestamp = Math.round(Date.now() / 1000);
-    const folder = "notifications";
-
-    // Create signature for unsigned upload
-    const signature = cloudinary.utils.api_sign_request(
-      {
-        timestamp,
-        folder,
-      },
-      apiSecret
+    const presignedResponse = await s3Service.generatePresignedPostUrl(
+      "notification_image",
+      userId,
+      mimeType,
+      maxFileSize
     );
 
-    if (!signature) {
-      return sendError(res, "Failed to generate Cloudinary signature", 500);
-    }
+    const fileUrl = s3Service.getFileUrl(presignedResponse.s3Key);
 
     return sendSuccess(res, {
-      signature,
-      timestamp,
-      cloud_name: cloudName,
-      api_key: apiKey,
-      folder,
+      uploadUrl: presignedResponse.uploadUrl,
+      fields: presignedResponse.fields,
+      s3Key: presignedResponse.s3Key,
+      fileUrl,
+      bucketName: presignedResponse.bucketName,
+      region: process.env.AWS_REGION || "ap-south-2",
+      provider: "s3",
+      maxFileSize,
+      expiresIn: 900,
     });
   } catch (error: any) {
-    console.error("Get Cloudinary signature error:", error);
+    console.error("Get notification S3 signature error:", error);
     return sendError(
       res,
       error.message || "Failed to get upload signature",
       500
     );
+  }
+};
+
+// Upload notification image via backend (CORS fallback)
+export const uploadNotificationImageViaBackend = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    const s3Service = getS3Service();
+    const userId = req.user?.id || 'admin';
+    const { fileBuffer, fileName, mimeType } = req.body || {};
+
+    if (!fileBuffer || !fileName) {
+      return sendError(res, 'fileBuffer and fileName are required', 400);
+    }
+
+    const buffer = Buffer.from(fileBuffer, 'base64');
+
+    const uploadedFile = await s3Service.uploadBuffer(
+      buffer,
+      'notification_image',
+      userId,
+      fileName,
+      mimeType || 'application/octet-stream'
+    );
+
+    return sendSuccess(res, {
+      s3Key: uploadedFile.key,
+      fileUrl: s3Service.getFileUrl(uploadedFile.key),
+      size: uploadedFile.size,
+      mimeType: uploadedFile.mimeType,
+    });
+  } catch (error: any) {
+    console.error('Upload notification image via backend error:', error);
+    return sendError(res, error.message || 'Failed to upload notification image', 500);
   }
 };
 

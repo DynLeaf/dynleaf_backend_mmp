@@ -81,12 +81,7 @@ class S3UploadService {
                 new PutObjectCommand({
                     Bucket: this.config.bucketName,
                     Key: s3Key,
-                    ContentType: contentType,
-                    Metadata: {
-                        'user-id': userId,
-                        'asset-type': assetType,
-                        'upload-timestamp': new Date().toISOString()
-                    }
+                    ContentType: contentType
                 }),
                 { expiresIn: 900 } // 15 minutes
             );
@@ -94,9 +89,7 @@ class S3UploadService {
             return {
                 uploadUrl,
                 fields: {
-                    'Content-Type': contentType,
-                    'x-amz-meta-user-id': userId,
-                    'x-amz-meta-asset-type': assetType
+                    'Content-Type': contentType
                 },
                 s3Key,
                 bucketName: this.config.bucketName
