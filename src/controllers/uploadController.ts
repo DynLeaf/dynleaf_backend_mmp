@@ -192,9 +192,13 @@ export const getS3Signature = async (req: AuthRequest, res: Response) => {
             maxFileSize
         );
 
+        // Compute the public URL that the file will have after upload
+        const fileUrl = s3Service.getFileUrl(presignedResponse.s3Key);
+
         return sendSuccess(res, {
             uploadUrl: presignedResponse.uploadUrl,
             s3Key: presignedResponse.s3Key,
+            fileUrl,               // public URL for storing + serving after upload
             bucketName: presignedResponse.bucketName,
             region: process.env.AWS_REGION || 'ap-south-2',
             provider: 's3',
