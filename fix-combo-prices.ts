@@ -6,13 +6,11 @@ dotenv.config();
 async function fixComboPrices() {
   try {
     await mongoose.connect(process.env.MONGODB_URI!);
-    console.log('🔌 Connected to MongoDB\n');
 
     const db = mongoose.connection.db!;
     const combosCollection = db.collection('combos');
 
     const combos = await combosCollection.find({}).toArray();
-    console.log('📦 Found', combos.length, 'combo(s)\n');
 
     for (const combo of combos) {
       let needsUpdate = false;
