@@ -13,6 +13,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 🔎 Debug: Check if secret is actually present
+      - name: Debug preview key length
+        run: |
+          echo "Preview key length:"
+          echo "${{ secrets.PREVIEW_EC2_SSH_KEY }}" | wc -c
+
       - name: Deploy to Preview EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -20,9 +26,24 @@ jobs:
           username: ${{ secrets.PREVIEW_EC2_USER }}
           key: ${{ secrets.PREVIEW_EC2_SSH_KEY }}
           script: |
+            echo "🚀 Starting Preview deployment..."
+
             cd ~/dynleaf_backend_mmp
-            git fetch --all
+
+            echo "📥 Fetching latest code..."
+            git fetch origin
             git reset --hard origin/main
+
+            echo "📦 Installing dependencies..."
             npm install
+
+            echo "🏗 Building project..."
             npm run build
+
+            echo "♻️ Reloading PM2 (zero downtime)..."
             pm2 reload dynleaf-api
+
+            echo "💾 Saving PM2 state..."
+            pm2 save
+
+            echo "✅ Preview deployment completed!"
