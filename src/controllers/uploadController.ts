@@ -249,10 +249,10 @@ export const uploadViaBackend = async (req: AuthRequest, res: Response) => {
             mimeType || 'application/octet-stream'
         );
 
-        // Return ONLY the S3 key, not the full URL
-        // Database stores keys, URLs are generated on-demand via S3UrlGenerator
+        // Return S3 key + the public URL so callers can display the uploaded image immediately
         return sendSuccess(res, {
-            s3Key: uploadedFile.key, // Store this in database
+            s3Key: uploadedFile.key,
+            fileUrl: uploadedFile.url, // public URL for display / storage
             assetType,
             size: uploadedFile.size,
             mimeType: uploadedFile.mimeType,
