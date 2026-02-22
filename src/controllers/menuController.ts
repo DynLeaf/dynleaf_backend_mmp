@@ -721,7 +721,8 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
             longitude,
             limit = String(DEFAULT_TRENDING_LIMIT),
             page = String(DEFAULT_TRENDING_PAGE),
-            radius = String(DEFAULT_RADIUS)
+            radius = String(DEFAULT_RADIUS),
+            search
         } = req.query;
 
         if (!latitude || !longitude) {
@@ -753,7 +754,8 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
                     spherical: true,
                     query: {
                         is_active: true,
-                        is_available: true
+                        is_available: true,
+                        ...(search ? { name: { $regex: search, $options: 'i' } } : {})
                     }
                 }
             },

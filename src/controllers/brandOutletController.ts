@@ -154,7 +154,8 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
       minRating,
       priceRange,
       cuisines,
-      sortBy = 'distance'
+      sortBy = 'distance',
+      search
     } = req.query;
 
     if (!latitude || !longitude) {
@@ -167,6 +168,18 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
     const limitNum = parseInt(limit as string);
 
     console.log(`📍 Finding nearby outlets near [${lat}, ${lng}] within ${radiusNum / 1000}km`);
+
+    // Pre-compute outlet_ids that have a menu item matching the search term.
+    // FoodItem has outlet_id directly (same collection that getTrendingDishes queries).
+    let outletIdsWithItem: mongoose.Types.ObjectId[] = [];
+    if (search) {
+      outletIdsWithItem = await FoodItem.distinct('outlet_id', {
+        name: { $regex: search as string, $options: 'i' },
+        is_active: true,
+        is_available: true
+      });
+      console.log(`🔍 Search "${search}": ${outletIdsWithItem.length} outlets have matching menu items`);
+    }
 
     // Build match criteria
     const matchCriteria: any = {
@@ -213,7 +226,15 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
       {
         $match: {
           'brand.verification_status': 'approved',
-          'brand.is_active': true
+          'brand.is_active': true,
+          ...(search ? {
+            $or: [
+              { name: { $regex: search, $options: 'i' } },
+              { 'brand.name': { $regex: search, $options: 'i' } },
+              // Include outlets that serve a menu item matching the search
+              ...(outletIdsWithItem.length > 0 ? [{ _id: { $in: outletIdsWithItem } }] : [])
+            ]
+          } : {})
         }
       }
     ];

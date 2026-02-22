@@ -333,7 +333,7 @@ export const toggleOfferStatus = async (req: AuthRequest, res: Response) => {
 
 export const getNearbyOffers = async (req: any, res: Response) => {
     try {
-        const { latitude, longitude, radius = DEFAULT_RADIUS, limit = DEFAULT_LIMIT } = req.query;
+        const { latitude, longitude, radius = DEFAULT_RADIUS, limit = DEFAULT_LIMIT, search } = req.query;
 
         if (!latitude || !longitude) {
             return sendError(res, 'Latitude and longitude are required', null, STATUS_CODE_BAD_REQUEST);
@@ -356,7 +356,8 @@ export const getNearbyOffers = async (req: any, res: Response) => {
                     query: {
                         is_active: true,
                         valid_from: { $lte: now },
-                        valid_till: { $gte: now }
+                        valid_till: { $gte: now },
+                        ...(search ? { title: { $regex: search, $options: 'i' } } : {})
                     }
                 }
             },
