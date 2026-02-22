@@ -712,6 +712,19 @@ export const deleteCombo = async (req: Request, res: Response) => {
     }
 };
 
+export const getComboById = async (req: Request, res: Response) => {
+    try {
+        const { comboId } = req.params;
+        const combo = await Combo.findById(comboId);
+        if (!combo) {
+            return sendError(res, 'Combo not found', 404);
+        }
+        return sendSuccess(res, mapComboResponse(combo));
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
 // Get trending dishes based on location
 export const getTrendingDishes = async (req: Request, res: Response) => {
     try {

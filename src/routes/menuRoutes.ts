@@ -22,6 +22,7 @@ import {
     listCombos,
     updateCombo,
     deleteCombo,
+    getComboById,
     getTrendingDishes,
     getFoodItemById
 } from '../controllers/menuController.js';
@@ -73,6 +74,7 @@ router.delete('/addons/:addOnId', protect, deleteAddOn);
 // Combos
 router.post('/brands/:brandId/combos', protect, createCombo);
 router.get('/brands/:brandId/combos', listCombos);
+router.get('/combos/:comboId', getComboById);
 router.patch('/combos/:comboId', protect, updateCombo);
 router.delete('/combos/:comboId', protect, deleteCombo);
 
