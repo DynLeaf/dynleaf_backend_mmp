@@ -45,6 +45,18 @@ export interface IUser extends Document {
         push: boolean;
     };
     fcm_tokens?: string[];
+    saved_items?: Array<{
+        entity_type: 'food_item' | 'combo' | 'offer';
+        entity_id: mongoose.Types.ObjectId;
+        outlet_id?: mongoose.Types.ObjectId;
+        saved_at: Date;
+    }>;
+    shared_items?: Array<{
+        entity_type: 'food_item' | 'combo' | 'offer';
+        entity_id: mongoose.Types.ObjectId;
+        outlet_id?: mongoose.Types.ObjectId;
+        shared_at: Date;
+    }>;
 }
 
 const userSchema = new Schema<IUser>({
@@ -91,7 +103,21 @@ const userSchema = new Schema<IUser>({
         sms: { type: Boolean, default: true },
         push: { type: Boolean, default: true }
     },
-    fcm_tokens: [{ type: String }]
+    fcm_tokens: [{ type: String }],
+
+    saved_items: [{
+        entity_type: { type: String, enum: ['food_item', 'combo', 'offer'], required: true },
+        entity_id: { type: Schema.Types.ObjectId, required: true },
+        outlet_id: { type: Schema.Types.ObjectId, ref: 'Outlet' },
+        saved_at: { type: Date, default: Date.now }
+    }],
+
+    shared_items: [{
+        entity_type: { type: String, enum: ['food_item', 'combo', 'offer'], required: true },
+        entity_id: { type: Schema.Types.ObjectId, required: true },
+        outlet_id: { type: Schema.Types.ObjectId, ref: 'Outlet' },
+        shared_at: { type: Date, default: Date.now }
+    }]
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Indexes - phone and email already have indexes from unique: true in schema
@@ -99,5 +125,7 @@ userSchema.index({ 'roles.brandId': 1 });
 userSchema.index({ 'roles.outletId': 1 });
 userSchema.index({ is_active: 1, is_suspended: 1 });
 userSchema.index({ fcm_tokens: 1 });
+userSchema.index({ 'saved_items.entity_type': 1, 'saved_items.entity_id': 1 });
+userSchema.index({ 'shared_items.entity_type': 1, 'shared_items.entity_id': 1 });
 
 export const User = mongoose.model<IUser>('User', userSchema);

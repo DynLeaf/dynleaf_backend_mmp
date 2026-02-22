@@ -79,6 +79,42 @@ const checkAccountLock = (lockUntil?: Date) => {
   return { isLocked: false };
 };
 
+const buildEngagementSummary = (user: any) => {
+  const savedItems = user.saved_items || [];
+  const sharedItems = user.shared_items || [];
+
+  const recentActivity = [
+    ...savedItems.map((item: any) => ({
+      entity_type: item.entity_type,
+      entity_id: item.entity_id,
+      outlet_id: item.outlet_id,
+      action: 'saved',
+      action_at: item.saved_at,
+    })),
+    ...sharedItems.map((item: any) => ({
+      entity_type: item.entity_type,
+      entity_id: item.entity_id,
+      outlet_id: item.outlet_id,
+      action: 'shared',
+      action_at: item.shared_at,
+    })),
+  ]
+    .sort((a: any, b: any) => new Date(b.action_at).getTime() - new Date(a.action_at).getTime())
+    .slice(0, 20);
+
+  return {
+    saved_total: savedItems.length,
+    shared_total: sharedItems.length,
+    saved_food_items: savedItems.filter((item: any) => item.entity_type === 'food_item').length,
+    saved_combos: savedItems.filter((item: any) => item.entity_type === 'combo').length,
+    saved_offers: savedItems.filter((item: any) => item.entity_type === 'offer').length,
+    shared_food_items: sharedItems.filter((item: any) => item.entity_type === 'food_item').length,
+    shared_combos: sharedItems.filter((item: any) => item.entity_type === 'combo').length,
+    shared_offers: sharedItems.filter((item: any) => item.entity_type === 'offer').length,
+    recent_activity: recentActivity,
+  };
+};
+
 const ensureRestaurantOwnerRole = async (user: any, outlets: any[]) => {
   if (outlets.length > 0 && !user.roles.some((r: any) => r.role === "restaurant_owner")) {
     user.roles.push({
@@ -230,6 +266,9 @@ export const verifyOtp = async (req: Request, res: Response) => {
         email: user.email,
         username: user.username,
         avatar_url: user.avatar_url,
+        saved_items: user.saved_items || [],
+        shared_items: user.shared_items || [],
+        engagement_summary: buildEngagementSummary(user),
         roles: user.roles,
         currentStep: user.currentStep,
         hasCompletedOnboarding,
@@ -361,6 +400,9 @@ export const getCurrentUser = async (req: AuthRequest, res: Response) => {
         full_name: user.full_name,
         avatar_url: user.avatar_url,
         bio: user.bio,
+        saved_items: user.saved_items || [],
+        shared_items: user.shared_items || [],
+        engagement_summary: buildEngagementSummary(user),
         roles: user.roles,
         activeRole: req.user.activeRole,
         currentStep: user.currentStep,
