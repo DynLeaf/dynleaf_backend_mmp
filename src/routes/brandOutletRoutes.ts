@@ -1,5 +1,11 @@
 import express from 'express';
-import { getFeaturedBrands, getNearbyOutletsNew, getOutletDetail } from '../controllers/brandOutletController.js';
+import {
+    getFeaturedBrands,
+    getNearbyOutletsNew,
+    getOutletDetail,
+    getNearbyMalls,
+    getMallDetail
+} from '../controllers/brandOutletController.js';
 
 import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 
@@ -19,6 +25,12 @@ router.get('/featured', optionalAuth, getFeaturedBrands);
 
 // Get nearby outlets (outlet-centric with available items)
 router.get('/nearby', optionalAuth, getNearbyOutletsNew);
+
+// Get nearby malls (derived from food-court/mall addresses)
+router.get('/malls/nearby', optionalAuth, getNearbyMalls);
+
+// Get mall detail with all outlets
+router.get('/malls/:mallKey', optionalAuth, getMallDetail);
 
 // Get outlet detail with categories
 router.get('/:outletId/detail', optionalAuth, getOutletDetail);

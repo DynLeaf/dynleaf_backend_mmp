@@ -52,6 +52,8 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
       inactiveOutlets,
       qrMenuScansNow,
       qrMenuScansPrev,
+      mallQrScansNow,
+      mallQrScansPrev,
       searchImpressionsNow,
       searchImpressionsPrev,
       nearbyDiscoveriesNow,
@@ -215,6 +217,16 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
       OutletAnalyticsEvent.countDocuments({
         event_type: 'menu_view',
         source: { $in: ['qr', 'QR', 'qrcode', 'qr_code'] },
+        timestamp: { $gte: window.prevStart, $lte: window.prevEnd },
+      }),
+      OutletAnalyticsEvent.countDocuments({
+        event_type: 'qr_scan',
+        qr_scan_type: 'mall',
+        timestamp: { $gte: window.start, $lte: window.end },
+      }),
+      OutletAnalyticsEvent.countDocuments({
+        event_type: 'qr_scan',
+        qr_scan_type: 'mall',
         timestamp: { $gte: window.prevStart, $lte: window.prevEnd },
       }),
       FoodItemAnalyticsEvent.countDocuments({
@@ -450,6 +462,7 @@ export const getAdminAnalyticsOverview = async (req: Request, res: Response) => 
         },
         discovery: {
           qrMenuScans: qrMenuScansNow,
+          mallQrScans: mallQrScansNow,
           searchAppearances: searchImpressionsNow,
           nearbyDiscoveries: nearbyDiscoveriesNow,
           trendingFoodItem: topFood,
@@ -1000,7 +1013,7 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
       date_to: req.query.date_to,
     });
 
-    const [qrNow, qrPrev, searchNow, searchPrev, nearbyNow, nearbyPrev, topFoodAgg] = await Promise.all([
+    const [qrNow, qrPrev, mallQrNow, mallQrPrev, searchNow, searchPrev, nearbyNow, nearbyPrev, topFoodAgg] = await Promise.all([
       OutletAnalyticsEvent.countDocuments({
         event_type: 'menu_view',
         source: { $in: ['qr', 'QR', 'qrcode', 'qr_code'] },
@@ -1009,6 +1022,16 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
       OutletAnalyticsEvent.countDocuments({
         event_type: 'menu_view',
         source: { $in: ['qr', 'QR', 'qrcode', 'qr_code'] },
+        timestamp: { $gte: window.prevStart, $lte: window.prevEnd },
+      }),
+      OutletAnalyticsEvent.countDocuments({
+        event_type: 'qr_scan',
+        qr_scan_type: 'mall',
+        timestamp: { $gte: window.start, $lte: window.end },
+      }),
+      OutletAnalyticsEvent.countDocuments({
+        event_type: 'qr_scan',
+        qr_scan_type: 'mall',
         timestamp: { $gte: window.prevStart, $lte: window.prevEnd },
       }),
       FoodItemAnalyticsEvent.countDocuments({
@@ -1037,8 +1060,8 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
       ]),
     ]);
 
-    const totalNow = qrNow + searchNow + nearbyNow;
-    const totalPrev = qrPrev + searchPrev + nearbyPrev;
+    const totalNow = qrNow + mallQrNow + searchNow + nearbyNow;
+    const totalPrev = qrPrev + mallQrPrev + searchPrev + nearbyPrev;
     const discoveryTrendPct = pctChange(totalNow, totalPrev);
 
     const topFoodId = topFoodAgg?.[0]?._id ? String(topFoodAgg[0]._id) : null;
@@ -1052,6 +1075,7 @@ export const getAdminDiscoveryAnalytics = async (req: Request, res: Response) =>
         window: { range: window.range, start: window.start, end: window.end },
         totals: {
           qrMenuScans: qrNow,
+          mallQrScans: mallQrNow,
           searchAppearances: searchNow,
           nearbyDiscoveries: nearbyNow,
           discoveryTrendPct,
