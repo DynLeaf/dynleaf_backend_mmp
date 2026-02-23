@@ -11,6 +11,7 @@ import * as outletService from "../services/outletService.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import { Admin } from "../models/Admin.js";
 import jwt from "jsonwebtoken";
+import { createAdminNotification } from "../services/adminNotificationService.js";
 
 interface AuthRequest extends Request {
   user?: any;
@@ -196,6 +197,14 @@ export const verifyOtp = async (req: Request, res: Response) => {
         is_verified: true,
         is_active: true,
         currentStep: "BRAND",
+      });
+
+      // Fire admin notification for new user (non-blocking)
+      createAdminNotification({
+        title: 'New User Joined',
+        message: `A new user has registered with phone ${phone}.`,
+        type: 'user',
+        referenceId: user._id.toString(),
       });
     }
 
