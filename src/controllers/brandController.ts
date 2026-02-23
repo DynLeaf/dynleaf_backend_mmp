@@ -8,6 +8,8 @@ import { getS3Service } from '../services/s3Service.js';
 import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
 import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
+import { sendBrandOnboardingEmail } from '../services/emailService.js';
+import { createAdminNotification } from '../services/adminNotificationService.js';
 
 interface AuthRequest extends Request {
     user?: any;
@@ -100,6 +102,16 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
                 website,
                 instagram: req.body.instagram
             }
+        });
+
+        // Fire email + admin notification (non-blocking)
+        const createdByEmail = req.user?.email || req.user?.phone || 'Unknown';
+        sendBrandOnboardingEmail(brand.name, new Date(), createdByEmail);
+        createAdminNotification({
+            title: 'New Brand Onboarded',
+            message: `"${brand.name}" has been submitted and is waiting for approval.`,
+            type: 'brand',
+            referenceId: brand._id.toString(),
         });
 
         return sendSuccess(res, {

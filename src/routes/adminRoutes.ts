@@ -18,6 +18,7 @@ import * as adminOutletAnalyticsController from "../controllers/adminOutletAnaly
 import * as adminFoodAnalyticsController from "../controllers/adminFoodAnalyticsController.js";
 import * as pushNotificationController from "../controllers/pushNotificationController.js";
 import * as qrManagementController from "../controllers/qrManagementController.js";
+import * as adminNotificationController from "../controllers/adminNotificationController.js";
 
 const router = express.Router();
 
@@ -1521,5 +1522,23 @@ router.post('/notifications/:notificationId/event', pushNotificationController.r
 
 // Get push notifications dashboard stats
 router.get('/notifications-stats', adminAuth, pushNotificationController.getPushNotificationStats);
+
+// ─── Admin Notification Routes ────────────────────────────────────────────────
+// Uses prefix /admin-notifications to avoid conflict with push notification /notifications routes
+
+// GET all admin notifications (with unread count)
+router.get('/admin-notifications', adminAuth, adminNotificationController.getNotifications);
+
+// PATCH - mark all as read (must be before /:id route to avoid param capture)
+router.patch('/admin-notifications/read-all', adminAuth, adminNotificationController.markAllRead);
+
+// PATCH - mark single as read
+router.patch('/admin-notifications/:id/read', adminAuth, adminNotificationController.markOneRead);
+
+// DELETE all notifications (clear all)
+router.delete('/admin-notifications', adminAuth, adminNotificationController.deleteAll);
+
+// DELETE single notification
+router.delete('/admin-notifications/:id', adminAuth, adminNotificationController.deleteOne);
 
 export default router;
