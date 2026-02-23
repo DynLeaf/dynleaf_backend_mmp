@@ -7,6 +7,7 @@ import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
 import { OperatingHours } from '../models/OperatingHours.js';
 import { Follow } from '../models/Follow.js';
+import { MallQRConfig } from '../models/MallQRConfig.js';
 import mongoose from 'mongoose';
 import * as outletService from '../services/outletService.js';
 import { sendSuccess, sendError, ErrorCode } from '../utils/response.js';
@@ -679,18 +680,36 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
       }
     }
 
-    const malls = Array.from(mallMap.values())
+    const mallKeys = Array.from(mallMap.keys());
+    const mallConfigs = await MallQRConfig.find({ 
+      mall_key: { $in: mallKeys } 
+    }).lean();
+
+    const configMap = new Map();
+    mallConfigs.forEach(c => configMap.set(c.mall_key, c));
+
+    // Convert map to array and merge images
+    const allMalls = Array.from(mallMap.values()).map(mall => {
+      const config = configMap.get(mall.key);
+      if (config && config.image) {
+        mall.cover_image_url = config.image;
+      }
+      return mall;
+    });
+
+    const malls = allMalls
       .sort((a, b) => a.distance - b.distance)
-      .slice(0, limitNum);
+      .slice(0, typeof limitNum === 'number' && !isNaN(limitNum) ? limitNum : DEFAULT_MALL_NEARBY_LIMIT);
 
     return sendSuccess(res, {
       malls,
       metadata: {
         total: malls.length,
-        search_radius_km: radiusNum / 1000,
+        search_radius_km: (typeof radiusNum === 'number' && !isNaN(radiusNum) ? radiusNum : DEFAULT_MALL_NEARBY_RADIUS) / 1000,
         center: { latitude: lat, longitude: lng }
       }
     });
+
   } catch (error: any) {
     console.error('Error in getNearbyMalls:', error);
     return sendError(res, error.message || 'Failed to fetch nearby malls', ErrorCode.INTERNAL_SERVER_ERROR, STATUS_CODE_SERVER_ERROR);
@@ -767,6 +786,7 @@ export const getMallDetail = async (req: Request, res: Response) => {
         avg_rating: outlet.avg_rating || 0,
         total_reviews: outlet.total_reviews || 0,
         distance,
+        cover_image_url: outlet.media?.cover_image_url || brand.logo_url || null,
         logo_url: brand.logo_url || outlet.media?.cover_image_url,
         brand: {
           _id: brand._id,
@@ -779,6 +799,11 @@ export const getMallDetail = async (req: Request, res: Response) => {
 
     if (!mallMeta) {
       return sendError(res, 'Mall not found', ErrorCode.RESOURCE_NOT_FOUND, STATUS_CODE_NOT_FOUND);
+    }
+
+    const mallConfig = await MallQRConfig.findOne({ mall_key: mallKey }).lean();
+    if (mallConfig?.image) {
+      mallMeta.cover_image_url = mallConfig.image;
     }
 
     matchedOutlets.sort((a, b) => {

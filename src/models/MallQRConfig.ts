@@ -6,6 +6,7 @@ export interface IMallQRConfig extends Document {
     city?: string;
     state?: string;
     qr_url: string;
+    image?: string;
     last_generated_at: Date;
     created_at: Date;
     updated_at: Date;
@@ -33,6 +34,9 @@ const MallQRConfigSchema = new Schema<IMallQRConfig>(
             type: String,
             required: true
         },
+        image: {
+            type: String
+        },
         last_generated_at: {
             type: Date,
             default: Date.now
@@ -55,4 +59,5 @@ const MallQRConfig = mongoose.model<IMallQRConfig>(
     'mall_qr_configs'
 );
 
+export { MallQRConfig };
 export default MallQRConfig;

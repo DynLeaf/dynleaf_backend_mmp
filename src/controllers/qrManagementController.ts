@@ -389,10 +389,53 @@ export const getMallQRConfig = async (req: Request, res: Response) => {
  * Update QR configuration for a mall
  * POST /api/v1/admin/qr/malls/:mallKey/generate
  */
+import { getS3Service } from '../services/s3Service.js';
+
+export const uploadMallImageViaBackend = async (req: Request, res: Response) => {
+    try {
+        const s3Service = getS3Service();
+        const userId = (req as any).user?.id || 'admin';
+        const { fileBuffer, fileName, mimeType } = req.body || {};
+
+        if (!fileBuffer || !fileName) {
+            return res.status(400).json({
+                success: false,
+                message: 'fileBuffer and fileName are required'
+            });
+        }
+
+        const buffer = Buffer.from(fileBuffer, 'base64');
+
+        const uploadedFile = await s3Service.uploadBuffer(
+            buffer,
+            'mall_image',
+            userId,
+            fileName,
+            mimeType || 'application/octet-stream'
+        );
+
+        return res.json({
+            success: true,
+            data: {
+                s3Key: uploadedFile.key,
+                fileUrl: s3Service.getFileUrl(uploadedFile.key),
+                size: uploadedFile.size,
+                mimeType: uploadedFile.mimeType,
+            }
+        });
+    } catch (error: any) {
+        console.error('Upload mall image via backend error:', error);
+        return res.status(500).json({
+            success: false,
+            message: error.message || 'Failed to upload mall image'
+        });
+    }
+};
+
 export const updateMallQRConfig = async (req: Request, res: Response) => {
     try {
         const { mallKey } = req.params;
-        const { qr_url } = req.body;
+        const { qr_url, image } = req.body;
 
         if (!qr_url || typeof qr_url !== 'string') {
             return res.status(400).json({
@@ -410,16 +453,22 @@ export const updateMallQRConfig = async (req: Request, res: Response) => {
             });
         }
 
+        const updateData: any = {
+            mall_key: mallKey,
+            mall_name: mallResponse.mallName,
+            city: mallResponse.city,
+            state: mallResponse.state,
+            qr_url,
+            last_generated_at: new Date()
+        };
+
+        if (image !== undefined) {
+            updateData.image = image;
+        }
+
         const config = await MallQRConfig.findOneAndUpdate(
             { mall_key: mallKey },
-            {
-                mall_key: mallKey,
-                mall_name: mallResponse.mallName,
-                city: mallResponse.city,
-                state: mallResponse.state,
-                qr_url,
-                last_generated_at: new Date()
-            },
+            updateData,
             {
                 upsert: true,
                 new: true,

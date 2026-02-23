@@ -1481,6 +1481,8 @@ router.post('/qr/outlets/:outletId/generate', adminAuth, qrManagementController.
 
 // Update/set QR config for a mall
 router.post('/qr/malls/:mallKey/generate', adminAuth, qrManagementController.updateMallQRConfig);
+router.post('/qr/malls/upload-via-backend', adminAuth, qrManagementController.uploadMallImageViaBackend);
+router.post('/qr/malls/upload-via-backend', adminAuth, qrManagementController.uploadMallImageViaBackend);
 
 
 // ============================================
