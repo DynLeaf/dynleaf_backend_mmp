@@ -9,16 +9,18 @@ import { Compliance } from '../models/Compliance.js';
 import { saveOperatingHoursFromOnboarding } from '../services/operatingHoursService.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
 import { saveBase64Image } from '../utils/fileUpload.js';
+import { sendBrandOnboardingEmail, sendOutletOnboardingEmail } from '../services/emailService.js';
+import { createAdminNotification } from '../services/adminNotificationService.js';
 
 // Constants
 const VALID_MENU_STRATEGIES = ['brand', 'outlet'];
 const MIN_STEP = 1;
 const MAX_STEP = 6;
 const COORDINATE_LIMITS = {
-  LAT_MIN: -90,
-  LAT_MAX: 90,
-  LNG_MIN: -180,
-  LNG_MAX: 180
+    LAT_MIN: -90,
+    LAT_MAX: 90,
+    LNG_MIN: -180,
+    LNG_MAX: 180
 };
 
 interface AuthRequest extends Request {
@@ -27,23 +29,23 @@ interface AuthRequest extends Request {
 
 // Helper functions
 const validateMenuStrategy = (strategy: string): boolean => {
-  return VALID_MENU_STRATEGIES.includes(strategy);
+    return VALID_MENU_STRATEGIES.includes(strategy);
 };
 
 const validateRequiredFields = (brand: any, outlet: any): string | null => {
-  if (!brand || !brand.name) return 'Brand name is required';
-  if (!outlet || !outlet.name) return 'Outlet name is required';
-  if (!outlet.address1 || !outlet.city || !outlet.state) return 'Complete address is required';
-  return null;
+    if (!brand || !brand.name) return 'Brand name is required';
+    if (!outlet || !outlet.name) return 'Outlet name is required';
+    if (!outlet.address1 || !outlet.city || !outlet.state) return 'Complete address is required';
+    return null;
 };
 
 const validateCoordinates = (lat: number, lng: number): string | null => {
-  if (isNaN(lat) || isNaN(lng)) return 'Invalid coordinates: must be valid numbers';
-  if (lat < COORDINATE_LIMITS.LAT_MIN || lat > COORDINATE_LIMITS.LAT_MAX || 
-      lng < COORDINATE_LIMITS.LNG_MIN || lng > COORDINATE_LIMITS.LNG_MAX) {
-    return 'Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180';
-  }
-  return null;
+    if (isNaN(lat) || isNaN(lng)) return 'Invalid coordinates: must be valid numbers';
+    if (lat < COORDINATE_LIMITS.LAT_MIN || lat > COORDINATE_LIMITS.LAT_MAX ||
+        lng < COORDINATE_LIMITS.LNG_MIN || lng > COORDINATE_LIMITS.LNG_MAX) {
+        return 'Invalid coordinates: latitude must be between -90 and 90, longitude between -180 and 180';
+    }
+    return null;
 };
 
 /**
@@ -66,7 +68,7 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         if (fieldError) {
             return sendError(res, fieldError, null, 400);
         }
-        
+
         if (!menuStrategy || !validateMenuStrategy(menuStrategy)) {
             return sendError(res, 'Valid menu strategy is required (brand or outlet)', null, 400);
         }
@@ -135,21 +137,21 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
 
         // Log coordinates for debugging
         console.log('📍 Outlet coordinates - Latitude:', outlet.latitude, 'Longitude:', outlet.longitude);
-        
+
         // Validate coordinates if present
         if (!outlet.latitude || !outlet.longitude) {
             console.warn('⚠️  No coordinates provided for outlet');
             return sendError(res, 'Location coordinates are required. Please select a valid location.', null, 400);
         }
-        
+
         const lat = parseFloat(outlet.latitude);
         const lng = parseFloat(outlet.longitude);
-        
+
         const coordError = validateCoordinates(lat, lng);
         if (coordError) {
             return sendError(res, coordError, null, 400);
         }
-        
+
         console.log('✅ Coordinates validated:', { latitude: lat, longitude: lng });
 
         const newOutlet = await outletService.createOutlet(req.user.id, brandId, {
@@ -219,9 +221,32 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             complianceId
         );
 
+        // Step 6: Fire email + admin notifications (non-blocking)
+        const createdByEmail = req.user?.email || req.user?.phone || 'Unknown';
+        const createdAt = new Date();
+
+        // If brand was newly created in this onboarding (no pre-existing brandId)
+        if (!brand.id) {
+            sendBrandOnboardingEmail(brand.name, createdAt, createdByEmail);
+            createAdminNotification({
+                title: 'New Brand Onboarded',
+                message: `"${brand.name}" is waiting for approval.`,
+                type: 'brand',
+                referenceId: brandId,
+            });
+        }
+
+        sendOutletOnboardingEmail(newOutlet.name, brand.name || 'Unknown Brand', createdAt, createdByEmail);
+        createAdminNotification({
+            title: 'New Outlet Onboarded',
+            message: `"${newOutlet.name}" is waiting for approval.`,
+            type: 'outlet',
+            referenceId: newOutlet._id.toString(),
+        });
+
         // Get updated user data
         const updatedUser = result.user;
-        
+
         return sendSuccess(res, {
             onboardingRequest: {
                 id: result.onboardingRequest._id,
@@ -244,13 +269,13 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         }, 'Onboarding submitted successfully', 201);
     } catch (error: any) {
         console.error('Onboarding submission error:', error);
-        
+
         // Handle mongoose validation errors
         if (error.name === 'ValidationError') {
             const messages = Object.values(error.errors).map((e: any) => e.message).join(', ');
             return sendError(res, `Validation failed: ${messages}`, 400);
         }
-        
+
         // Handle duplicate key errors
         if (error.code === 11000) {
             const field = Object.keys(error.keyPattern)[0];
@@ -268,7 +293,7 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
 export const getOnboardingStatus = async (req: AuthRequest, res: Response) => {
     try {
         const onboardingRequest = await onboardingService.getUserOnboardingRequest(req.user.id);
-        
+
         if (!onboardingRequest) {
             return sendSuccess(res, {
                 status: 'not_started',
@@ -310,7 +335,7 @@ export const approveOnboarding = async (req: AuthRequest, res: Response) => {
     try {
         const { requestId } = req.params;
         const request = await onboardingService.approveOnboardingRequest(requestId, req.user.id);
-        
+
         if (!request) {
             return sendError(res, 'Onboarding request not found', null, 404);
         }
@@ -337,7 +362,7 @@ export const rejectOnboarding = async (req: AuthRequest, res: Response) => {
         }
 
         const request = await onboardingService.rejectOnboardingRequest(requestId, req.user.id, reason);
-        
+
         if (!request) {
             return sendError(res, 'Onboarding request not found', null, 404);
         }
@@ -370,9 +395,9 @@ export const saveOnboardingStep = async (req: AuthRequest, res: Response) => {
         }
 
         // Find or create active draft session for user
-        let session = await OnboardingSession.findOne({ 
-            user_id: req.user.id, 
-            status: 'draft' 
+        let session = await OnboardingSession.findOne({
+            user_id: req.user.id,
+            status: 'draft'
         }).sort({ updated_at: -1 });
 
         if (!session) {
@@ -408,12 +433,12 @@ export const saveOnboardingStep = async (req: AuthRequest, res: Response) => {
         }, 'Step saved successfully');
     } catch (error: any) {
         console.error('Save step error:', error);
-        
+
         if (error.name === 'ValidationError') {
             const messages = Object.values(error.errors).map((e: any) => e.message).join(', ');
             return sendError(res, `Validation failed: ${messages}`, null, 400);
         }
-        
+
         return sendError(res, error.message || 'Failed to save step', null, 500);
     }
 };
@@ -423,9 +448,9 @@ export const saveOnboardingStep = async (req: AuthRequest, res: Response) => {
  */
 export const getOnboardingDraft = async (req: AuthRequest, res: Response) => {
     try {
-        const session = await OnboardingSession.findOne({ 
-            user_id: req.user.id, 
-            status: 'draft' 
+        const session = await OnboardingSession.findOne({
+            user_id: req.user.id,
+            status: 'draft'
         }).sort({ updated_at: -1 });
 
         if (!session) {
@@ -456,7 +481,7 @@ export const getOnboardingSessions = async (req: AuthRequest, res: Response) => 
     try {
         const { status } = req.query;
         const query: any = { user_id: req.user.id };
-        
+
         if (status) {
             query.status = status;
         }
