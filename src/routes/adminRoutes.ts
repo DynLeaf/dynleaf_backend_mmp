@@ -1467,11 +1467,20 @@ router.get('/analytics/food/most-voted', adminAuth, adminFoodAnalyticsController
 // Get all approved outlets for QR management
 router.get('/qr/outlets', adminAuth, qrManagementController.getApprovedOutlets);
 
+// Get all derived malls for QR management
+router.get('/qr/malls', adminAuth, qrManagementController.getDerivedMalls);
+
 //  Get QR configuration for a specific outlet
 router.get('/qr/outlets/:outletId/config', adminAuth, qrManagementController.getOutletQRConfig);
 
+// Get QR configuration for a specific mall
+router.get('/qr/malls/:mallKey/config', adminAuth, qrManagementController.getMallQRConfig);
+
 // Update/Set table count for an outlet
 router.post('/qr/outlets/:outletId/generate', adminAuth, qrManagementController.updateOutletQRConfig);
+
+// Update/set QR config for a mall
+router.post('/qr/malls/:mallKey/generate', adminAuth, qrManagementController.updateMallQRConfig);
 
 
 // ============================================

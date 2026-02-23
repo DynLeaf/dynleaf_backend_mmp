@@ -173,6 +173,7 @@ export class AnalyticsEventProcessor {
             if (event.type === 'qr_scan') {
                 console.log(`🔍 [EventProcessor] QR Scan Detected:`, {
                     outlet_id: payload.outlet_id,
+                    mall_key: payload.mall_key,
                     method: payload.method,
                     type: payload.type,
                     is_valid: payload.is_valid,
@@ -180,7 +181,9 @@ export class AnalyticsEventProcessor {
                 });
             }
 
-            if (!outletObjectId) {
+            const isMallQrScan = event.type === 'qr_scan' && payload.type === 'mall' && !!payload.mall_key;
+
+            if (!outletObjectId && !isMallQrScan) {
                 console.warn('[EventProcessor] Invalid outlet ID:', {
                     received: payload.outlet_id,
                     type: typeof payload.outlet_id,
@@ -194,7 +197,7 @@ export class AnalyticsEventProcessor {
                 ? new mongoose.Types.ObjectId(payload.promotion_id)
                 : undefined;
 
-            await OutletAnalyticsEvent.create({
+            const eventDoc: any = {
                 session_id: event.session_id,
                 device_type: event.device_type,
                 user_agent: payload.user_agent || 'unknown',
@@ -202,12 +205,19 @@ export class AnalyticsEventProcessor {
                 timestamp: event.timestamp,
                 source: payload.source || 'other',
                 source_context: payload.source_context,
-                outlet_id: outletObjectId,
                 event_type: event.type,
                 entry_page: payload.entry_page,
                 prev_path: payload.prev_path,
                 promotion_id: promotionObjectId,
-            } as any);
+                mall_key: payload.mall_key,
+                qr_scan_type: payload.type,
+            };
+
+            if (outletObjectId) {
+                eventDoc.outlet_id = outletObjectId;
+            }
+
+            await OutletAnalyticsEvent.create(eventDoc);
 
             return true;
         } catch (error: any) {
