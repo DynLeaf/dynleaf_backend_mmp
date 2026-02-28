@@ -100,6 +100,10 @@ const handleImageUpload = async (imageInput: string, folder: string, prefix?: st
     if (imageInput.startsWith('http://') || imageInput.startsWith('https://') || imageInput.startsWith('/uploads/')) {
         return imageInput;
     }
+    // Accept S3 keys (relative paths like 'outlets/uuid.jpg') already uploaded via presigned URL
+    if (!imageInput.includes('://')) {
+        return imageInput;
+    }
     throw new Error('Invalid image URL');
 };
 
