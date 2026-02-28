@@ -71,12 +71,14 @@ const buildUpdateData = (params: any, brand: any) => {
     const updateData: any = {};
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
-    if (logoUrl) updateData.logo_url = logoUrl;
+    if (logoUrl !== undefined) updateData.logo_url = logoUrl;
     if (cuisines) updateData.cuisines = cuisines;
-    const social_media = { ...(brand.social_media || {}) };
-    if (website !== undefined) social_media.website = website;
-    if (instagram !== undefined) social_media.instagram = instagram;
-    updateData.social_media = social_media;
+    if (website !== undefined || instagram !== undefined) {
+        const social_media = { ...(brand.social_media || {}) };
+        if (website !== undefined) social_media.website = website;
+        if (instagram !== undefined) social_media.instagram = instagram;
+        updateData.social_media = social_media;
+    }
 
     if (operationModel) {
         updateData.operating_modes = mapOperationModelToModes(operationModel);
@@ -186,13 +188,22 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         const currentStatus = brand.verification_status?.toLowerCase();
         console.log(`[UpdateBrand] Brand ${brandId} status: ${brand.verification_status} (normalized: ${currentStatus})`);
 
-        if (isApprovedStatus(currentStatus)) {
+        const isLogoOnlyUpdate =
+            logo !== undefined &&
+            name === undefined &&
+            description === undefined &&
+            cuisines === undefined &&
+            website === undefined &&
+            instagram === undefined &&
+            operationModel === undefined;
+
+        if (isApprovedStatus(currentStatus) && !isLogoOnlyUpdate) {
             console.log(`[UpdateBrand] Creating/Updating BrandUpdateRequest for approved brand ${brandId}`);
             try {
                 const newData = {
                     name: updateData.name || brand.name,
                     description: updateData.description !== undefined ? updateData.description : brand.description,
-                    logo_url: updateData.logo_url || brand.logo_url,
+                    logo_url: updateData.logo_url !== undefined ? updateData.logo_url : brand.logo_url,
                     cuisines: updateData.cuisines || brand.cuisines,
                     operating_modes: updateData.operating_modes || brand.operating_modes,
                     social_media: updateData.social_media || brand.social_media

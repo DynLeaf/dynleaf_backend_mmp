@@ -21,7 +21,11 @@ const corsConfiguration = {
         'http://localhost:8080',
         'http://localhost:5174',
         'http://localhost:3000',
+        'https://preview.dynleaf.com',
         'https://dynleaf.com',
+        'https://www.dynleaf.com',
+        'https://admin.dynleaf.com',
+        'https://app.dynleaf.com',
         'https://*.dynleaf.com'
       ],
       ExposeHeaders: ['ETag', 'x-amz-meta-custom-header'],

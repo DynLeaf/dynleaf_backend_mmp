@@ -343,7 +343,8 @@ class S3UploadService {
         };
 
         const folder = assetTypeToFolder[assetType] || 'uploads';
-        const uniqueId = fileName ? fileName.replace(/\s+/g, '-').split('.')[0] : uuidv4();
+        const baseName = fileName ? fileName.replace(/\s+/g, '-').split('.')[0] : 'upload';
+        const uniqueId = `${baseName}-${uuidv4()}`;
         const ext = fileName ? fileName.substring(fileName.lastIndexOf('.')) : '.webp';
 
         return `${folder}/${userId}/${uniqueId}${ext}`;
