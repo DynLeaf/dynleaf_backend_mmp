@@ -5,3 +5,4 @@ dist/
 .env.example
 uploads/
 *.md
+analytics_fallback/
