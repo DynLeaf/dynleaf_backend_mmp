@@ -35,6 +35,8 @@ const PUBLIC_COOKIE_OPTIONS = {
   httpOnly: false,
 };
 
+const MAX_ACCESS_TOKEN_COOKIE_BYTES = Number(process.env.MAX_ACCESS_TOKEN_COOKIE_BYTES || 3800);
+
 const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
 const ACCOUNT_LOCK_DURATION = 30 * 60 * 1000; // 30 minutes
 const MAX_FAILED_ATTEMPTS = 5;
@@ -44,7 +46,45 @@ const validatePhoneNumber = (phone: string): boolean => {
   return PHONE_REGEX.test(phone);
 };
 
-const setAuthCookies = (res: Response, accessToken: string, refreshToken: string) => {
+const validateAccessTokenCookieSize = (accessToken: string) => {
+  const accessTokenSize = Buffer.byteLength(accessToken, 'utf8');
+  if (accessTokenSize > MAX_ACCESS_TOKEN_COOKIE_BYTES) {
+    throw new Error(`ACCESS_TOKEN_TOO_LARGE:${accessTokenSize}`);
+  }
+};
+
+const logAuthCookieMetrics = (params: {
+  source: string;
+  userId?: string;
+  roleCount?: number;
+  accessToken: string;
+  refreshToken: string;
+}) => {
+  const accessTokenBytes = Buffer.byteLength(params.accessToken, 'utf8');
+  const refreshTokenBytes = Buffer.byteLength(params.refreshToken, 'utf8');
+
+  console.info(
+    `[AuthCookieMetrics] source=${params.source} userId=${params.userId || 'unknown'} roleCount=${params.roleCount ?? -1} accessTokenBytes=${accessTokenBytes} refreshTokenBytes=${refreshTokenBytes} accessTokenLimit=${MAX_ACCESS_TOKEN_COOKIE_BYTES}`
+  );
+};
+
+const setAuthCookies = (
+  res: Response,
+  accessToken: string,
+  refreshToken: string,
+  metadata?: { source: string; userId?: string; roleCount?: number }
+) => {
+  if (metadata) {
+    logAuthCookieMetrics({
+      source: metadata.source,
+      userId: metadata.userId,
+      roleCount: metadata.roleCount,
+      accessToken,
+      refreshToken,
+    });
+  }
+
+  validateAccessTokenCookieSize(accessToken);
   res.cookie("accessToken", accessToken, ACCESS_TOKEN_OPTIONS);
   res.cookie("refreshToken", refreshToken, COOKIE_OPTIONS);
   res.cookie("isLoggedIn", "true", PUBLIC_COOKIE_OPTIONS);
@@ -266,7 +306,11 @@ export const verifyOtp = async (req: Request, res: Response) => {
       brands.length > 0 &&
       user.currentStep === "DONE";
 
-    setAuthCookies(res, newAccessToken, newRefreshToken);
+    setAuthCookies(res, newAccessToken, newRefreshToken, {
+      source: 'verifyOtp',
+      userId: user._id.toString(),
+      roleCount: user.roles?.length || 0,
+    });
 
     return sendSuccess(res, {
       user: {
@@ -289,6 +333,9 @@ export const verifyOtp = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error("Verify OTP error:", error);
+    if (typeof error?.message === 'string' && error.message.startsWith('ACCESS_TOKEN_TOO_LARGE:')) {
+      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
+    }
     return sendError(res, error.message);
   }
 };
@@ -336,11 +383,18 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     await sessionService.rotateRefreshToken(decoded.sessionId, newRefreshToken);
 
-    setAuthCookies(res, newAccessToken, newRefreshToken);
+    setAuthCookies(res, newAccessToken, newRefreshToken, {
+      source: 'refreshToken',
+      userId: user._id.toString(),
+      roleCount: user.roles?.length || 0,
+    });
 
     return sendSuccess(res, null);
   } catch (error: any) {
     console.error("Refresh token error:", error);
+    if (typeof error?.message === 'string' && error.message.startsWith('ACCESS_TOKEN_TOO_LARGE:')) {
+      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
+    }
     return sendError(res, "Invalid or expired refresh token", null, 401);
   }
 };

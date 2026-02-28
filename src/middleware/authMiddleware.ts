@@ -9,6 +9,27 @@ export interface AuthRequest extends Request {
     subscription?: any;
 }
 
+const isSameRoleScope = (roleA: any, roleB: any): boolean => {
+    if (!roleA || !roleB) return false;
+    if (roleA.scope !== roleB.scope || roleA.role !== roleB.role) return false;
+
+    const roleABrandId = roleA.brandId?.toString?.();
+    const roleBBrandId = roleB.brandId?.toString?.();
+    const roleAOutletId = roleA.outletId?.toString?.();
+    const roleBOutletId = roleB.outletId?.toString?.();
+
+    return roleABrandId === roleBBrandId && roleAOutletId === roleBOutletId;
+};
+
+const resolveActiveRole = (userRoles: any[], requestedActiveRole: any): any => {
+    if (!requestedActiveRole) {
+        return null;
+    }
+
+    const matchingRole = userRoles.find((role: any) => isSameRoleScope(role, requestedActiveRole));
+    return matchingRole || null;
+};
+
 export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
         const authHeader = req.headers.authorization;
@@ -46,12 +67,13 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
             });
         }
 
+        const activeRole = resolveActiveRole(user.roles, decoded.activeRole);
         req.user = {
             id: decoded.id,
-            phone: decoded.phone,
-            roles: decoded.roles,
-            activeRole: decoded.activeRole,
-            permissions: decoded.permissions,
+            phone: user.phone,
+            roles: user.roles,
+            activeRole,
+            permissions: tokenService.getUserPermissions(user, activeRole),
             sessionId: decoded.sessionId
         };
 
@@ -249,13 +271,13 @@ export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFu
             return next();
         }
 
-        // Valid user, attach to request
+        const activeRole = resolveActiveRole(user.roles, decoded.activeRole);
         req.user = {
             id: decoded.id,
-            phone: decoded.phone,
-            roles: decoded.roles,
-            activeRole: decoded.activeRole,
-            permissions: decoded.permissions,
+            phone: user.phone,
+            roles: user.roles,
+            activeRole,
+            permissions: tokenService.getUserPermissions(user, activeRole),
             sessionId: decoded.sessionId
         };
 
