@@ -3,10 +3,7 @@ import { IUser } from '../models/User.js';
 
 interface TokenPayload {
     id: string;
-    phone: string;
-    roles: any[];
     activeRole?: any;
-    permissions: string[];
     sessionId: string;
 }
 
@@ -22,14 +19,9 @@ const JWT_ACCESS_EXPIRY: string = process.env.JWT_ACCESS_EXPIRY || '15m';
 const JWT_REFRESH_EXPIRY: string = process.env.JWT_REFRESH_EXPIRY || '30d';
 
 export const generateAccessToken = (user: IUser, sessionId: string, activeRole?: any): string => {
-    const permissions = extractPermissions(user, activeRole);
-    
     const payload: TokenPayload = {
         id: user._id.toString(),
-        phone: user.phone,
-        roles: user.roles,
         activeRole: activeRole || null,
-        permissions,
         sessionId
     };
 
@@ -64,6 +56,10 @@ export const verifyRefreshToken = (token: string): RefreshTokenPayload => {
 
 export const decodeToken = (token: string): any => {
     return jwt.decode(token);
+};
+
+export const getUserPermissions = (user: IUser, activeRole?: any): string[] => {
+    return extractPermissions(user, activeRole);
 };
 
 const extractPermissions = (user: IUser, activeRole?: any): string[] => {
