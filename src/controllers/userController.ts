@@ -7,7 +7,7 @@ import { Combo } from '../models/Combo.js';
 import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
-import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
+
 import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
 import { getS3Service } from '../services/s3Service.js';
 
@@ -63,7 +63,7 @@ const processImageInput = async (input: string, folder: UploadFolder, userId: st
     if (isBase64Image(input)) {
         try {
             const s3Service = getS3Service();
-            
+
             // Extract base64 data and mime type
             const matches = input.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
             if (!matches || matches.length !== 3) {
@@ -199,13 +199,13 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
         if (full_name !== undefined) updateData.full_name = full_name;
         if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
-        
+
         if (typeof avatar_url === 'string') {
             // Handle different avatar input types:
             // 1. S3 key (e.g., "avatars/userId/file.webp") - store as-is
             // 2. Base64 image - upload and store key
             // 3. Full S3 URL - extract key and store
-            
+
             if (isBase64Image(avatar_url)) {
                 // Base64 image - upload to S3 and get key
                 try {
@@ -243,9 +243,10 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             return sendNotFoundError(res, 'USER_NOT_FOUND', ERROR_MESSAGES.USER_NOT_FOUND);
         }
 
-        // Delete old avatar from Cloudinary if avatar was updated
+        // Delete old avatar from S3 if avatar was updated
         if (updateData.avatar_url && oldAvatarUrl) {
-            await safeDeleteFromCloudinary(oldAvatarUrl, updateData.avatar_url);
+            const s3 = getS3Service();
+            await s3.safeDeleteFromUrl(oldAvatarUrl, updateData.avatar_url);
         }
 
         return sendSuccess(res, updatedUser, SUCCESS_MESSAGES.PROFILE_UPDATED);
@@ -286,9 +287,10 @@ export const uploadAvatar = async (req: AuthRequest, res: Response) => {
             { new: true }
         ).select('-password_hash');
 
-        // Delete old avatar from Cloudinary if it was updated
+        // Delete old avatar from S3 if it was updated
         if (oldAvatarUrl) {
-            await safeDeleteFromCloudinary(oldAvatarUrl, avatarUrl);
+            const s3 = getS3Service();
+            await s3.safeDeleteFromUrl(oldAvatarUrl, avatarUrl);
         }
 
         return sendSuccess(res, {
@@ -484,7 +486,7 @@ export const getSavedEngagementItems = async (req: AuthRequest, res: Response) =
             return sendNotFoundError(res, 'USER_NOT_FOUND', ERROR_MESSAGES.USER_NOT_FOUND);
         }
 
-        const savedItems = [ ...((user as any).saved_items || []) ].sort((a: any, b: any) => {
+        const savedItems = [...((user as any).saved_items || [])].sort((a: any, b: any) => {
             return new Date(b.saved_at).getTime() - new Date(a.saved_at).getTime();
         });
 

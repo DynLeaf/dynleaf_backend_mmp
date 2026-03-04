@@ -9,7 +9,7 @@ import {
 } from "../models/PushNotification.js";
 import { User } from "../models/User.js";
 import { sendSuccess, sendError } from "../utils/response.js";
-import { v2 as cloudinary } from "cloudinary";
+
 import mongoose from "mongoose";
 import { sendPushNotificationCampaign } from "../services/pushNotificationService.js";
 import { getS3Service } from "../services/s3Service.js";
@@ -552,13 +552,14 @@ export const deletePushNotification = async (
       );
     }
 
-    // Delete image from Cloudinary if exists
-    if (notification.content.image_public_id) {
+    // Delete notification image from S3 if exists
+    if (notification.content.image_url) {
       try {
-        await cloudinary.uploader.destroy(notification.content.image_public_id);
-      } catch (cloudinaryError: any) {
-        console.error("Cloudinary deletion error:", cloudinaryError);
-        // Continue with deletion even if Cloudinary fails
+        const s3 = getS3Service();
+        await s3.safeDeleteFromUrl(notification.content.image_url, null);
+      } catch (s3Error: any) {
+        console.error("S3 deletion error:", s3Error);
+        // Continue with deletion even if S3 fails
       }
     }
 
