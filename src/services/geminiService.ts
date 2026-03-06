@@ -417,7 +417,7 @@ class GeminiService {
       throw new Error('Gemini client not initialized');
     }
 
-    // Updated to use supported GA models (Gemini 2.0 discontinued March 31, 2026)
+    // Use fast model for images, quality model for PDFs
     const modelName = modelType === 'FAST'
       ? 'gemini-2.5-flash-lite'  // Fast, cost-effective model for quick responses
       : 'gemini-2.5-flash';      // Quality model for complex tasks
@@ -716,8 +716,6 @@ Respond in JSON format:
    * Internal method to extract menu items from image
    */
   private async extractMenuItemsFromImage(imageBase64: string): Promise<MenuExtractionResult> {
-    const model = this.getModel('QUALITY');
-
     // Clean base64 data
     const base64Data = imageBase64.includes(',')
       ? imageBase64.split(',')[1]
@@ -731,6 +729,10 @@ Respond in JSON format:
         mimeType = mimeMatch[1];
       }
     }
+
+    // Use QUALITY model for PDFs, FAST model for images to optimize speed and cost
+    const isPdf = mimeType === 'application/pdf';
+    const model = this.getModel(isPdf ? 'QUALITY' : 'FAST');
 
     const imagePart = {
       inlineData: {
