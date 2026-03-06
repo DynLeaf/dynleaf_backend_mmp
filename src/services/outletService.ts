@@ -127,6 +127,7 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
         facebook?: string;
         twitter?: string;
     };
+    referral_code?: string;
 }): Promise<IOutlet> => {
     // Generate slug from name
     const slug = outletData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -153,6 +154,7 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
         seating_capacity: outletData.seating_capacity,
         table_count: outletData.table_count,
         social_media: outletData.social_media,
+        referral_code: outletData.referral_code,
         flags: {
             is_featured: false,
             is_trending: false

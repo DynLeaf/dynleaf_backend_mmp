@@ -178,7 +178,8 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             vendor_types: outlet.vendorTypes || [],
             seating_capacity: outlet.seatingCapacity ? parseInt(outlet.seatingCapacity) : undefined,
             table_count: outlet.tableCount ? parseInt(outlet.tableCount) : undefined,
-            social_media: outlet.socialLinks
+            social_media: outlet.socialLinks,
+            referral_code: outlet.referralCode
         });
 
         // Step 3: Save operating hours if provided

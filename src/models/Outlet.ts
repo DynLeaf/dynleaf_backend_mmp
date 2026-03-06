@@ -93,6 +93,7 @@ export interface IOutlet extends Document {
         currency: string;
         grid_columns_mobile: number;
     };
+    referral_code?: string;
 }
 
 const outletSchema = new Schema<IOutlet>({
@@ -204,7 +205,8 @@ const outletSchema = new Schema<IOutlet>({
         show_category_images: { type: Boolean, default: true },
         currency: { type: String, default: 'INR' },
         grid_columns_mobile: { type: Number, min: 1, max: 4, default: 3 }
-    }
+    },
+    referral_code: { type: String, trim: true }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Create indexes for queries
