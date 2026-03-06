@@ -39,9 +39,9 @@ const validateMenuExtractionRequest = (body: any): { valid: boolean; error?: str
     return { valid: false, error: 'imageBase64 must be a valid base64 string or data URL' };
   }
 
-  // Basic size check (max 10MB base64)
-  if (body.imageBase64.length > 14_000_000) {
-    return { valid: false, error: 'Image size too large. Maximum 10MB supported.' };
+  // Basic size check (max 30MB binary → ~42MB base64)
+  if (body.imageBase64.length > 42_000_000) {
+    return { valid: false, error: 'File size too large. Maximum 30MB supported.' };
   }
 
   return { valid: true };

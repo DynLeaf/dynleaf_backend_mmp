@@ -1414,7 +1414,7 @@ router.delete("/promotions/:id", adminAuth, promotionController.deletePromotion)
 // Get promotion analytics
 router.get("/promotions/:id/analytics", adminAuth, promotionController.getPromotionAnalytics);
 
-// Get Cloudinary signature for promotion banner image upload
+// Get S3 signature for promotion banner image upload
 router.post("/promotions/upload-signature", adminAuth, promotionController.getS3SignatureForPromotion);
 
 // Upload promotion banner via backend (S3 CORS fallback)
@@ -1511,7 +1511,7 @@ router.delete('/notifications/:id', adminAuth, pushNotificationController.delete
 // Get push notification analytics
 router.get('/notifications/:id/analytics', adminAuth, pushNotificationController.getPushNotificationAnalytics);
 
-// Get Cloudinary signature for image upload
+// Get S3 signature for notification image upload
 router.post('/notifications/upload-signature', adminAuth, pushNotificationController.getCloudinarySignatureForNotification);
 
 // Upload notification image via backend (S3 CORS fallback)

@@ -13,8 +13,7 @@ import { getS3Service } from '../services/s3Service.js';
 import { updateOperatingHoursFromEndpoint, getOperatingHours } from '../services/operatingHoursService.js';
 import { getOutletSubscriptionSummary } from '../utils/subscriptionSummary.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
-import { safeDeleteFromCloudinary, deleteFromCloudinary } from '../services/cloudinaryService.js';
-import { saveBase64Image } from '../utils/fileUpload.js';
+
 
 interface AuthRequest extends Request {
     user?: any;
@@ -223,8 +222,13 @@ export const createOutlet = async (req: AuthRequest, res: Response) => {
         // Handle cover image upload if base64
         let coverImageUrl = coverImage;
         if (coverImage && coverImage.startsWith('data:')) {
-            const uploadResult = await saveBase64Image(coverImage, 'outlets');
-            coverImageUrl = uploadResult.url;
+            const s3Service = getS3Service();
+            const matches = coverImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+                const buffer = Buffer.from(matches[2], 'base64');
+                const uploaded = await s3Service.uploadBuffer(buffer, 'outlet_cover', 'outlet', `cover-${Date.now()}`, matches[1]);
+                coverImageUrl = uploaded.key;
+            }
         }
 
         // Prepare location object with GeoJSON format
@@ -424,9 +428,10 @@ export const updateOutlet = async (req: AuthRequest, res: Response) => {
             updateData.media = { ...(updateData.media || {}), cover_image_url: coverImageUrl };
             delete updateData.coverImage;
 
-            // Delete old cover image from Cloudinary if it was updated
+            // Delete old cover image from S3 if it was updated
             if (oldCoverImage) {
-                await safeDeleteFromCloudinary(oldCoverImage, coverImageUrl);
+                const s3 = getS3Service();
+                await s3.safeDeleteFromUrl(oldCoverImage, coverImageUrl);
             }
         }
 
@@ -581,9 +586,10 @@ export const deletePhotoGallery = async (req: AuthRequest, res: Response) => {
 
         await outlet.save();
 
-        // Delete photo from Cloudinary
+        // Delete photo from S3
         if (photoUrl) {
-            await deleteFromCloudinary(photoUrl);
+            const s3 = getS3Service();
+            await s3.safeDeleteFromUrl(photoUrl, null);
         }
 
         return sendSuccess(res, null, 'Photo deleted successfully');
@@ -1231,7 +1237,7 @@ export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Reel not found', null, 404);
         }
 
-        // Get the reel to delete its thumbnail from Cloudinary
+        // Get the reel to delete its thumbnail from S3
         const reelToDelete = currentReels[reelIndex];
 
         // Remove the reel
@@ -1245,9 +1251,10 @@ export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
         outlet.instagram_reels = currentReels;
         await outlet.save();
 
-        // Delete thumbnail from Cloudinary
+        // Delete thumbnail from S3
         if (reelToDelete?.thumbnail) {
-            await deleteFromCloudinary(reelToDelete.thumbnail);
+            const s3 = getS3Service();
+            await s3.safeDeleteFromUrl(reelToDelete.thumbnail, null);
         }
 
         console.log(`🗑️ Deleted Instagram Reel from outlet ${outlet.name}`);

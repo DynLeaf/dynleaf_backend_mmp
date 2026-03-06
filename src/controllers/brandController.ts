@@ -7,7 +7,7 @@ import * as brandService from '../services/brandService.js';
 import { getS3Service } from '../services/s3Service.js';
 import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
 import mongoose from 'mongoose';
-import { safeDeleteFromCloudinary } from '../services/cloudinaryService.js';
+
 import { sendBrandOnboardingEmail } from '../services/emailService.js';
 import { createAdminNotification } from '../services/adminNotificationService.js';
 
@@ -268,9 +268,10 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         // If not approved yet, update directly
         const updatedBrand = await brandService.updateBrand(brandId, req.user.id, updateData);
 
-        // Delete old logo from Cloudinary if logo was updated
+        // Delete old logo from S3 if logo was updated
         if (logoUrl && brand.logo_url) {
-            await safeDeleteFromCloudinary(brand.logo_url, logoUrl);
+            const s3 = getS3Service();
+            await s3.safeDeleteFromUrl(brand.logo_url, logoUrl);
         }
 
         return sendSuccess(res, {

@@ -8,7 +8,7 @@ import { Subscription } from '../models/Subscription.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { getS3Service } from '../services/s3Service.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
-import { bulkDeleteFromCloudinary } from '../services/cloudinaryService.js';
+
 import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
 import * as outletService from '../services/outletService.js';
 
@@ -450,21 +450,18 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
-        const mediaUrls = story.slides
+        // Collect S3 keys from story slides (stored as S3 keys, not full URLs)
+        const mediaKeys = story.slides
             .map(slide => slide.mediaUrl)
-            .filter((url): url is string => Boolean(url) && url.includes('cloudinary.com'));
+            .filter((url): url is string => Boolean(url) && !url.startsWith('http'));
 
         await Story.deleteOne({ _id: storyId });
         await StoryMetrics.deleteOne({ storyId: storyId });
 
-        if (mediaUrls.length > 0) {
-            for (const url of mediaUrls) {
-                const isVideo = url.includes('/video/upload/');
-                const resourceType = isVideo ? 'video' : 'image';
-
-                const { deleteFromCloudinary } = await import('../services/cloudinaryService.js');
-                await deleteFromCloudinary(url, resourceType);
-            }
+        // Delete slide media from S3
+        if (mediaKeys.length > 0) {
+            const s3 = getS3Service();
+            await s3.deleteMultipleFiles(mediaKeys);
         }
 
         return sendSuccess(res, null, 'Story deleted');
