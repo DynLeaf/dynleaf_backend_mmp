@@ -26,7 +26,7 @@ import {
     getTrendingDishes,
     getFoodItemById
 } from '../controllers/menuController.js';
-import { toggleVote, getUserVote, getVoteAnalytics } from '../controllers/voteController.js';
+import { toggleVote, getUserVote, getVoteAnalytics, submitVoteReview } from '../controllers/voteController.js';
 import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 import { voteRateLimiter } from '../middleware/rateLimiter.js';
 
@@ -64,6 +64,7 @@ router.patch('/variants/:variantId', protect, updateVariant);
 router.post('/food-items/:foodItemId/vote', protect, voteRateLimiter, toggleVote);
 router.get('/food-items/:foodItemId/user-vote', protect, getUserVote);
 router.get('/food-items/:foodItemId/vote-analytics', getVoteAnalytics);
+router.post('/food-items/:foodItemId/vote-review', protect, submitVoteReview);
 
 // Add-ons
 router.post('/brands/:brandId/addons', protect, createAddOn);

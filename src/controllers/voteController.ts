@@ -202,3 +202,56 @@ export const getVoteAnalytics = async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+/**
+ * POST /food-items/:foodItemId/vote-review
+ * Attach an optional text review to the user's existing vote.
+ * Only authenticated users (protect middleware ensures req.user).
+ * Stores: review_text, review_submitted_at, and user_id is already on the vote record.
+ */
+export const submitVoteReview = async (req: Request, res: Response) => {
+  try {
+    const { foodItemId } = req.params;
+    const { reviewText } = req.body;
+    const userId = (req as any).user.id;
+
+    if (!reviewText || typeof reviewText !== 'string' || !reviewText.trim()) {
+      return res.status(400).json({ message: 'Review text is required' });
+    }
+
+    const trimmed = reviewText.trim().slice(0, 500);
+
+    // Resolve slug → ObjectId if needed
+    let actualFoodItemId = foodItemId;
+    if (!mongoose.Types.ObjectId.isValid(foodItemId)) {
+      const foodItem = await FoodItem.findOne({ slug: foodItemId });
+      if (!foodItem) {
+        return res.status(404).json({ message: 'Food item not found' });
+      }
+      actualFoodItemId = foodItem._id.toString();
+    }
+
+    // The vote must already exist — reviewing without voting is not allowed
+    const vote = await DishVote.findOneAndUpdate(
+      { user_id: userId, food_item_id: actualFoodItemId },
+      { review_text: trimmed, review_submitted_at: new Date() },
+      { new: true }
+    );
+
+    if (!vote) {
+      return res.status(404).json({
+        message: 'You must vote on this dish before leaving a review'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Review submitted successfully',
+      reviewText: vote.review_text,
+      submittedAt: vote.review_submitted_at,
+    });
+  } catch (error) {
+    console.error('Error submitting vote review:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
