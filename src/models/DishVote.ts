@@ -4,6 +4,8 @@ export interface IDishVote extends Document {
     user_id: mongoose.Types.ObjectId;
     food_item_id: mongoose.Types.ObjectId;
     vote_type: 'up' | 'down';
+    review_text?: string;
+    review_submitted_at?: Date;
     created_at: Date;
     updated_at: Date;
 }
@@ -12,6 +14,8 @@ const dishVoteSchema = new Schema<IDishVote>({
     user_id: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     food_item_id: { type: Schema.Types.ObjectId, ref: 'FoodItem', required: true, index: true },
     vote_type: { type: String, enum: ['up', 'down'], required: true },
+    review_text: { type: String, maxlength: 500, default: null },
+    review_submitted_at: { type: Date, default: null },
 }, {
     timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
