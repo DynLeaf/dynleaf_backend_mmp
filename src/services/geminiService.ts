@@ -25,9 +25,15 @@ import crypto from 'crypto';
 
 const MAX_IMAGE_SIZE_MB = 20; // Gemini API limit
 const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
+const MAX_PDF_SIZE_MB = 30; // Hard cap for PDF uploads
+const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 90000; // 90 seconds
 const MENU_EXTRACTION_TIMEOUT_MS = 300000; // 5 minutes for large menus/images
 const PDF_EXTRACTION_TIMEOUT_MS = 600000; // 10 minutes for very large multi-page PDFs
+
+// Circuit breaker thresholds
+const CIRCUIT_BREAKER_THRESHOLD = 5; // consecutive 503s before opening
+const CIRCUIT_BREAKER_PAUSE_MS = 30000; // 30 seconds pause when open
 
 // ============================================================================
 // Configuration & Types
@@ -289,6 +295,49 @@ class CacheManager {
 }
 
 // ============================================================================
+// Circuit Breaker
+// ============================================================================
+
+class CircuitBreaker {
+  private consecutiveFailures = 0;
+  private pausedUntil: number | null = null;
+
+  recordSuccess(): void {
+    this.consecutiveFailures = 0;
+  }
+
+  recordFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      this.pausedUntil = Date.now() + CIRCUIT_BREAKER_PAUSE_MS;
+      console.warn(
+        `[CircuitBreaker] Opened after ${this.consecutiveFailures} consecutive 503s. ` +
+        `Pausing for ${CIRCUIT_BREAKER_PAUSE_MS / 1000}s.`
+      );
+    }
+  }
+
+  async checkAndWait(): Promise<void> {
+    if (this.pausedUntil !== null && Date.now() < this.pausedUntil) {
+      const waitMs = this.pausedUntil - Date.now();
+      console.warn(`[CircuitBreaker] Circuit open. Waiting ${Math.ceil(waitMs / 1000)}s before retrying.`);
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      // Reset after pause
+      this.consecutiveFailures = 0;
+      this.pausedUntil = null;
+    }
+  }
+
+  getStats() {
+    return {
+      consecutiveFailures: this.consecutiveFailures,
+      isOpen: this.pausedUntil !== null && Date.now() < this.pausedUntil,
+      pausedUntil: this.pausedUntil,
+    };
+  }
+}
+
+// ============================================================================
 // Retry Logic with Exponential Backoff
 // ============================================================================
 
@@ -297,16 +346,22 @@ class RetryHelper {
 
   async executeWithRetry<T>(
     operation: () => Promise<T>,
-    operationName: string
+    operationName: string,
+    requestId?: string
   ): Promise<T> {
     let lastError: Error | null = null;
     let delay = this.config.initialDelayMs;
+    const tag = requestId ? `[${requestId}]` : '';
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
       try {
         if (attempt > 0) {
-          console.log(`[RetryHelper] Retry attempt ${attempt}/${this.config.maxRetries} for ${operationName}`);
-          await this.sleep(delay);
+          const delayWithJitter = delay + Math.floor(Math.random() * 2000);
+          console.log(
+            `[RetryHelper]${tag} Retry attempt ${attempt}/${this.config.maxRetries} for ${operationName}` +
+            ` (delay: ${delayWithJitter}ms)`
+          );
+          await this.sleep(delayWithJitter);
           delay = Math.min(delay * this.config.backoffMultiplier, this.config.maxDelayMs);
         }
 
@@ -317,12 +372,12 @@ class RetryHelper {
 
         // Don't retry on certain errors
         if (this.isNonRetryableError(error)) {
-          console.log(`[RetryHelper] Non-retryable error for ${operationName}: ${lastError.message}`);
+          console.log(`[RetryHelper]${tag} Non-retryable error for ${operationName}: ${lastError.message}`);
           throw error;
         }
 
         if (attempt === this.config.maxRetries) {
-          console.error(`[RetryHelper] All ${this.config.maxRetries} retries failed for ${operationName}`);
+          console.error(`[RetryHelper]${tag} All ${this.config.maxRetries} retries failed for ${operationName}`);
           throw lastError;
         }
       }
@@ -331,8 +386,18 @@ class RetryHelper {
     throw lastError || new Error('Retry failed');
   }
 
-  private isNonRetryableError(error: any): boolean {
+  isNonRetryableError(error: any): boolean {
     const message = error?.message?.toLowerCase() || '';
+    const status = error?.status ?? error?.httpStatus ?? error?.statusCode;
+
+    // Explicitly retryable: 503 / service unavailable / high demand
+    if (
+      status === 503 ||
+      message.includes('service unavailable') ||
+      message.includes('high demand')
+    ) {
+      return false; // DO retry
+    }
 
     // Don't retry validation errors, auth errors, or rate limits
     return (
@@ -341,10 +406,20 @@ class RetryHelper {
       message.includes('invalid') ||
       message.includes('unauthorized') ||
       message.includes('forbidden') ||
-      error?.status === 400 ||
-      error?.status === 401 ||
-      error?.status === 403 ||
-      error?.status === 429
+      status === 400 ||
+      status === 401 ||
+      status === 403 ||
+      status === 429
+    );
+  }
+
+  isServiceUnavailable(error: any): boolean {
+    const message = error?.message?.toLowerCase() || '';
+    const status = error?.status ?? error?.httpStatus ?? error?.statusCode;
+    return (
+      status === 503 ||
+      message.includes('service unavailable') ||
+      message.includes('high demand')
     );
   }
 
@@ -363,6 +438,7 @@ class GeminiService {
   private rateLimiter: RateLimiter;
   private cache: CacheManager;
   private retryHelper: RetryHelper;
+  private circuitBreaker: CircuitBreaker;
 
   constructor() {
     // Initialize rate limiter with tiered limits
@@ -375,13 +451,16 @@ class GeminiService {
     // Initialize cache
     this.cache = new CacheManager(1000);
 
-    // Initialize retry helper
+    // Initialize retry helper with increased initial delay to handle 503s gracefully
     this.retryHelper = new RetryHelper({
       maxRetries: 3,
-      initialDelayMs: 1000,
-      maxDelayMs: 10000,
+      initialDelayMs: 4000, // Increased from 1000ms to reduce 503 retry spikes
+      maxDelayMs: 30000,
       backoffMultiplier: 2,
     });
+
+    // Initialize circuit breaker
+    this.circuitBreaker = new CircuitBreaker();
 
     // Auto-initialize with API key from environment
     this.initialize();
@@ -410,19 +489,63 @@ class GeminiService {
   }
 
   /**
-   * Get generative model with specified configuration
+   * Get generative model with specified configuration.
+   * Primary models: gemini-2.5-flash-lite (FAST) / gemini-2.5-flash (QUALITY)
+   * Fallback models: gemini-1.5-flash (both FAST and QUALITY)
    */
-  private getModel(modelType: 'FAST' | 'QUALITY' = 'FAST'): GenerativeModel {
+  private getModel(modelType: 'FAST' | 'QUALITY' = 'FAST', useFallback = false): GenerativeModel {
     if (!this.client) {
       throw new Error('Gemini client not initialized');
     }
 
-    // Use fast model for images, quality model for PDFs
-    const modelName = modelType === 'FAST'
-      ? 'gemini-2.5-flash-lite'  // Fast, cost-effective model for quick responses
-      : 'gemini-2.5-flash';      // Quality model for complex tasks
+    let modelName: string;
+    if (modelType === 'FAST') {
+      modelName = useFallback ? 'gemini-1.5-flash' : 'gemini-2.5-flash-lite';
+    } else {
+      // gemini-1.5-pro is not available on v1beta; use gemini-1.5-flash as fallback
+      modelName = useFallback ? 'gemini-1.5-flash' : 'gemini-2.5-flash';
+    }
+
+    if (useFallback) {
+      console.warn(`[GeminiService] Using fallback model: ${modelName}`);
+    }
 
     return this.client.getGenerativeModel({ model: modelName });
+  }
+
+  /**
+   * Execute a Gemini model call with automatic fallback on 503
+   */
+  private async executeWithModelFallback<T>(
+    modelType: 'FAST' | 'QUALITY',
+    fn: (model: GenerativeModel, modelName: string) => Promise<T>,
+    requestId: string
+  ): Promise<T> {
+    await this.circuitBreaker.checkAndWait();
+
+    const primaryModelName = modelType === 'FAST' ? 'gemini-2.5-flash-lite' : 'gemini-2.5-flash';
+    const fallbackModelName = 'gemini-1.5-flash'; // stable fallback for both FAST and QUALITY
+
+    try {
+      const model = this.getModel(modelType, false);
+      const result = await fn(model, primaryModelName);
+      this.circuitBreaker.recordSuccess();
+      return result;
+    } catch (primaryError: any) {
+      if (this.retryHelper.isServiceUnavailable(primaryError)) {
+        this.circuitBreaker.recordFailure();
+        console.warn(
+          `[GeminiService][${requestId}] Primary model ${primaryModelName} returned 503. ` +
+          `Falling back to ${fallbackModelName}.`
+        );
+        await this.circuitBreaker.checkAndWait();
+        const fallbackModel = this.getModel(modelType, true);
+        const result = await fn(fallbackModel, fallbackModelName);
+        this.circuitBreaker.recordSuccess();
+        return result;
+      }
+      throw primaryError;
+    }
   }
 
   /**
@@ -519,7 +642,7 @@ class GeminiService {
           REQUEST_TIMEOUT_MS,
           'getDishInsights'
         );
-      }, 'getDishInsights');
+      }, 'getDishInsights', requestId);
 
       // Cache result
       this.cache.set(cacheKey, result, 24 * 60 * 60); // 24 hours
@@ -603,11 +726,11 @@ Respond in JSON format:
       // Execute with retry and timeout (longer for menu extraction)
       const result = await this.retryHelper.executeWithRetry(async () => {
         return await this.withTimeout(
-          this.extractMenuItemsFromImage(imageBase64),
+          this.extractMenuItemsFromImage(imageBase64, requestId),
           MENU_EXTRACTION_TIMEOUT_MS,
           'extractMenuFromImage'
         );
-      }, 'extractMenuFromImage');
+      }, 'extractMenuFromImage', requestId);
 
       // Cache result (shorter TTL for menus as they change more frequently)
       this.cache.set(cacheKey, result, 60 * 60); // 1 hour
@@ -715,7 +838,13 @@ Respond in JSON format:
   /**
    * Internal method to extract menu items from image
    */
-  private async extractMenuItemsFromImage(imageBase64: string): Promise<MenuExtractionResult> {
+  private async extractMenuItemsFromImage(
+    imageBase64: string,
+    requestId?: string
+  ): Promise<MenuExtractionResult> {
+    const tag = requestId ? `[${requestId}]` : '';
+    const startTime = Date.now();
+
     // Clean base64 data
     const base64Data = imageBase64.includes(',')
       ? imageBase64.split(',')[1]
@@ -730,9 +859,20 @@ Respond in JSON format:
       }
     }
 
+    // Enforce PDF size limit to avoid sending large payloads repeatedly
+    if (mimeType === 'application/pdf') {
+      const pdfSizeBytes = (base64Data.length * 3) / 4;
+      if (pdfSizeBytes > MAX_PDF_SIZE_BYTES) {
+        throw new Error(
+          `PDF too large. Please upload a smaller menu. ` +
+          `(Size: ~${(pdfSizeBytes / (1024 * 1024)).toFixed(1)}MB, Max: ${MAX_PDF_SIZE_MB}MB)`
+        );
+      }
+    }
+
     // Use QUALITY model for PDFs, FAST model for images to optimize speed and cost
     const isPdf = mimeType === 'application/pdf';
-    const model = this.getModel(isPdf ? 'QUALITY' : 'FAST');
+    const modelType: 'FAST' | 'QUALITY' = isPdf ? 'QUALITY' : 'FAST';
 
     const imagePart = {
       inlineData: {
@@ -741,39 +881,12 @@ Respond in JSON format:
       },
     };
 
-    const prompt = `You are an expert menu digitization assistant. Extract ALL menu items from this image with maximum accuracy.
+    // Shorter, more deterministic prompt to reduce token usage
+    const prompt = `You are an expert restaurant menu digitization assistant.
 
-EXTRACTION RULES:
-1. Extract EVERY visible item, even if partially visible
-2. If price is unclear, use 0 (don't skip the item)
-3. Infer category from context if not explicitly labeled
-4. Detect vegetarian items by green dot symbols or "veg" labels
-5. Detect spicy items by chili symbols or "spicy" labels
-6. For combo meals, list all included items
-7. Extract variants (Small/Medium/Large) as separate entries in variants array
-8. Extract add-ons if listed separately
+Extract ALL visible menu items from this menu image.
 
-CATEGORY DETECTION:
-- Look for section headers (Appetizers, Main Course, Desserts, Beverages, etc.)
-- If no header, infer from item names and descriptions
-- Use "Uncategorized" only as last resort
-
-PRICE EXTRACTION:
-- Extract numeric value only (remove currency symbols)
-- For ranges (e.g., "₹100-150"), use the lower value
-- For "Market Price" or "MP", use 0
-
-ITEM TYPE DETECTION:
-- "beverage" for items that are drinkable: water, soda, soft drinks, juices, mocktails, cocktails, wine, beer, spirits, shakes, smoothies, coffee, tea, lassi, coolers, tonics. Look for keywords like "ml", "bottle", "glass", "pint", "on the rocks".
-- "food" for: solid dishes, appetizers, main courses, breads, desserts, snacks, etc.
-- If an item's category is already "Beverages", "Drinks", "Cocktails", etc., use "beverage".
-
-CONFIDENCE SCORING (for each item):
-- "high": Clear text, clear price, clear category
-- "medium": Some fields unclear or inferred
-- "low": Poor image quality or heavily inferred data
-
-OUTPUT FORMAT (strict JSON):
+Return ONLY JSON in this exact format:
 {
   "items": [
     {
@@ -789,21 +902,33 @@ OUTPUT FORMAT (strict JSON):
       "isCombo": false,
       "comboItems": [],
       "confidence": "high" | "medium" | "low",
-      "extractionNotes": "Any notes about extraction challenges"
+      "extractionNotes": ""
     }
   ],
   "metadata": {
     "totalExtracted": 0,
     "categoriesFound": 0,
-    "notes": "Any extraction challenges or important observations",
+    "notes": "",
     "confidence": "high" | "medium" | "low",
     "imageQuality": "excellent" | "good" | "poor"
   }
 }
 
-IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
+Return ONLY JSON.`;
 
-    const result = await model.generateContent([prompt, imagePart]);
+    const result = await this.executeWithModelFallback(
+      modelType,
+      async (model, modelName) => {
+        console.log(`[GeminiService]${tag} Calling model: ${modelName}`);
+        const res = await model.generateContent([prompt, imagePart]);
+        const executionTime = Date.now() - startTime;
+        console.log(
+          `[GeminiService]${tag} Model=${modelName} executionTime=${executionTime}ms`
+        );
+        return res;
+      },
+      requestId || 'unknown'
+    );
     const response = result.response.text();
 
     // Parse JSON response
@@ -1113,9 +1238,10 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
       hasApiKey: !!process.env.GEMINI_API_KEY,
       rateLimits: this.rateLimiter.getStats(),
       cache: this.cache.getStats(),
+      circuitBreaker: this.circuitBreaker.getStats(),
       models: {
-        fast: 'gemini-2.5-flash-lite',
-        quality: 'gemini-2.5-flash',
+        fast: { primary: 'gemini-2.5-flash-lite', fallback: 'gemini-1.5-flash' },
+        quality: { primary: 'gemini-2.5-flash', fallback: 'gemini-1.5-pro' },
       },
       timeouts: {
         requestTimeoutMs: REQUEST_TIMEOUT_MS,
@@ -1123,6 +1249,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown, no explanations.`;
       },
       imageValidation: {
         maxSizeMB: MAX_IMAGE_SIZE_MB,
+        maxPdfSizeMB: MAX_PDF_SIZE_MB,
         supportedFormats: ['JPEG', 'PNG', 'WebP', 'PDF'],
       },
     };
