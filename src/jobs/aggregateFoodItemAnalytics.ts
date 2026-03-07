@@ -8,10 +8,6 @@ import { FoodItem } from '../models/FoodItem.js';
 export function startFoodItemAnalyticsAggregation() {
   // Run daily at 12:05 AM (5 minutes after outlet aggregation)
   cron.schedule('5 0 * * *', async () => {
-    console.log('[CRON] ========================================');
-    console.log('[CRON] Starting daily food item analytics aggregation...');
-    console.log('[CRON] Time:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
-    console.log('[CRON] ========================================');
 
     try {
       const now = new Date();
@@ -19,10 +15,8 @@ export function startFoodItemAnalyticsAggregation() {
       const yesterdayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
       const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-      console.log(`[CRON] Aggregating food item events for: ${yesterdayUtc.toISOString().split('T')[0]}`);
 
       const outlets = await Outlet.find({}).select('_id');
-      console.log(`[CRON] Processing ${outlets.length} outlets...`);
 
       for (const outlet of outlets) {
         const groups = await FoodItemAnalyticsEvent.aggregate([
@@ -166,17 +160,11 @@ export function startFoodItemAnalyticsAggregation() {
           );
         }
 
-        console.log(`[CRON] ✓ Processed outlet: ${outlet._id} - ${byItem.size} food items`);
       }
 
-      console.log('[CRON] ========================================');
-      console.log('[CRON] Daily food item analytics aggregation completed successfully!');
-      console.log('[CRON] ========================================');
     } catch (error) {
       console.error('[CRON] Error during food item aggregation:', error);
     }
   });
 
-  console.log('[CRON] ✅ Food item analytics aggregation job scheduled (daily at 12:05 AM)');
-  console.log('[CRON] Aggregates previous day\'s complete data + vote counts');
 }

@@ -14,7 +14,6 @@ export class InsightsCronService {
      * Start all cron jobs
      */
     static start() {
-        console.log('[InsightsCron] Starting cron jobs...');
 
         // Every 6 hours for 7-day insights (00:00, 06:00, 12:00, 18:00 UTC)
         const job7d = cron.schedule(
@@ -53,10 +52,6 @@ export class InsightsCronService {
         this.jobs.set('30d', job30d);
         this.jobs.set('90d', job90d);
 
-        console.log('[InsightsCron] ✅ Cron jobs started:');
-        console.log('  - 7d insights: Every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)');
-        console.log('  - 30d insights: Daily at 01:00 UTC');
-        console.log('  - 90d insights: Weekly on Sunday at 02:00 UTC');
     }
 
     /**

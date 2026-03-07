@@ -31,8 +31,6 @@ export const sendOTP = async (phone: string): Promise<{ success: boolean; expire
 
     if (process.env.NODE_ENV === 'production') {
         await sendOtpSms(normalizedPhone, otp);
-    } else {
-        console.log(`[DEV MODE] OTP for ${normalizedPhone}: ${otp} (SMS NOT SENT)`);
     }
 
     return { success: true, expiresIn: OTP_EXPIRY };

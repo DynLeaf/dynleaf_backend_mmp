@@ -171,32 +171,22 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
         }
 
         // Debug logging
-        console.log('=== requireOutletAccess Debug ===');
-        console.log('User ID:', req.user.id);
-        console.log('Outlet ID:', outletId);
-        console.log('Outlet brand_id:', outlet.brand_id?.toString());
-        console.log('User roles:', JSON.stringify(req.user.roles, null, 2));
 
         const hasAccess = req.user.roles.some((r: any) => {
-            console.log('Checking role:', r.role, 'scope:', r.scope);
 
             if (r.role === 'admin') {
-                console.log('✓ Admin access granted');
                 return true;
             }
 
             if (r.scope === 'outlet' && r.outletId?.toString() === outletId) {
-                console.log('✓ Outlet-level access granted');
                 return true;
             }
 
             if (r.scope === 'brand' && r.brandId) {
                 const userBrandId = r.brandId.toString();
                 const outletBrandId = outlet.brand_id?.toString();
-                console.log('Brand comparison:', userBrandId, '===', outletBrandId, '?', userBrandId === outletBrandId);
 
                 if (outletBrandId && userBrandId === outletBrandId) {
-                    console.log('✓ Brand-level access granted');
                     return true;
                 }
             }
@@ -205,15 +195,12 @@ export const requireOutletAccess = async (req: AuthRequest, res: Response, next:
         });
 
         if (!hasAccess) {
-            console.log('❌ Access denied');
             return res.status(403).json({
                 error: 'No access to this outlet',
                 message: 'You do not have permission to access this outlet'
             });
         }
 
-        console.log('✓ Access granted');
-        console.log('=================================');
 
         // Attach outlet to request for controllers to use
         req.outlet = outlet as any;

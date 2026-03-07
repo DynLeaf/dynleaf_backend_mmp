@@ -186,7 +186,6 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
         );
 
         const currentStatus = brand.verification_status?.toLowerCase();
-        console.log(`[UpdateBrand] Brand ${brandId} status: ${brand.verification_status} (normalized: ${currentStatus})`);
 
         const isLogoOnlyUpdate =
             logo !== undefined &&
@@ -198,7 +197,6 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
             operationModel === undefined;
 
         if (isApprovedStatus(currentStatus) && !isLogoOnlyUpdate) {
-            console.log(`[UpdateBrand] Creating/Updating BrandUpdateRequest for approved brand ${brandId}`);
             try {
                 const newData = {
                     name: updateData.name || brand.name,
@@ -217,7 +215,6 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
                 if (existingPending) {
                     existingPending.new_data = newData as any;
                     await existingPending.save();
-                    console.log(`[UpdateBrand] Updated existing pending request: ${existingPending._id}`);
 
                     return sendSuccess(res, {
                         id: brand._id,
@@ -241,7 +238,6 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
                     },
                     new_data: newData
                 });
-                console.log(`[UpdateBrand] Request created successfully with ID: ${newRequest._id}`);
 
                 return sendSuccess(res, {
                     id: brand._id,
@@ -256,7 +252,6 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
             }
         }
 
-        console.log(`[UpdateBrand] Direct update for brand ${brandId} (not approved yet)`);
 
         // If a brand was rejected, treat an edit as a resubmission: reset to pending for re-verification.
         if (currentStatus === 'rejected') {

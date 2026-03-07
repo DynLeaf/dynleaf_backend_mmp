@@ -36,9 +36,6 @@ const corsConfiguration = {
 
 const setupCORS = async () => {
   try {
-    console.log('🔧 Setting up S3 CORS configuration...');
-    console.log(`📦 Bucket: ${process.env.AWS_S3_BUCKET_NAME}`);
-    console.log(`🌍 Region: ${process.env.AWS_REGION || 'ap-south-2'}`);
 
     const command = new PutBucketCorsCommand({
       Bucket: process.env.AWS_S3_BUCKET_NAME,
@@ -46,15 +43,9 @@ const setupCORS = async () => {
     });
 
     await s3Client.send(command);
-    console.log('✅ S3 CORS configuration updated successfully!');
-    console.log('\n📋 CORS Rules Applied:');
-    console.log('   - Allowed Methods: GET, PUT, POST, DELETE, HEAD');
-    console.log('   - Allowed Headers: * (all)');
-    console.log('   - Allowed Origins:');
+
     corsConfiguration.CORSRules[0].AllowedOrigins.forEach(origin => {
-      console.log(`     • ${origin}`);
     });
-    console.log('   - Max Age: 3000 seconds');
   } catch (error) {
     console.error('❌ Error setting up CORS:', error.message);
     process.exit(1);

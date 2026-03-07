@@ -803,11 +803,6 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
 
                 // Handle combo import
                 if (parseBoolean(item.isCombo, false)) {
-                    console.log('[Import] ========== Processing combo ==========');
-                    console.log('[Import] Name:', name);
-                    console.log('[Import] ComboType from import:', item.comboType);
-                    console.log('[Import] Items array:', JSON.stringify(item.items));
-                    console.log('[Import] CustomItems array:', JSON.stringify(item.customItems));
 
                     // Validate required fields for combo
                     if (!name) {
@@ -899,7 +894,6 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                             throw new Error('Regular combo must have at least one custom item');
                         }
 
-                        console.log(`[Import] Creating ${comboType} combo:`, name, 'custom_items:', finalCustomItems.length);
 
                         const createdCombo = await Combo.create(comboPayload) as any;
                         created++;

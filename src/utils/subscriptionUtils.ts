@@ -105,7 +105,7 @@ export const assignSubscriptionToOutlet = async (
 ): Promise<ISubscription> => {
     const normalizedPlan = normalizePlanKey(assignment.plan);
     const plan = getSubscriptionPlan(normalizedPlan);
-    
+
     if (!plan) {
         throw new Error(`Invalid subscription plan: ${normalizedPlan}`);
     }
@@ -166,7 +166,7 @@ export const updateSubscriptionStatus = async (
     reason?: string
 ): Promise<ISubscription | null> => {
     const subscription = await Subscription.findById(subscriptionId);
-    
+
     if (!subscription) {
         throw new Error('Subscription not found');
     }
@@ -174,13 +174,13 @@ export const updateSubscriptionStatus = async (
     const previousStatus = subscription.status;
     subscription.status = status;
     const changedById = toObjectId(changedBy);
-    
+
     if (status === 'cancelled') {
         subscription.cancelled_at = new Date();
         if (changedById) subscription.cancelled_by = changedById;
         subscription.cancellation_reason = reason;
     }
-    
+
     await subscription.save();
 
     await SubscriptionHistory.create({
@@ -202,9 +202,9 @@ export const extendSubscription = async (
     extension: { additional_months?: number; additional_days?: number },
     changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
-        const changedById = toObjectId(changedBy);
+    const changedById = toObjectId(changedBy);
     const subscription = await Subscription.findById(subscriptionId);
-    
+
     if (!subscription) {
         throw new Error('Subscription not found');
     }
@@ -239,7 +239,7 @@ export const extendSubscription = async (
         ? addDaysAtUTCMidnight(baseDate, Math.floor(months!) * DAYS_PER_MONTH)
         : addDaysAtUTCMidnight(baseDate, Math.floor(days!));
     subscription.end_date = newEndDate;
-    
+
     if (subscription.status === 'expired') {
         subscription.status = 'active';
     }
@@ -266,16 +266,16 @@ export const upgradeSubscriptionPlan = async (
     newPlan: 'free' | 'basic' | 'premium' | 'enterprise',
     changedBy?: mongoose.Types.ObjectId | string
 ): Promise<ISubscription | null> => {
-        const changedById = toObjectId(changedBy);
+    const changedById = toObjectId(changedBy);
     const normalizedNewPlan = normalizePlanKey(newPlan);
     const plan = getSubscriptionPlan(normalizedNewPlan);
-    
+
     if (!plan) {
         throw new Error(`Invalid subscription plan: ${normalizedNewPlan}`);
     }
 
     const subscription = await Subscription.findById(subscriptionId);
-    
+
     if (!subscription) {
         throw new Error('Subscription not found');
     }
@@ -418,8 +418,7 @@ export const checkSubscriptionExpiry = async (): Promise<void> => {
         }
     );
 
-    console.log(`Expired ${expiredByEndDate.modifiedCount} subscriptions by end_date`);
-    console.log(`Expired ${expiredByTrial.modifiedCount} trial subscriptions`);
+
 };
 
 export const getSubscriptionStats = async () => {
@@ -533,7 +532,7 @@ export const createTrialSubscription = async (
     assignedBy: mongoose.Types.ObjectId
 ): Promise<ISubscription> => {
     const planDetails = getSubscriptionPlan('premium');
-    
+
     if (!planDetails) {
         throw new Error(`Invalid subscription plan: premium`);
     }

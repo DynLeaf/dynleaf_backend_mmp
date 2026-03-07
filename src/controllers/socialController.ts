@@ -39,7 +39,6 @@ export const getProfilePhotos = async (req: Request, res: Response) => {
             return sendError(res, 'Outlet not found', 404);
         }
 
-        console.log(`[getProfilePhotos] Found outlet: ${outlet.name} (${outlet._id})`);
 
         // Transform photo_gallery structure to flat array with categories
         const photos: Array<{ url: string; category: 'interior' | 'exterior' | 'food' }> = [];

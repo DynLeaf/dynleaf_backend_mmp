@@ -6,11 +6,9 @@ import connectDB from '../config/db.js';
 
 const backfill = async () => {
     try {
-        console.log('Starting Offer location backfill...');
 
         // Connect to Database
         await connectDB();
-        console.log('Connected to DB');
 
         // Find offers without valid location
         const offers = await Offer.find({
@@ -21,7 +19,6 @@ const backfill = async () => {
             ]
         });
 
-        console.log(`Found ${offers.length} offers needing location backfill.`);
 
         let success = 0;
         let fail = 0;
@@ -64,12 +61,6 @@ const backfill = async () => {
                 console.warn(`Outlet ${outletId} missing location. Cannot backfill offer ${offer._id}`);
             }
         }
-
-        console.log('\n');
-        console.log('Backfill Complete');
-        console.log(`Updated: ${success}`);
-        console.log(`Failed (Outlet missing loc): ${fail}`);
-        console.log(`Skipped (No outlet_id): ${skipped}`);
 
         process.exit(0);
     } catch (error) {

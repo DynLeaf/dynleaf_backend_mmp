@@ -87,7 +87,6 @@ export const getOutletInsights = async (req: Request, res: Response) => {
             });
 
             // Always compute fresh for today
-            console.log(`[Insights] On-demand fresh computation for outlet ${outletId}, range today`);
             const result = await InsightsComputationService.computeForOutlet(outletId, range, customStart, customEnd);
 
             if (!result.success) {
@@ -102,7 +101,6 @@ export const getOutletInsights = async (req: Request, res: Response) => {
 
         } else if (realtime && isPremium) {
             // Real-time computation (premium only)
-            console.log(`[Insights] Real-time computation for outlet ${outletId}, range ${range}`);
             const result = await InsightsComputationService.computeForOutlet(outletId, range, customStart, customEnd);
 
             if (!result.success) {
@@ -122,7 +120,6 @@ export const getOutletInsights = async (req: Request, res: Response) => {
 
             if (!insightsData) {
                 // No pre-computed data, compute on-demand
-                console.log(`[Insights] No pre-computed data for outlet ${outletId}, computing now...`);
                 const result = await InsightsComputationService.computeForOutlet(outletId, range, customStart, customEnd);
 
                 if (!result.success) {
@@ -265,7 +262,6 @@ export const triggerInsightsComputation = async (req: Request, res: Response) =>
         }
 
         // Trigger computation
-        console.log(`[Insights] Manual computation triggered for outlet ${outletId}, range ${range}`);
         const result = await InsightsComputationService.computeForOutlet(outletId, range, customStart, customEnd);
 
         if (!result.success) {

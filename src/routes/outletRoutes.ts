@@ -47,7 +47,6 @@ import {
 const router = express.Router();
 
 router.use((req, res, next) => {
-    console.log(`🔍 [Router:outlet] ${req.method} ${req.url} | Params: ${JSON.stringify(req.params)}`);
     next();
 });
 

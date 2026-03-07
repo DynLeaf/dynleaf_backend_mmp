@@ -20,7 +20,6 @@ export const getOutletMenu = async (req: Request, res: Response) => {
   try {
     const { outletId: idOrSlug } = req.params;
     const { category, foodType, isVeg, isAvailable, search, sortBy = 'category' } = req.query;
-    console.log(`🍴 [getOutletMenu] Fetching menu for: ${idOrSlug}`);
 
     // Verify outlet exists
     const outlet = await outletService.getOutletById(idOrSlug);
@@ -37,7 +36,6 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     const pipeline: any[] = [
       { $match: { outlet_id: new mongoose.Types.ObjectId(actualOutletId as any), is_active: true } }
     ];
-    console.log(`🍴 [getOutletMenu] Pipeline initialized for actualOutletId: ${actualOutletId}`);
 
     // Filter by availability
     if (isAvailable === 'true') {
@@ -119,12 +117,9 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       pipeline.push({ $sort: { 'category.display_order': 1, display_order: 1 } });
     }
 
-    console.log('🍴 [getOutletMenu] Running aggregate pipeline...');
     const menuItems = await FoodItem.aggregate(pipeline);
-    console.log(`🍴 [getOutletMenu] Aggregate complete. Items found: ${menuItems.length}`);
 
     // Fetch active combos for the outlet
-    console.log('🍴 [getOutletMenu] Fetching combos...');
     const combos = await Combo.find({
       outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
       is_active: true
@@ -132,7 +127,6 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       .populate('items.food_item_id')
       .sort({ display_order: 1, order_count: -1 })
       .lean();
-    console.log(`🍴 [getOutletMenu] Combos fetched: ${combos.length}`);
 
     // Format combos - handle both offer and regular types
     const formattedCombos = combos.map((combo: any) => {
@@ -179,16 +173,13 @@ export const getOutletMenu = async (req: Request, res: Response) => {
     let userVotes: Map<string, 'up' | 'down'> = new Map();
     if ((req as any).user?.id) {
       const userId = (req as any).user.id;
-      console.log('🍴 [getOutletMenu] Fetching user votes...');
       const { DishVote } = await import('../models/DishVote.js');
-      console.log('🍴 [getOutletMenu] DishVote model imported');
 
       const itemIds = menuItems.map(item => item._id);
       const votes = await DishVote.find({
         user_id: userId,
         food_item_id: { $in: itemIds }
       }).select('food_item_id vote_type');
-      console.log(`🍴 [getOutletMenu] Votes found: ${votes.length}`);
 
       votes.forEach(vote => {
         userVotes.set(vote.food_item_id.toString(), vote.vote_type);

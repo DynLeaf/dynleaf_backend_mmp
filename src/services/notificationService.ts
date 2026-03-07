@@ -8,7 +8,6 @@ import { sendPushNotificationToUsers } from './pushNotificationService.js';
 import { Brand } from '../models/Brand.js';
 
 export const notifyFollowersOfNewOffer = async (offerId: string, outletId: string) => {
-    console.log(`[NotifyFollowers] Starting notification process for offer ${offerId} at outlet ${outletId}`);
     try {
         const [offer, outlet] = await Promise.all([
             Offer.findById(offerId),
@@ -20,7 +19,7 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         const brand = outlet.brand_id
             ? await Brand.findById(outlet.brand_id)
             : null;
-            
+
         // Find all followers
         const followers = await Follow.find({ outlet: outletId }).select('user');
 
@@ -40,7 +39,6 @@ export const notifyFollowersOfNewOffer = async (offerId: string, outletId: strin
         // Bulk insert for efficiency
         await Notification.insertMany(notifications);
 
-        console.log(`Notified ${followers.length} followers of new offer ${offerId}`);
 
         // Trigger Push Notifications
         const userIds = followers.map(f => f.user.toString());
@@ -166,7 +164,6 @@ const createContentHash = (title: string, message: string): string => {
 export const getUserNotifications = async (userId: string, page = 1, limit = 20) => {
     const skip = (page - 1) * limit;
 
-    console.log(`[GetNotifications] Fetching notifications for user: ${userId}`);
 
     // Fetch regular notifications
     const [regularNotifications, regularTotal] = await Promise.all([
@@ -176,7 +173,6 @@ export const getUserNotifications = async (userId: string, page = 1, limit = 20)
         Notification.countDocuments({ user: userId })
     ]);
 
-    console.log(`[GetNotifications] Found ${regularNotifications.length} regular notifications`);
 
     // Fetch all sent/partially sent push notifications (we'll filter by target audience)
     const pushNotifications = await PushNotification.find({
@@ -185,38 +181,32 @@ export const getUserNotifications = async (userId: string, page = 1, limit = 20)
         .sort({ sent_at: -1 })
         .lean();
 
-    console.log(`[GetNotifications] Found ${pushNotifications.length} push notifications with SENT or PARTIALLY_SENT status`);
 
     // Filter push notifications for this specific user
     const userPushNotifications = [];
     for (const pushNotif of pushNotifications) {
         const isInAudience = await isUserInTargetAudience(userId, pushNotif);
-        console.log(`[GetNotifications] Push notification "${pushNotif.content.title}" - User in audience: ${isInAudience}, Target type: ${pushNotif.target_audience.type}`);
         if (isInAudience) {
             userPushNotifications.push(transformPushNotificationToNotification(pushNotif));
         }
     }
 
-    console.log(`[GetNotifications] After audience filter: ${userPushNotifications.length} push notifications for this user`);
 
     // Merge notifications
     const allNotifications = [...regularNotifications, ...userPushNotifications];
 
-    console.log(`[GetNotifications] Total merged notifications: ${allNotifications.length}`);
 
     // Deduplicate by content (title + message)
     const contentHashes = new Set<string>();
     const deduplicatedNotifications = allNotifications.filter(notif => {
         const hash = createContentHash(notif.title, notif.message);
         if (contentHashes.has(hash)) {
-            console.log(`[GetNotifications] Deduplicating: "${notif.title}" (duplicate content)`);
             return false; // Skip duplicate
         }
         contentHashes.add(hash);
         return true;
     });
 
-    console.log(`[GetNotifications] After deduplication: ${deduplicatedNotifications.length} notifications`);
 
     // Sort by date descending and apply pagination
     const sortedNotifications = deduplicatedNotifications.sort(
@@ -254,7 +244,6 @@ export const getUserNotifications = async (userId: string, page = 1, limit = 20)
     const unreadRegular = regularNotifications.filter(n => !n.is_read).length;
     const unreadPush = userPushNotifications.filter(n => !n.is_read).length;
 
-    console.log(`[GetNotifications] Response - Regular: ${regularNotifications.length}, Push: ${userPushNotifications.length}, Total unread: ${unreadRegular + unreadPush}`);
 
     return {
         notifications: transformedNotifications,

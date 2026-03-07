@@ -44,7 +44,6 @@ export const deleteFromCloudinary = async (
         const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
 
         if (result.result === 'ok') {
-            console.log(`✅ [Cloudinary] Successfully deleted: ${publicId}`);
             return true;
         } else if (result.result === 'not found') {
             console.warn(`⚠️ [Cloudinary] Image not found (may have been already deleted): ${publicId}`);
@@ -74,7 +73,6 @@ export const bulkDeleteFromCloudinary = async (
     const deleted = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
     const failed = results.length - deleted;
 
-    console.log(`📊 [Cloudinary] Bulk delete: ${deleted} succeeded, ${failed} failed`);
     return { deleted, failed };
 };
 

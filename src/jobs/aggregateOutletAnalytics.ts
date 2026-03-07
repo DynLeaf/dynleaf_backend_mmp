@@ -6,10 +6,6 @@ import { OutletAnalyticsSummary } from '../models/OutletAnalyticsSummary.js';
 export function startOutletAnalyticsAggregation() {
   // Run daily at 12:00 AM (midnight) to aggregate YESTERDAY's complete data
   cron.schedule('0 0 * * *', async () => {
-    console.log('[CRON] ========================================');
-    console.log('[CRON] Starting daily outlet analytics aggregation...');
-    console.log('[CRON] Time:', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
-    console.log('[CRON] ========================================');
 
     try {
       const now = new Date();
@@ -17,10 +13,8 @@ export function startOutletAnalyticsAggregation() {
       const yesterdayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
       const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-      console.log(`[CRON] Aggregating data for: ${yesterdayUtc.toISOString().split('T')[0]}`);
 
       const outlets = await Outlet.find({});
-      console.log(`[CRON] Processing ${outlets.length} outlets...`);
 
       for (const outlet of outlets) {
         const groups = await OutletAnalyticsEvent.aggregate([
@@ -175,17 +169,11 @@ export function startOutletAnalyticsAggregation() {
           { upsert: true, new: true }
         );
 
-        console.log(`[CRON] ✓ Processed outlet: ${outlet.name}`);
       }
 
-      console.log('[CRON] ========================================');
-      console.log('[CRON] Daily aggregation completed successfully!');
-      console.log('[CRON] ========================================');
     } catch (error) {
       console.error('[CRON] Error during aggregation:', error);
     }
   });
 
-  console.log('[CRON] ✅ Outlet analytics aggregation job scheduled (daily at 12:00 AM midnight)');
-  console.log('[CRON] Aggregates previous day\'s complete data (00:00 to 23:59:59)');
 }

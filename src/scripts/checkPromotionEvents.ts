@@ -21,13 +21,10 @@ const PromotionEvent = mongoose.model('PromotionEvent', PromotionEventSchema);
 async function checkEvents() {
     try {
         await mongoose.connect(process.env.MONGODB_URI!);
-        console.log('Connected to MongoDB');
 
         const count = await PromotionEvent.countDocuments();
-        console.log(`Total PromotionEvents: ${count}`);
 
         const recent = await PromotionEvent.find().sort({ timestamp: -1 }).limit(5);
-        console.log('Recent events:', JSON.stringify(recent, null, 2));
 
         await mongoose.disconnect();
     } catch (error) {

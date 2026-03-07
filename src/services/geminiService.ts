@@ -211,9 +211,7 @@ class CacheManager {
       }
     }
 
-    if (removed > 0) {
-      console.log(`[CacheManager] Cleaned up ${removed} expired entries`);
-    }
+
   }
 
   set<T>(key: string, data: T, ttlSeconds: number): void {
@@ -357,10 +355,7 @@ class RetryHelper {
       try {
         if (attempt > 0) {
           const delayWithJitter = delay + Math.floor(Math.random() * 2000);
-          console.log(
-            `[RetryHelper]${tag} Retry attempt ${attempt}/${this.config.maxRetries} for ${operationName}` +
-            ` (delay: ${delayWithJitter}ms)`
-          );
+
           await this.sleep(delayWithJitter);
           delay = Math.min(delay * this.config.backoffMultiplier, this.config.maxDelayMs);
         }

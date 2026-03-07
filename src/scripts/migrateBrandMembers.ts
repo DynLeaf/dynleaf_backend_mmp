@@ -16,26 +16,21 @@ dotenv.config();
 
 const migrateBrandMembers = async () => {
     try {
-        console.log('🚀 Starting BrandMember migration...\n');
 
         // Connect to MongoDB
         await mongoose.connect(process.env.MONGODB_URI || '');
-        console.log('✅ Connected to MongoDB\n');
 
         // Get all brands
         const brands = await Brand.find();
-        console.log(`📊 Found ${brands.length} brands to process\n`);
 
         let totalMembersCreated = 0;
         let brandsProcessed = 0;
 
         for (const brand of brands) {
-            console.log(`\n📦 Processing brand: ${brand.name} (${brand._id})`);
 
             // Check if brand already has members
             const existingMembers = await BrandMember.countDocuments({ brand_id: brand._id });
             if (existingMembers > 0) {
-                console.log(`   ⏭️  Skipping - already has ${existingMembers} members`);
                 continue;
             }
 
@@ -56,10 +51,8 @@ const migrateBrandMembers = async () => {
                         }
                     });
                     membersCreated++;
-                    console.log(`   ✅ Created brand_owner for user ${ownerId}`);
                 } catch (error: any) {
                     if (error.code === 11000) {
-                        console.log(`   ⚠️  Brand owner already exists`);
                     } else {
                         console.error(`   ❌ Error creating brand owner:`, error.message);
                     }
@@ -68,7 +61,6 @@ const migrateBrandMembers = async () => {
 
             // 2. Get all outlets for this brand
             const outlets = await Outlet.find({ brand_id: brand._id });
-            console.log(`   📍 Found ${outlets.length} outlets`);
 
             // 3. Get unique outlet creators (excluding brand owner)
             const uniqueCreators = [...new Set(
@@ -77,7 +69,6 @@ const migrateBrandMembers = async () => {
                     .filter(id => id !== ownerId?.toString())
             )];
 
-            console.log(`   👥 Found ${uniqueCreators.length} unique outlet creators`);
 
             // 4. Create BrandMember for each outlet creator
             for (const creatorId of uniqueCreators) {
@@ -93,32 +84,22 @@ const migrateBrandMembers = async () => {
                         }
                     });
                     membersCreated++;
-                    console.log(`   ✅ Created outlet_manager for user ${creatorId}`);
                 } catch (error: any) {
                     if (error.code === 11000) {
-                        console.log(`   ⚠️  Outlet manager already exists for user ${creatorId}`);
-                    } else {
-                        console.error(`   ❌ Error creating outlet manager:`, error.message);
                     }
                 }
             }
 
             totalMembersCreated += membersCreated;
             brandsProcessed++;
-            console.log(`   ✨ Created ${membersCreated} members for ${brand.name}`);
         }
 
-        console.log(`\n\n🎉 Migration complete!`);
-        console.log(`📊 Summary:`);
-        console.log(`   - Brands processed: ${brandsProcessed}/${brands.length}`);
-        console.log(`   - Total members created: ${totalMembersCreated}`);
 
     } catch (error) {
         console.error('❌ Migration failed:', error);
         process.exit(1);
     } finally {
         await mongoose.disconnect();
-        console.log('\n✅ Disconnected from MongoDB');
         process.exit(0);
     }
 };

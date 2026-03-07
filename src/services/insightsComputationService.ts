@@ -38,7 +38,6 @@ export class InsightsComputationService {
         const startTime = Date.now();
 
         try {
-            console.log(`[Insights] Computing ${timeRange} insights for outlet ${outletId}...`);
 
             const outletObjectId = new mongoose.Types.ObjectId(outletId);
 
@@ -80,7 +79,6 @@ export class InsightsComputationService {
             );
 
             const duration = Date.now() - startTime;
-            console.log(`[Insights] ✅ Computed ${timeRange} for outlet ${outletId} in ${duration}ms`);
 
             return { success: true, outletId, timeRange, duration };
         } catch (error: any) {
@@ -117,11 +115,9 @@ export class InsightsComputationService {
     ): Promise<ComputationResult[]> {
         const results: ComputationResult[] = [];
 
-        console.log(`[Insights] Computing ${timeRange} for ${outletIds.length} outlets in batches of ${batchSize}...`);
 
         for (let i = 0; i < outletIds.length; i += batchSize) {
             const batch = outletIds.slice(i, i + batchSize);
-            console.log(`[Insights] Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(outletIds.length / batchSize)}...`);
 
             const batchResults = await Promise.all(
                 batch.map((outletId) => this.computeForOutlet(outletId, timeRange))
@@ -137,7 +133,6 @@ export class InsightsComputationService {
 
         const successful = results.filter((r) => r.success).length;
         const failed = results.filter((r) => !r.success).length;
-        console.log(`[Insights] ✅ Completed: ${successful} successful, ${failed} failed`);
 
         return results;
     }
@@ -154,7 +149,6 @@ export class InsightsComputationService {
             timestamp: { $gte: ninetyDaysAgo },
         });
 
-        console.log(`[Insights] Found ${activeOutletIds.length} active outlets`);
 
         return this.computeForOutlets(
             activeOutletIds.map((id) => id.toString()),

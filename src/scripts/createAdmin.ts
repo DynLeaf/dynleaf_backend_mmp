@@ -21,10 +21,8 @@ async function createAdmin() {
         // Connect to MongoDB
         const mongoUri = process.env.MONGODB_URI;
         await mongoose.connect(mongoUri);
-        console.log('✅ Connected to MongoDB');
 
         // Get admin details
-        console.log('\n📝 Create New Admin User\n');
 
         const email = await question('Email: ');
         const fullName = await question('Full Name: ');
@@ -55,15 +53,7 @@ async function createAdmin() {
             permissions: role === 'super_admin' ? ['*'] : []
         });
 
-        console.log('\n✅ Admin created successfully!');
-        console.log('\nAdmin Details:');
-        console.log('─────────────────────────────────');
-        console.log(`ID: ${admin._id}`);
-        console.log(`Email: ${admin.email}`);
-        console.log(`Name: ${admin.full_name}`);
-        console.log(`Role: ${admin.role}`);
-        console.log(`Active: ${admin.is_active}`);
-        console.log('─────────────────────────────────\n');
+
 
     } catch (error: any) {
         console.error('❌ Error creating admin:', error.message);
@@ -71,7 +61,6 @@ async function createAdmin() {
     } finally {
         rl.close();
         await mongoose.disconnect();
-        console.log('✅ Disconnected from MongoDB');
         process.exit(0);
     }
 }

@@ -13,12 +13,10 @@ dotenv.config();
  */
 async function migrateHistoricalData() {
     try {
-        console.log('[MIGRATION] Starting historical outlet analytics migration...');
 
         // Connect to MongoDB
         const mongoUri = ''
         await mongoose.connect(mongoUri);
-        console.log('[MIGRATION] Connected to MongoDB');
 
         // Get all unique dates from OutletAnalyticsEvent
         const uniqueDates = await OutletAnalyticsEvent.aggregate([
@@ -35,10 +33,8 @@ async function migrateHistoricalData() {
             { $sort: { _id: 1 } },
         ]);
 
-        console.log(`[MIGRATION] Found ${uniqueDates.length} unique dates to process`);
 
         const outlets = await Outlet.find({});
-        console.log(`[MIGRATION] Found ${outlets.length} outlets`);
 
         let processedCount = 0;
 
@@ -49,7 +45,6 @@ async function migrateHistoricalData() {
             const nextDay = new Date(date);
             nextDay.setDate(nextDay.getDate() + 1);
 
-            console.log(`[MIGRATION] Processing date: ${dateStr}`);
 
             // Process each outlet for this date
             for (const outlet of outlets) {
@@ -153,11 +148,6 @@ async function migrateHistoricalData() {
             console.log(`[MIGRATION] ✓ Completed date: ${dateStr}`);
         }
 
-        console.log(`[MIGRATION] ========================================`);
-        console.log(`[MIGRATION] Migration completed successfully!`);
-        console.log(`[MIGRATION] Processed ${uniqueDates.length} dates`);
-        console.log(`[MIGRATION] Created/Updated ${processedCount} summary records`);
-        console.log(`[MIGRATION] ========================================`);
 
         await mongoose.disconnect();
         process.exit(0);

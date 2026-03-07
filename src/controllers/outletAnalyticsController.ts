@@ -111,7 +111,6 @@ const createEventData = (outlet: any, body: OutletTrackBody, event_type: string,
 export const trackOutletVisit = async (req: Request, res: Response) => {
   try {
     const { outletId } = req.params;
-    console.log(`[trackOutletVisit] Tracking outlet: ${outletId}`);
     const body = req.body as OutletTrackBody;
 
     const outlet = await outletService.getOutletById(outletId);
@@ -130,7 +129,6 @@ export const trackOutletVisit = async (req: Request, res: Response) => {
 
     if (recent) return sendSuccess(res, { tracked: false, deduped: true });
 
-    console.log(`[trackOutletVisit] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create(createEventData(outlet, body, EVENT_TYPES.OUTLET_VISIT, req));
 
     return sendSuccess(res, { tracked: true });
@@ -149,7 +147,6 @@ export const trackOutletProfileView = async (req: Request, res: Response) => {
     const outlet = await outletService.getOutletById(outletId);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
-    console.log(`[trackOutletProfileView] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create(createEventData(outlet, body, EVENT_TYPES.PROFILE_VIEW, req));
 
     return sendSuccess(res, { tracked: true });
@@ -168,7 +165,6 @@ export const trackOutletMenuView = async (req: Request, res: Response) => {
     const outlet = await outletService.getOutletById(outletId);
     if (!outlet) return sendError(res, 'Outlet not found', 404);
 
-    console.log(`[trackOutletMenuView] Creating event for ID: ${outlet._id}`);
     await OutletAnalyticsEvent.create(createEventData(outlet, body, EVENT_TYPES.MENU_VIEW, req));
 
     return sendSuccess(res, { tracked: true });
@@ -215,7 +211,6 @@ export const getOutletAnalytics = async (req: Request, res: Response) => {
     const yesterdayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
 
     const outletObjectId = outlet._id;
-    console.log(`[getOutletAnalytics] Aggregate with ID: ${outletObjectId}`);
     const recentDayStarts = [yesterdayStartUtc, todayStartUtc];
 
     for (const dayStart of recentDayStarts) {

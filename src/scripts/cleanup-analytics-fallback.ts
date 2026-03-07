@@ -14,7 +14,6 @@ const FALLBACK_DIR = path.resolve(__dirname, '../../analytics_fallback');
 
 async function cleanup() {
     try {
-        console.log('🧹 Cleaning up analytics fallback files...');
 
         const dirs = ['pending', 'processed', 'failed'];
         let totalDeleted = 0;
@@ -31,7 +30,6 @@ async function cleanup() {
                     totalDeleted++;
                 }
 
-                console.log(`✅ Cleaned ${files.length} files from ${dir}/`);
             } catch (error: any) {
                 if (error.code !== 'ENOENT') {
                     console.error(`Error cleaning ${dir}:`, error.message);
@@ -39,8 +37,7 @@ async function cleanup() {
             }
         }
 
-        console.log(`\n✨ Total files deleted: ${totalDeleted}`);
-        console.log('✅ Cleanup completed successfully!');
+
 
     } catch (error) {
         console.error('❌ Cleanup failed:', error);

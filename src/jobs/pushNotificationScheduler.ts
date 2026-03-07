@@ -21,7 +21,6 @@ let schedulerInitialized = false;
  */
 export const initializePushNotificationScheduler = () => {
   if (schedulerInitialized) {
-    console.log('Push notification scheduler already initialized');
     return;
   }
 
@@ -29,13 +28,7 @@ export const initializePushNotificationScheduler = () => {
     // Process scheduled notifications every minute
     cron.schedule('*/1 * * * *', async () => {
       try {
-        console.log('[Push Notification Scheduler] Processing scheduled notifications...');
         const result = await processScheduledNotifications();
-        if (result.processed > 0) {
-          console.log(
-            `[Push Notification Scheduler] Successfully processed ${result.processed} scheduled notifications`
-          );
-        }
       } catch (error: any) {
         console.error('[Push Notification Scheduler] Error processing scheduled notifications:', error);
       }
@@ -44,25 +37,18 @@ export const initializePushNotificationScheduler = () => {
     // Retry failed notifications every 5 minutes
     cron.schedule('*/5 * * * *', async () => {
       try {
-        console.log('[Push Notification Scheduler] Processing failed notifications for retry...');
         const result = await retryFailedNotifications();
         if (result.retried > 0) {
-          console.log(
-            `[Push Notification Scheduler] Successfully retried ${result.retried} out of ${result.attempted} failed notifications`
-          );
+
         }
       } catch (error: any) {
         console.error('[Push Notification Scheduler] Error retrying failed notifications:', error);
       }
     });
 
-    // Health check - log every 10 minutes
-    cron.schedule('*/10 * * * *', () => {
-      console.log('[Push Notification Scheduler] Health check - scheduler is running');
-    });
+
 
     schedulerInitialized = true;
-    console.log('[Push Notification Scheduler] Successfully initialized');
   } catch (error: any) {
     console.error('[Push Notification Scheduler] Failed to initialize:', error);
     throw error;
@@ -78,7 +64,6 @@ export const stopPushNotificationScheduler = () => {
       task.stop();
     });
     schedulerInitialized = false;
-    console.log('[Push Notification Scheduler] Scheduler stopped');
   }
 };
 

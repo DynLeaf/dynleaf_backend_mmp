@@ -12,9 +12,7 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/dynlea
 
 async function updateSchema() {
     try {
-        console.log('Connecting to MongoDB...');
         await mongoose.connect(MONGODB_URI);
-        console.log('Connected successfully');
 
         const db = mongoose.connection.db;
 
@@ -23,7 +21,6 @@ async function updateSchema() {
         }
 
         // Drop the existing validation on the collection
-        console.log('Updating FoodItemAnalyticsEvent schema...');
 
         await db.command({
             collMod: 'fooditemanalyticsevents',
@@ -67,24 +64,20 @@ async function updateSchema() {
             validationLevel: 'moderate'
         });
 
-        console.log('✅ Schema updated successfully!');
 
         // Verify the update
         const collections = await db.listCollections({ name: 'fooditemanalyticsevents' }).toArray();
-        console.log('Collection info:', JSON.stringify(collections[0], null, 2));
 
     } catch (error) {
         console.error('❌ Migration failed:', error);
         throw error;
     } finally {
         await mongoose.disconnect();
-        console.log('Disconnected from MongoDB');
     }
 }
 
 updateSchema()
     .then(() => {
-        console.log('Migration completed successfully');
         process.exit(0);
     })
     .catch((error) => {

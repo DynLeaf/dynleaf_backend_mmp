@@ -43,7 +43,6 @@ export class AnalyticsEventProcessor {
                 // Check for duplicates using event hash
                 if (this.isDuplicate(event.event_hash)) {
                     duplicateCount++;
-                    console.log('[EventProcessor] Duplicate event skipped:', event.event_hash);
                     continue;
                 }
 

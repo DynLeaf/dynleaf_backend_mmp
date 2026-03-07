@@ -405,7 +405,6 @@ export const bulkUpdateFoodItems = async (req: Request, res: Response) => {
     try {
         const { itemIds, updates } = req.body;
 
-        console.log('Bulk update request:', { itemIds, updates });
 
         if (!itemIds || !Array.isArray(itemIds) || itemIds.length === 0) {
             return sendError(res, 'Item IDs are required', 400);
@@ -420,7 +419,6 @@ export const bulkUpdateFoodItems = async (req: Request, res: Response) => {
             { $set: updates }
         );
 
-        console.log('Bulk update result:', result);
 
         return sendSuccess(res, null, `${itemIds.length} items updated successfully`);
     } catch (error: any) {
@@ -1096,7 +1094,6 @@ export const getTrendingDishes = async (req: Request, res: Response) => {
         /* ----------------------------------
            RESPONSE
         -----------------------------------*/
-        console.log("formated", formatted);
 
         return sendSuccess(res, {
 

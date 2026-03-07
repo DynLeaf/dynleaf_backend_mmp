@@ -27,11 +27,9 @@ const FeaturedPromotion = mongoose.model('FeaturedPromotion', FeaturedPromotionS
 async function checkAnalytics() {
     try {
         await mongoose.connect(process.env.MONGODB_URI!);
-        console.log('Connected to MongoDB');
 
         // Get unique promotion IDs from events
         const promoIds = await PromotionEvent.distinct('promotion_id');
-        console.log(`Found ${promoIds.length} promotion(s) with events.`);
 
         for (const id of promoIds) {
             const eventCount = await PromotionEvent.countDocuments({ promotion_id: id });
@@ -40,18 +38,10 @@ async function checkAnalytics() {
 
             const promo = await FeaturedPromotion.findById(id);
 
-            console.log(`\nPromotion ID: ${id}`);
-            console.log(`- Events in DB: ${eventCount} (Imp: ${impressionCount}, Click: ${clickCount})`);
             if (promo) {
-                console.log(`- FeaturedPromotion Counters: Impressions: ${promo.analytics?.impressions}, Clicks: ${promo.analytics?.clicks}`);
 
                 if (promo.analytics?.impressions !== impressionCount || promo.analytics?.clicks !== clickCount) {
-                    console.log(`!!! MISMATCH DETECTED !!!`);
-                } else {
-                    console.log(`✓ Counters match event logs.`);
                 }
-            } else {
-                console.log(`- FeaturedPromotion document NOT FOUND in DB!`);
             }
         }
 

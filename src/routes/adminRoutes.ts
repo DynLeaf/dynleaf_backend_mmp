@@ -339,7 +339,6 @@ router.patch("/brands/:id/change-owner", adminAuth, async (req: AuthRequest, res
     const { id } = req.params;
     const { user_id } = req.body;
 
-    console.log(`[AdminAPI] Changing owner for brand ${id} to user ${user_id}`);
 
     if (!user_id) {
       return sendError(res, "User ID is required", 400);
@@ -378,7 +377,6 @@ router.patch("/brands/:id/change-owner", adminAuth, async (req: AuthRequest, res
           }
         }
       );
-      console.log(`[AdminAPI] Removed restaurant_owner role from previous owner ${previousOwnerId}`);
     }
 
     // 2. Add restaurant_owner role to new owner (if not already present)
@@ -403,7 +401,6 @@ router.patch("/brands/:id/change-owner", adminAuth, async (req: AuthRequest, res
           }
         }
       );
-      console.log(`[AdminAPI] Added restaurant_owner role to new owner ${user_id}`);
     }
 
     // Populate and return updated brand
@@ -578,7 +575,6 @@ router.get("/brand-updates", adminAuth, async (req: AuthRequest, res) => {
 
     // Debug: Check if any documents exist at all
     const totalDocs = await BrandUpdateRequest.countDocuments({});
-    console.log(`[CreateDebug] Total BrandUpdateRequests in DB: ${totalDocs}`);
 
     // If status is provided, filter by it (unless it's 'all' or empty)
     if (status && status !== 'all') {
@@ -1112,7 +1108,6 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, re
           }
         }
       );
-      console.log(`[AdminAPI] Removed outlet roles from previous owner ${previousOwnerId}`);
     }
 
     // 2. Add manager role to new owner for this outlet (if not already present)
@@ -1136,7 +1131,6 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, re
           }
         }
       );
-      console.log(`[AdminAPI] Added manager role to new owner ${user_id}`);
     }
 
     // Populate and return updated outlet
