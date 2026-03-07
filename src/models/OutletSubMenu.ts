@@ -5,7 +5,6 @@ export interface IOutletSubMenu extends Document {
     name: string;
     slug: string;               // URL-safe version of name e.g. "cake-counter"
     description?: string;
-    icon?: string;              // emoji or icon name e.g. "🎂"
     display_order: number;      // position in switcher bar
     is_active: boolean;
     category_ids: mongoose.Types.ObjectId[];  // which categories belong to this sub-menu
@@ -37,11 +36,6 @@ const outletSubMenuSchema = new Schema<IOutletSubMenu>(
             type: String,
             trim: true,
             maxlength: 300
-        },
-        icon: {
-            type: String,
-            trim: true,
-            maxlength: 10
         },
         display_order: {
             type: Number,
