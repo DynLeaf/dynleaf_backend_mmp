@@ -1480,6 +1480,9 @@ router.get('/qr/malls/:mallKey/config', adminAuth, qrManagementController.getMal
 // Update/Set table count for an outlet
 router.post('/qr/outlets/:outletId/generate', adminAuth, qrManagementController.updateOutletQRConfig);
 
+// Get all QR cards for an outlet (default menu + sub-menus) — multi-menu admin view
+router.get('/qr/outlets/:outletId/all-qrs', adminAuth, qrManagementController.getAllOutletQRs);
+
 // Update/set QR config for a mall
 router.post('/qr/malls/:mallKey/generate', adminAuth, qrManagementController.updateMallQRConfig);
 router.post('/qr/malls/upload-via-backend', adminAuth, qrManagementController.uploadMallImageViaBackend);

@@ -9,6 +9,7 @@ import { Follow } from '../models/Follow.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
 import * as outletService from '../services/outletService.js';
+import { getPublicSubMenus } from './outletSubMenuController.js';
 
 /**
  * Get outlet's menu with all items (NEW: Direct from FoodItem, no junction table)
@@ -322,6 +323,10 @@ export const getOutletMenu = async (req: Request, res: Response) => {
       grid_columns_mobile: outlet.menu_settings?.grid_columns_mobile || 3
     };
 
+    // Fetch sub-menus for switcher bar (returns [] if subscription inactive)
+    const subMenus = await getPublicSubMenus(String(actualOutletId));
+    const subMenuActive = subMenus.length > 0;
+
     res.json({
       status: true,
       data: {
@@ -338,7 +343,13 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         combos: formattedCombos,
         menu_settings: menuSettings,
         total_items: menuItems.length,
-        total_combos: combos.length
+        total_combos: combos.length,
+        // ── Multi-menu additions (backward-compatible, new keys only) ──
+        sub_menus: subMenus,
+        sub_menu_active: subMenuActive,
+        ask_submenu_on_scan: subMenuActive
+          ? (outlet.multi_menu_settings?.ask_submenu_on_scan ?? false)
+          : false
       }
     });
   } catch (error: any) {

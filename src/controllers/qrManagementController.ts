@@ -518,3 +518,86 @@ const getMallMetaByKey = async (mallKey: string): Promise<{ mallName: string; ci
 
     return null;
 };
+
+/**
+ * Get all QR cards for an outlet (default + sub-menus).
+ * Used by admin QR management page.
+ * GET /api/v1/admin/qr/outlets/:outletId/all-qrs
+ */
+import { OutletSubMenu } from '../models/OutletSubMenu.js';
+import { Subscription } from '../models/Subscription.js';
+import { normalizePlanToTier } from '../config/subscriptionPlans.js';
+
+export const getAllOutletQRs = async (req: Request, res: Response) => {
+    try {
+        const { outletId } = req.params;
+
+        const outlet = await Outlet.findById(outletId)
+            .select('name slug qr_code_url approval_status multi_menu_settings subscription_id')
+            .lean();
+
+        if (!outlet) {
+            return res.status(404).json({ success: false, message: 'Outlet not found' });
+        }
+
+        // Build default QR card (always present)
+        const baseUrl = process.env.FRONTEND_URL || 'https://app.dynleaf.com';
+        const defaultQRUrl = `${baseUrl}/menu/${(outlet as any).slug}`;
+
+        const qrCards: any[] = [
+            {
+                type: 'default',
+                label: 'Default Menu',
+                description: 'Shows all items',
+                icon: '🍽️',
+                qr_url: defaultQRUrl,
+                qr_image_url: (outlet as any).qr_code_url || null
+            }
+        ];
+
+        // Check subscription eligibility for sub-menus
+        const sub = await Subscription.findOne({ outlet_id: outletId }).lean();
+        const isEligible =
+            sub &&
+            ['active', 'trial'].includes(sub.status) &&
+            normalizePlanToTier(sub.plan) === 'premium' &&
+            sub.features.includes('multi_menu');
+
+        if (isEligible) {
+            const subMenus = await OutletSubMenu.find({
+                outlet_id: outletId,
+                is_active: true
+            })
+                .sort({ display_order: 1 })
+                .lean();
+
+            for (const sm of subMenus) {
+                qrCards.push({
+                    type: 'sub_menu',
+                    sub_menu_id: sm._id,
+                    label: sm.name,
+                    description: sm.description || '',
+                    icon: sm.icon || '📋',
+                    qr_url: `${baseUrl}/menu/${(outlet as any).slug}?sm=${sm.slug}`,
+                    qr_image_url: null  // Generated on demand by frontend QR library
+                });
+            }
+        }
+
+        return res.json({
+            success: true,
+            data: {
+                outlet: {
+                    _id: (outlet as any)._id,
+                    name: (outlet as any).name,
+                    slug: (outlet as any).slug
+                },
+                qr_cards: qrCards,
+                sub_menu_active: isEligible && qrCards.length > 1
+            }
+        });
+    } catch (error: any) {
+        console.error('Error fetching outlet QR cards:', error);
+        return res.status(500).json({ success: false, message: 'Failed to fetch QR cards' });
+    }
+};

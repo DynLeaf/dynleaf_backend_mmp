@@ -10,7 +10,8 @@ import brandRoutes from './routes/brandRoutes.js';
 import outletRoutes from './routes/outletRoutes.js';
 import menuRoutes from './routes/menuRoutes.js';
 import outletMenuRoutes from './routes/outletMenuRoutes.js';
-import outletMenuManagementRoutes from './routes/outletMenuManagementRoutes.js';
+import subMenuRoutes from './routes/subMenuRoutes.js';
+import outletMenuManagementRoutes from './routes/outletMenuManagementRoutes.js'; // Outlet menu management (CRUD)
 import foodSearchRoutes from './routes/foodSearchRoutes.js';
 import brandOutletRoutes from './routes/brandOutletRoutes.js';
 import onboardingRoutes from './routes/onboardingRoutes.js';
@@ -98,6 +99,7 @@ app.use('/v1/outlets', brandOutletRoutes); // Outlet routes (includes /nearby an
 app.use('/v1/outlets', outletRoutes);
 app.use('/v1/outlets', outletMenuRoutes); // Outlet menu management (public)
 app.use('/v1/outlets', outletMenuManagementRoutes); // Outlet menu management (CRUD)
+app.use('/v1/outlets', subMenuRoutes);              // Sub-menu management (multi-menu)
 app.use('/v1/food', foodSearchRoutes); // NEW: Food search with OutletMenuItem
 app.use('/v1/onboarding', onboardingRoutes);
 app.use('/v1/admin', adminRoutes);
