@@ -94,6 +94,10 @@ export interface IOutlet extends Document {
         grid_columns_mobile: number;
     };
     referral_code?: string;
+    multi_menu_settings?: {
+        has_sub_menus: boolean;
+        ask_submenu_on_scan: boolean;
+    };
 }
 
 const outletSchema = new Schema<IOutlet>({
@@ -206,7 +210,11 @@ const outletSchema = new Schema<IOutlet>({
         currency: { type: String, default: 'INR' },
         grid_columns_mobile: { type: Number, min: 1, max: 4, default: 3 }
     },
-    referral_code: { type: String, trim: true }
+    referral_code: { type: String, trim: true },
+    multi_menu_settings: {
+        has_sub_menus: { type: Boolean, default: false },
+        ask_submenu_on_scan: { type: Boolean, default: false }
+    }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 // Create indexes for queries

@@ -43,7 +43,8 @@ export const SUBSCRIPTION_FEATURES = {
     INVENTORY_MANAGEMENT: 'inventory_management',
     TABLE_RESERVATION: 'table_reservation',
     ONLINE_ORDERING: 'online_ordering',
-    STORY_PINNING: 'story_pinning'
+    STORY_PINNING: 'story_pinning',
+    MULTI_MENU: 'multi_menu'
 } as const;
 
 export const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlan> = {
@@ -78,7 +79,8 @@ export const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlan> = {
             SUBSCRIPTION_FEATURES.ADVANCED_REPORTS,
             SUBSCRIPTION_FEATURES.TABLE_RESERVATION,
             SUBSCRIPTION_FEATURES.ONLINE_ORDERING,
-            SUBSCRIPTION_FEATURES.STORY_PINNING
+            SUBSCRIPTION_FEATURES.STORY_PINNING,
+            SUBSCRIPTION_FEATURES.MULTI_MENU
         ],
         limits: {
             offers: 20,
