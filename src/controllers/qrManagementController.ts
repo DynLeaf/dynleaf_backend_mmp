@@ -577,7 +577,6 @@ export const getAllOutletQRs = async (req: Request, res: Response) => {
                     sub_menu_id: sm._id,
                     label: sm.name,
                     description: sm.description || '',
-                    icon: sm.icon || '📋',
                     qr_url: `${baseUrl}/menu/${(outlet as any).slug}?sm=${sm.slug}`,
                     qr_image_url: null  // Generated on demand by frontend QR library
                 });
