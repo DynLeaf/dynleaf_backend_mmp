@@ -111,7 +111,7 @@ export const createSubMenu = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
         const userId = (req as any).user?.id;
-        const { name, description, icon, category_ids = [] } = req.body;
+        const { name, description, category_ids = [] } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ status: false, message: 'Sub-menu name is required' });
@@ -162,7 +162,6 @@ export const createSubMenu = async (req: Request, res: Response) => {
             name: name.trim(),
             slug,
             description: description?.trim(),
-            icon: icon?.trim(),
             display_order: count,
             is_active: true,
             category_ids: validCategoryIds
@@ -199,7 +198,7 @@ export const updateSubMenu = async (req: Request, res: Response) => {
             return res.status(403).json({ status: false, message: 'Multi-Menu feature requires an active premium subscription' });
         }
 
-        const { name, description, icon, is_active } = req.body;
+        const { name, description, is_active } = req.body;
 
         const subMenu = await OutletSubMenu.findOne({ _id: subMenuId, outlet_id: outletId });
         if (!subMenu) {
@@ -221,7 +220,6 @@ export const updateSubMenu = async (req: Request, res: Response) => {
         }
 
         if (description !== undefined) subMenu.description = description?.trim();
-        if (icon !== undefined) subMenu.icon = icon?.trim();
         if (is_active !== undefined) subMenu.is_active = Boolean(is_active);
 
         await subMenu.save();
