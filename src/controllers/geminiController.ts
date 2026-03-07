@@ -100,7 +100,6 @@ export const getDishInsights = async (req: Request, res: Response): Promise<void
     const { dishName, description } = req.body;
 
     // Log request (for monitoring)
-    console.log(`[GeminiController] Dish insight request for: ${dishName}`);
 
     // Call service
     const insights = await geminiService.getDishInsights(dishName, description);
@@ -158,7 +157,6 @@ export const extractMenuFromImage = async (req: Request, res: Response): Promise
     const { imageBase64, useCache = true } = req.body;
 
     // Log request (for monitoring)
-    console.log('[GeminiController] Menu extraction request received');
 
     // Call service (note: caching is handled internally by the service)
     const result = await geminiService.extractMenuFromImage(imageBase64);
@@ -253,7 +251,6 @@ export const extractMenuFromMultipleImages = async (req: Request, res: Response)
     }
 
     // Log request (for monitoring)
-    console.log(`[GeminiController] Batch menu extraction request (${images.length} images)`);
 
     // Call service
     const result = await geminiService.extractMenuFromMultipleImages(images);

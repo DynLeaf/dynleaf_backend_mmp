@@ -36,7 +36,7 @@ export const sendPushNotificationToUsers = async (
   try {
     // Convert string IDs to ObjectId
     const objectIds = userIds.map((id) => new mongoose.Types.ObjectId(id));
-    
+
     // Find all users and their tokens
     const users = await User.find({ _id: { $in: objectIds } }).select(
       "fcm_tokens"
@@ -44,11 +44,7 @@ export const sendPushNotificationToUsers = async (
     const allTokens = users.flatMap((user) => user.fcm_tokens || []);
 
     if (allTokens.length === 0) {
-      console.log(
-        `FCM: No tokens found for any of the ${
-          userIds.length
-        } users. userIds: ${userIds.join(", ")}`
-      );
+
       return { success: 0, failure: 0 };
     }
 

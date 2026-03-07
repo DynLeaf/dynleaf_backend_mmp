@@ -1,7 +1,4 @@
 import { Request, Response } from 'express';
-console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
-console.log('!!! BRAND_OUTLET_CONTROLLER LOADING - JAN-24-16-25 !!!');
-console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
 import { Outlet } from '../models/Outlet.js';
 import { FoodItem } from '../models/FoodItem.js';
 import { Category } from '../models/Category.js';
@@ -108,7 +105,6 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
-    console.log(`🌟 Finding featured brands near [${lat}, ${lng}]`);
 
     // Step 1: Find featured outlets nearby using geospatial query
     const featuredOutlets = await Outlet.aggregate([
@@ -147,7 +143,6 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
       { $sort: { distance: 1 } }
     ]);
 
-    console.log(`📍 Found ${featuredOutlets.length} featured outlets`);
 
     // Step 2: Deduplicate by brand (keep nearest outlet per brand)
     const brandMap = new Map();
@@ -190,7 +185,6 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
 
     const brands = Array.from(brandMap.values()).slice(0, limitNum);
 
-    console.log(`✅ Returning ${brands.length} unique featured brands`);
 
     return sendSuccess(res, {
       brands,
@@ -236,7 +230,6 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
-    console.log(`📍 Finding nearby outlets near [${lat}, ${lng}] within ${radiusNum / 1000}km`);
 
     // Pre-compute outlet_ids that have a menu item matching the search term.
     // FoodItem has outlet_id directly (same collection that getTrendingDishes queries).
@@ -247,7 +240,6 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
         is_active: true,
         is_available: true
       });
-      console.log(`🔍 Search "${search}": ${outletIdsWithItem.length} outlets have matching menu items`);
     }
 
     // Build match criteria
@@ -429,7 +421,6 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
 
     const outlets = await Outlet.aggregate(pipeline);
 
-    console.log(`✅ Found ${outlets.length} nearby outlets`);
 
     return sendSuccess(res, {
       outlets,
@@ -457,10 +448,8 @@ export const getNearbyOutletsNew = async (req: Request, res: Response) => {
  * GET /api/v1/outlets/:outletId/detail
  */
 export const getOutletDetail = async (req: Request, res: Response) => {
-  console.log('--- ENTERING getOutletDetail ---');
   try {
     const { outletId } = req.params;
-    console.log(`[getOutletDetail] Requested ID/Slug: ${outletId}`);
 
     const outletDoc = await outletService.getOutletById(outletId);
 
@@ -470,57 +459,56 @@ export const getOutletDetail = async (req: Request, res: Response) => {
 
     const outlet = outletDoc.toObject();
     const actualOutletId = outlet._id;
-    console.log(`[getOutletDetail] Resolved ID: ${actualOutletId}`);
 
     // Parallelize independent queries for better performance
     const userId = (req as any).user?.id;
-    
+
     const [operatingHours, itemsCount, categories, followersCount, userFollow] = await Promise.all([
       // Get operating hours
       OperatingHours.find({ outlet_id: actualOutletId })
         .sort({ day_of_week: 1 })
         .select('day_of_week open_time close_time is_closed')
         .lean(),
-      
+
       // Get available items count
       FoodItem.countDocuments({
         outlet_id: actualOutletId,
         is_available: true,
         is_active: true
       }),
-      
+
       // Get menu categories with item counts
       FoodItem.aggregate([
-      {
-        $match: {
-          outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
-          is_available: true,
-          is_active: true
-        }
-      },
-      {
-        $lookup: {
-          from: 'categories',
-          localField: 'category_id',
-          foreignField: '_id',
-          as: 'category'
-        }
-      },
-      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
-      {
-        $group: {
-          _id: '$category._id',
-          name: { $first: '$category.name' },
-          slug: { $first: '$category.slug' },
-          items_count: { $sum: 1 }
-        }
-      },
+        {
+          $match: {
+            outlet_id: new mongoose.Types.ObjectId(actualOutletId as any),
+            is_available: true,
+            is_active: true
+          }
+        },
+        {
+          $lookup: {
+            from: 'categories',
+            localField: 'category_id',
+            foreignField: '_id',
+            as: 'category'
+          }
+        },
+        { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+        {
+          $group: {
+            _id: '$category._id',
+            name: { $first: '$category.name' },
+            slug: { $first: '$category.slug' },
+            items_count: { $sum: 1 }
+          }
+        },
         { $sort: { name: 1 } }
       ]),
-      
+
       // Get followers count
       Follow.countDocuments({ outlet: actualOutletId }),
-      
+
       // Get user follow status if logged in
       userId ? Follow.findOne({ user: userId, outlet: actualOutletId }).lean() : Promise.resolve(null)
     ]);
@@ -681,8 +669,8 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
     }
 
     const mallKeys = Array.from(mallMap.keys());
-    const mallConfigs = await MallQRConfig.find({ 
-      mall_key: { $in: mallKeys } 
+    const mallConfigs = await MallQRConfig.find({
+      mall_key: { $in: mallKeys }
     }).lean();
 
     const configMap = new Map();

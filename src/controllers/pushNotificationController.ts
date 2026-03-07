@@ -394,10 +394,7 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
       targetUsers = await User.find()
         .select("_id username email phone fcm_tokens")
         .lean();
-      console.log(`[DEBUG] ALL_USERS: Found ${targetUsers.length} users`);
-      if (targetUsers.length > 0) {
-        console.log(`[DEBUG] First user:`, JSON.stringify(targetUsers[0], null, 2));
-      }
+
     } else if (
       notification.target_audience.type === TargetAudienceType.SELECTED_USERS
     ) {
@@ -418,14 +415,8 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
         .lean();
     }
 
-    console.log(`\n📱 Sending notification to ${targetUsers.length} users...`);
-    console.log(
-      `═══════════════════════════════════════════════════════════════`
-    );
-    console.log(`[DEBUG] Total target users found: ${targetUsers.length}`);
-    if (targetUsers.length > 0) {
-      console.log(`[DEBUG] Sample user:`, JSON.stringify(targetUsers[0]));
-    }
+
+
 
     // Filter users with FCM tokens
     const usersWithTokens = targetUsers.filter(
@@ -435,10 +426,6 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
       (user: any) => !user.fcm_tokens || user.fcm_tokens.length === 0
     );
 
-    console.log(`[DEBUG] Users with tokens: ${usersWithTokens.length}`);
-    console.log(`[DEBUG] Users without tokens: ${usersWithoutTokens.length}`);
-    console.log(`✅ Users with FCM tokens: ${usersWithTokens.length}`);
-    console.log(`⚠️  Users without FCM tokens: ${usersWithoutTokens.length}`);
 
     if (usersWithTokens.length === 0) {
       notification.status = DeliveryStatus.FAILED;
@@ -457,12 +444,8 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
     }
 
     // Send via FCM using the service
-    console.log(`\n🔄 Sending push notifications via Firebase...`);
     const result = await sendPushNotificationCampaign(id);
 
-    console.log(`\n✅ Push notification results:`);
-    console.log(`   • Successfully sent: ${result.success}`);
-    console.log(`   • Failed: ${result.failure}`);
 
     // Fetch updated notification
     const updatedNotification = (await PushNotification.findById(id)) as PushNotificationDocWithMethods | null;
@@ -476,18 +459,7 @@ export const sendPushNotification = async (req: AuthRequest, res: Response) => {
       tokens_count: user.fcm_tokens?.length || 0,
     }));
 
-    console.log(`\n📋 Users who received the notification:`);
-    console.log(
-      `═══════════════════════════════════════════════════════════════`
-    );
-    sentUserDetails.forEach((user, index) => {
-      console.log(
-        `${index + 1}. ${user.name} | Phone: ${user.phone} | Email: ${user.email}`
-      );
-    });
-    console.log(
-      `═══════════════════════════════════════════════════════════════\n`
-    );
+
 
     // Add sent event
     if (updatedNotification) {

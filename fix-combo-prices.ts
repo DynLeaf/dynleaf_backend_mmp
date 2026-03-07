@@ -35,17 +35,9 @@ async function fixComboPrices() {
           { _id: combo._id },
           { $set: updates }
         );
-        console.log('✅ Updated combo:', combo.name);
-        if (updates.combo_price) {
-          console.log('   Combo Price: ₹' + updates.combo_price);
-          console.log('   Original Price: ₹' + combo.original_price);
-          console.log('   Discount: ' + combo.discount_percentage + '%');
-        }
-        console.log('');
       }
     }
 
-    console.log('✅ All combos updated!');
     await mongoose.disconnect();
   } catch (error) {
     console.error('❌ Error:', error);

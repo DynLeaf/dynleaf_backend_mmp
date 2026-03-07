@@ -29,7 +29,6 @@ try {
                 fixedJson = fixedJson.replace(/\\\\/g, '\\');
 
                 serviceAccount = JSON.parse(fixedJson);
-                console.log('✅ Firebase service account parsed successfully after fix.');
             } catch (secondError: any) {
                 console.error('❌ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON.');
                 throw parseError;
@@ -45,7 +44,6 @@ if (Object.keys(serviceAccount).length > 0) {
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });
-        console.log('Firebase Admin initialized');
     } catch (error) {
         console.error('Error initializing Firebase Admin:', error);
     }

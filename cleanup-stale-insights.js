@@ -9,7 +9,6 @@ async function cleanup() {
         // Connect to MongoDB
         const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dynleaf';
         await mongoose.connect(mongoUri);
-        console.log('✅ Connected to MongoDB');
 
         // Get the model
         const OutletInsightsSummary = mongoose.model('OutletInsightsSummary', new mongoose.Schema({}, { strict: false }), 'outletinsightssummaries');

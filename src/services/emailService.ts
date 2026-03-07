@@ -1,53 +1,53 @@
 import nodemailer from 'nodemailer';
 
 const getTransporter = () => {
-    const email = process.env.EMAIL;
-    const pass = process.env.PASS;
+  const email = process.env.EMAIL;
+  const pass = process.env.PASS;
 
-    if (!email || !pass) {
-        throw new Error('EMAIL and PASS environment variables are required for email service');
-    }
+  if (!email || !pass) {
+    throw new Error('EMAIL and PASS environment variables are required for email service');
+  }
 
-    return nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-            user: email,
-            pass: pass,
-        },
-    });
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: email,
+      pass: pass,
+    },
+  });
 };
 
 const getRecipientEmail = (): string => {
-    const sentEmail = process.env.sentEmail;
-    if (!sentEmail) {
-        throw new Error('sentEmail environment variable is required');
-    }
-    return sentEmail;
+  const sentEmail = process.env.sentEmail;
+  if (!sentEmail) {
+    throw new Error('sentEmail environment variable is required');
+  }
+  return sentEmail;
 };
 
 const formatDate = (date: Date): string => {
-    return new Intl.DateTimeFormat('en-IN', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Kolkata',
-    }).format(date) + ' IST';
+  return new Intl.DateTimeFormat('en-IN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Kolkata',
+  }).format(date) + ' IST';
 };
 
 const buildEmailHtml = (
-    type: 'Brand' | 'Outlet',
-    name: string,
-    brandName: string | null,
-    createdAt: Date,
-    createdBy: string,
-    adminPanelLink: string
+  type: 'Brand' | 'Outlet',
+  name: string,
+  brandName: string | null,
+  createdAt: Date,
+  createdBy: string,
+  adminPanelLink: string
 ): string => {
-    const emoji = type === 'Brand' ? '🏪' : '🍽️';
-    const color = type === 'Brand' ? '#6366f1' : '#f59e0b';
+  const emoji = type === 'Brand' ? '🏪' : '🍽️';
+  const color = type === 'Brand' ? '#6366f1' : '#f59e0b';
 
-    return `
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -148,52 +148,50 @@ const buildEmailHtml = (
  * Send email notification when a new Brand is onboarded
  */
 export const sendBrandOnboardingEmail = async (
-    brandName: string,
-    createdAt: Date,
-    createdBy: string
+  brandName: string,
+  createdAt: Date,
+  createdBy: string
 ): Promise<void> => {
-    try {
-        const transporter = getTransporter();
-        const recipient = getRecipientEmail();
-        const adminLink = `${process.env.ADMIN_PANEL_URL || 'http://localhost:5174'}/brands`;
+  try {
+    const transporter = getTransporter();
+    const recipient = getRecipientEmail();
+    const adminLink = `${process.env.ADMIN_PANEL_URL || 'http://localhost:5174'}/brands`;
 
-        await transporter.sendMail({
-            from: `"DynLeaf Admin" <${process.env.EMAIL}>`,
-            to: recipient,
-            subject: `🏪 New Brand Onboarding Request — ${brandName}`,
-            html: buildEmailHtml('Brand', brandName, null, createdAt, createdBy, adminLink),
-        });
+    await transporter.sendMail({
+      from: `"DynLeaf Admin" <${process.env.EMAIL}>`,
+      to: recipient,
+      subject: `🏪 New Brand Onboarding Request — ${brandName}`,
+      html: buildEmailHtml('Brand', brandName, null, createdAt, createdBy, adminLink),
+    });
 
-        console.log(`[EmailService] Brand onboarding email sent for "${brandName}" to ${recipient}`);
-    } catch (error: any) {
-        // Non-fatal — log and continue, never block onboarding
-        console.error('[EmailService] Failed to send brand onboarding email:', error.message);
-    }
+  } catch (error: any) {
+    // Non-fatal — log and continue, never block onboarding
+    console.error('[EmailService] Failed to send brand onboarding email:', error.message);
+  }
 };
 
 /**
  * Send email notification when a new Outlet is onboarded
  */
 export const sendOutletOnboardingEmail = async (
-    outletName: string,
-    brandName: string,
-    createdAt: Date,
-    createdBy: string
+  outletName: string,
+  brandName: string,
+  createdAt: Date,
+  createdBy: string
 ): Promise<void> => {
-    try {
-        const transporter = getTransporter();
-        const recipient = getRecipientEmail();
-        const adminLink = `${process.env.ADMIN_PANEL_URL || 'http://localhost:5174'}/onboarding-requests`;
+  try {
+    const transporter = getTransporter();
+    const recipient = getRecipientEmail();
+    const adminLink = `${process.env.ADMIN_PANEL_URL || 'http://localhost:5174'}/onboarding-requests`;
 
-        await transporter.sendMail({
-            from: `"DynLeaf Admin" <${process.env.EMAIL}>`,
-            to: recipient,
-            subject: `🍽️ New Outlet Onboarding Request — ${outletName}`,
-            html: buildEmailHtml('Outlet', outletName, brandName, createdAt, createdBy, adminLink),
-        });
+    await transporter.sendMail({
+      from: `"DynLeaf Admin" <${process.env.EMAIL}>`,
+      to: recipient,
+      subject: `🍽️ New Outlet Onboarding Request — ${outletName}`,
+      html: buildEmailHtml('Outlet', outletName, brandName, createdAt, createdBy, adminLink),
+    });
 
-        console.log(`[EmailService] Outlet onboarding email sent for "${outletName}" to ${recipient}`);
-    } catch (error: any) {
-        console.error('[EmailService] Failed to send outlet onboarding email:', error.message);
-    }
+  } catch (error: any) {
+    console.error('[EmailService] Failed to send outlet onboarding email:', error.message);
+  }
 };

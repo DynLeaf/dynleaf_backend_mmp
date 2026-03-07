@@ -40,13 +40,10 @@ const Outlet = mongoose.model('Outlet', outletSchema);
  */
 async function fixUserRoles() {
     try {
-        console.log('🔧 Connecting to MongoDB...');
         await mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI!);
-        console.log('✅ Connected to MongoDB\n');
 
         // Get all brands
         const brands = await Brand.find({});
-        console.log(`📊 Found ${brands.length} brands\n`);
 
         let brandRolesAdded = 0;
         let outletRolesAdded = 0;
@@ -57,14 +54,13 @@ async function fixUserRoles() {
             const user = await User.findById(userId);
 
             if (!user) {
-                console.log(`⚠️  User not found for brand: ${brand.name} (${brand._id})`);
                 continue;
             }
 
             // Check if user has brand-level role
-            const hasBrandRole = user.roles.some(r => 
-                r.scope === 'brand' && 
-                r.role === 'restaurant_owner' && 
+            const hasBrandRole = user.roles.some(r =>
+                r.scope === 'brand' &&
+                r.role === 'restaurant_owner' &&
                 r.brandId?.toString() === brand._id.toString()
             );
 
@@ -79,25 +75,23 @@ async function fixUserRoles() {
                 } as any);
                 await user.save();
                 brandRolesAdded++;
-                console.log(`✅ Added brand role for user ${user.phone} → brand: ${brand.name}`);
             }
 
             // Get all outlets for this brand
             const outlets = await Outlet.find({ brand_id: brand._id });
-            
+
             for (const outlet of outlets) {
                 const outletUserId = outlet.created_by_user_id;
                 const outletUser = await User.findById(outletUserId);
 
                 if (!outletUser) {
-                    console.log(`⚠️  User not found for outlet: ${outlet.name} (${outlet._id})`);
                     continue;
                 }
 
                 // Check if user has outlet-level role
-                const hasOutletRole = outletUser.roles.some(r => 
-                    r.scope === 'outlet' && 
-                    r.role === 'restaurant_owner' && 
+                const hasOutletRole = outletUser.roles.some(r =>
+                    r.scope === 'outlet' &&
+                    r.role === 'restaurant_owner' &&
                     r.outletId?.toString() === outlet._id.toString()
                 );
 
@@ -113,15 +107,10 @@ async function fixUserRoles() {
                     } as any);
                     await outletUser.save();
                     outletRolesAdded++;
-                    console.log(`✅ Added outlet role for user ${outletUser.phone} → outlet: ${outlet.name}`);
                 }
             }
         }
 
-        console.log('\n📊 Summary:');
-        console.log(`   Brand roles added: ${brandRolesAdded}`);
-        console.log(`   Outlet roles added: ${outletRolesAdded}`);
-        console.log('✅ Done!');
 
         await mongoose.disconnect();
         process.exit(0);

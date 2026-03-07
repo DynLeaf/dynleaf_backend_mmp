@@ -18,9 +18,7 @@ async function seedAdminToTestDb() {
             mongoUri = mongoUri.replace(/\/[^/]+$/, '/test');
         }
 
-        console.log('Connecting to test database...');
         await mongoose.connect(mongoUri);
-        console.log('✅ Connected to MongoDB (test database)');
 
         const adminId = new mongoose.Types.ObjectId('000000000000000000000001');
 

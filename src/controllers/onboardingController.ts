@@ -78,9 +78,7 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
         if (!brandId) {
             // Handle logo upload
             let logoUrl = brand.logo;
-            console.log('📸 Onboarding brand logo:', logoUrl ? `${logoUrl.substring(0, 50)}...` : 'No logo');
             if (logoUrl && logoUrl.startsWith('data:')) {
-                console.log('💾 Uploading brand logo to S3...');
                 const s3Service = getS3Service();
                 // Extract base64 data and mime type
                 const matches = logoUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
@@ -98,9 +96,6 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
                     mimeType
                 );
                 logoUrl = uploadedFile.key;
-                console.log('✅ Brand logo uploaded to S3, key:', logoUrl);
-            } else if (logoUrl) {
-                console.log('⚠️ Brand logo provided but not base64, using as-is:', logoUrl);
             }
 
             // Map operation model

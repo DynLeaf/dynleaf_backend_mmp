@@ -35,12 +35,10 @@ export const processAnalyticsBatchBulletproof = async (req: Request, res: Respon
         const ipAddress = getIpAddress(req);
         const rawBody = req.body;
 
-        console.log('[AnalyticsBatch] Received request from IP:', ipAddress);
 
         // Parse with fail-safe schema parser
         parsedBatch = schemaParser.parseBatch(rawBody, ipAddress);
 
-        console.log(`[AnalyticsBatch] Parsed ${parsedBatch.total_events} events (${parsedBatch.valid_events} valid, ${parsedBatch.invalid_events} invalid)`);
 
         // ====================================================================
         // STEP 2: PROCESS EVENTS (NEVER FAILS)

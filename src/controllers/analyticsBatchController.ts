@@ -100,7 +100,6 @@ const createPromoEvent = (baseData: any, payload: any, type: string) => {
         return null;
     }
 
-    console.log(`[AnalyticsBatch] Identified promotion event: ${type} for promo ${promoObjectId}`);
     return {
         ...baseData,
         promotion_id: promoObjectId,
@@ -118,7 +117,6 @@ const createOfferEvent = (baseData: any, payload: any, type: string) => {
         return null;
     }
 
-    console.log(`[AnalyticsBatch] Identified offer event: ${type} for offer ${offerObjectId}`);
     return {
         ...baseData,
         offer_id: offerObjectId,
@@ -245,7 +243,6 @@ const checkItemViewExistsToday = async (
 export const processAnalyticsBatch = async (req: Request, res: Response) => {
     try {
         const { events, metadata } = req.body;
-        console.log(`[AnalyticsBatch] Received ${events?.length || 0} events. Metadata:`, metadata);
 
         if (!Array.isArray(events) || events.length === 0) {
             return sendSuccess(res, { processed: 0 });
@@ -270,10 +267,8 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
                             itemEvent.session_id
                         );
                         if (exists) {
-                            console.log(`[Analytics] ✓ Skipping duplicate item_view - session ${itemEvent.session_id.substring(0, 15)}... already viewed item ${itemEvent.food_item_id} today`);
                             continue;
                         }
-                        console.log(`[Analytics] ✓ New item_view - tracking for session ${itemEvent.session_id.substring(0, 15)}... item ${itemEvent.food_item_id}`);
                     }
                     foodItemEvents.push(itemEvent);
                 }
@@ -287,10 +282,8 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
                             outletEvent.session_id
                         );
                         if (exists) {
-                            console.log(`[Analytics] ✓ Skipping duplicate menu_view - session ${outletEvent.session_id.substring(0, 15)}... already viewed outlet ${outletEvent.outlet_id} today`);
                             continue;
                         }
-                        console.log(`[Analytics] ✓ New menu_view - tracking for session ${outletEvent.session_id.substring(0, 15)}... outlet ${outletEvent.outlet_id}`);
                     }
                     outletEvents.push(outletEvent);
                 }
@@ -315,7 +308,6 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
         }
 
         if (promotionEvents.length > 0) {
-            console.log(`[AnalyticsBatch] Attempting to insert ${promotionEvents.length} promotion events`);
             promises.push(PromotionEvent.insertMany(promotionEvents, { ordered: false }));
 
             const promotionUpdates = aggregatePromotionUpdates(promotionEvents);
@@ -327,7 +319,6 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
         }
 
         if (offerEvents.length > 0) {
-            console.log(`[AnalyticsBatch] Attempting to insert ${offerEvents.length} offer events`);
             promises.push(OfferEvent.insertMany(offerEvents, { ordered: false }));
 
             const offerUpdates = aggregateOfferUpdates(offerEvents);
@@ -339,17 +330,6 @@ export const processAnalyticsBatch = async (req: Request, res: Response) => {
         }
 
         const results = await Promise.allSettled(promises);
-
-        // Log any failures
-        results.forEach((result, index) => {
-            if (result.status === 'rejected') {
-                console.error(`[AnalyticsBatch] Operation ${index} failed:`, result.reason);
-            } else {
-                console.log(`[AnalyticsBatch] Operation ${index} succeeded`);
-            }
-        });
-
-        console.log(`[AnalyticsBatch] Processed: food=${foodItemEvents.length}, outlet=${outletEvents.length}, promo=${promotionEvents.length}, offers=${offerEvents.length}`);
 
         return sendSuccess(res, {
             processed: events.length,

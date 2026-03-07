@@ -13,17 +13,14 @@ dotenv.config();
  */
 async function migrateFoodItemAnalytics() {
     try {
-        console.log('[FOOD-MIGRATION] Starting historical food item analytics migration...');
 
         const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dynleaf';
         await mongoose.connect(mongoUri);
-        console.log('[FOOD-MIGRATION] Connected to MongoDB');
 
         // Get current date to exclude today
         const now = new Date();
         const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-        console.log(`[FOOD-MIGRATION] Today's date (excluded): ${todayUtc.toISOString().split('T')[0]}`);
 
         // Get all unique dates EXCLUDING TODAY
         const uniqueDates = await FoodItemAnalyticsEvent.aggregate([
@@ -45,10 +42,8 @@ async function migrateFoodItemAnalytics() {
             { $sort: { _id: 1 } },
         ]);
 
-        console.log(`[FOOD-MIGRATION] Found ${uniqueDates.length} unique dates to process (up to yesterday)`);
 
         const foodItems = await FoodItem.find({}).select('_id outlet_id upvote_count');
-        console.log(`[FOOD-MIGRATION] Found ${foodItems.length} food items`);
 
         let processedCount = 0;
 
@@ -58,7 +53,6 @@ async function migrateFoodItemAnalytics() {
             const nextDay = new Date(date);
             nextDay.setDate(nextDay.getDate() + 1);
 
-            console.log(`[FOOD-MIGRATION] Processing date: ${dateStr}`);
 
             for (const foodItem of foodItems) {
                 // Use aggregation for better performance
@@ -128,14 +122,8 @@ async function migrateFoodItemAnalytics() {
                 processedCount++;
             }
 
-            console.log(`[FOOD-MIGRATION] ✓ Completed date: ${dateStr}`);
         }
 
-        console.log(`[FOOD-MIGRATION] ========================================`);
-        console.log(`[FOOD-MIGRATION] Migration completed successfully!`);
-        console.log(`[FOOD-MIGRATION] Processed ${uniqueDates.length} dates (up to yesterday)`);
-        console.log(`[FOOD-MIGRATION] Created/Updated ${processedCount} summary records`);
-        console.log(`[FOOD-MIGRATION] ========================================`);
 
         await mongoose.disconnect();
         process.exit(0);

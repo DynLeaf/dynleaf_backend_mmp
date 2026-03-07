@@ -14,18 +14,18 @@ const validateCoordinates = (latitude: any, longitude: any): { isValid: boolean;
   if (!latitude || !longitude) {
     return { isValid: false, error: 'Latitude and longitude are required' };
   }
-  
+
   const lat = parseFloat(latitude as string);
   const lng = parseFloat(longitude as string);
-  
+
   if (isNaN(lat) || isNaN(lng)) {
     return { isValid: false, error: 'Invalid coordinates format' };
   }
-  
+
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     return { isValid: false, error: 'Coordinates out of valid range' };
   }
-  
+
   return { isValid: true, lat, lng };
 };
 
@@ -73,7 +73,6 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
-    console.log(`🔍 Finding nearby food near [${lat}, ${lng}] within ${radiusNum / 1000}km`);
 
     // Build aggregation pipeline
     const pipeline: any[] = [
@@ -257,7 +256,6 @@ export const getNearbyFood = async (req: Request, res: Response) => {
     // Execute query
     const results = await OutletMenuItem.aggregate(pipeline);
 
-    console.log(`✅ Found ${results.length} nearby food items`);
 
     return sendSuccess(res, {
       items: results,
@@ -303,7 +301,6 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
     const radiusNum = parseInt(radius as string);
     const limitNum = parseInt(limit as string);
 
-    console.log(`🔥 Finding trending dishes near [${lat}, ${lng}]`);
 
     const pipeline: any[] = [
       // Geospatial search on FoodItem.location
@@ -414,7 +411,6 @@ export const getTrendingDishesNew = async (req: Request, res: Response) => {
 
     const results = await FoodItem.aggregate(pipeline);
 
-    console.log(`🔥 Found ${results.length} trending dishes`);
 
     return sendSuccess(res, { dishes: results });
   } catch (error: any) {

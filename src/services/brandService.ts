@@ -97,7 +97,6 @@ export const createBrand = async (userId: string, brandData: {
                 assignedBy: userId as unknown as mongoose.Types.ObjectId
             } as any);
             await user.save();
-            console.log('✅ Assigned brand-level role to user:', userId, 'for brand:', brand._id);
         }
     }
 
@@ -169,8 +168,6 @@ export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
         };
     }
 
-    console.log('🔍 Brand Query:', JSON.stringify(query));
-    console.log('🔍 User ID:', userId);
 
     const brands = await Brand.find(query).limit(50).lean();
 

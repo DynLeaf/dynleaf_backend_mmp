@@ -49,8 +49,6 @@ class CloudinaryToS3Migration {
 
     async run() {
         try {
-            console.log('🚀 Starting Cloudinary → S3 Migration');
-            console.log('=====================================\n');
 
             // Create temp directory
             if (!fs.existsSync(TEMP_DIR)) {
@@ -59,17 +57,14 @@ class CloudinaryToS3Migration {
 
             // Find all Cloudinary URLs in database
             const cloudinaryUrls = await this.findAllCloudinaryUrls();
-            console.log(`📊 Found ${cloudinaryUrls.length} Cloudinary URLs to migrate\n`);
 
             if (cloudinaryUrls.length === 0) {
-                console.log('✅ No Cloudinary URLs found. Migration complete!');
                 return;
             }
 
             // Process in batches
             for (let i = 0; i < cloudinaryUrls.length; i += BATCH_SIZE) {
                 const batch = cloudinaryUrls.slice(i, i + BATCH_SIZE);
-                console.log(`\n📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1} (${batch.length} items)`);
 
                 await Promise.allSettled(
                     batch.map(item => this.migrateUrl(item))
@@ -77,17 +72,12 @@ class CloudinaryToS3Migration {
             }
 
             // Update all documents with new S3 URLs
-            console.log('\n\n🔄 Updating database records...');
             await this.updateDatabaseRecords();
 
             // Cleanup
             this.cleanup();
 
-            console.log('\n\n✅ Migration Complete!');
-            console.log(`📊 Summary:`);
-            console.log(`   - Processed: ${this.totalProcessed}`);
-            console.log(`   - Failed: ${this.totalFailed}`);
-            console.log(`   - Success Rate: ${((this.totalProcessed / (this.totalProcessed + this.totalFailed)) * 100).toFixed(2)}%`);
+
         } catch (error) {
             console.error('❌ Migration failed:', error);
             this.cleanup();
@@ -143,7 +133,6 @@ class CloudinaryToS3Migration {
                 return;
             }
 
-            console.log(`   ⏳ Downloading: ${url}`);
 
             // Download file from Cloudinary
             const fileName = this.generateFileName(url);
@@ -153,7 +142,6 @@ class CloudinaryToS3Migration {
             fs.writeFileSync(filePath, response.data);
 
             // Upload to S3
-            console.log(`   📤 Uploading to S3...`);
             const buffer = fs.readFileSync(filePath);
             const mimeType = response.headers['content-type'] || 'application/octet-stream';
 
@@ -173,12 +161,10 @@ class CloudinaryToS3Migration {
             this.urlMappings.set(url, uploadedFile.key);
             this.totalProcessed++;
 
-            console.log(`   ✅ ${collection}/${field} migrated`);
 
             // Cleanup temp file
             fs.unlinkSync(filePath);
         } catch (error: any) {
-            console.error(`   ❌ Failed: ${error.message}`);
             this.totalFailed++;
         }
     }
@@ -200,9 +186,7 @@ class CloudinaryToS3Migration {
                             { $set: { [field]: s3Url } }
                         );
 
-                        if (result.modifiedCount > 0) {
-                            console.log(`   ✅ Updated ${result.modifiedCount} document(s) in ${model.name}`);
-                        }
+
                     }
                 }
             } catch (error: any) {

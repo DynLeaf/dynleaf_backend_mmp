@@ -17,7 +17,6 @@ async function check() {
     try {
         await mongoose.connect(MONGODB_URI);
         const configs = await MallQRConfig.find({}).lean();
-        console.log('Configs:', JSON.stringify(configs, null, 2));
     } catch (error) {
         console.error('Error:', error);
     } finally {

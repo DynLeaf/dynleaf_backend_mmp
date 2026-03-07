@@ -14,14 +14,11 @@ async function createAdminGmail() {
         const existingAdmin = await Admin.findOne({ email: 'admin@gmail.com' });
 
         if (existingAdmin) {
-            console.log('\nℹ️  Admin with email admin@gmail.com already exists');
-            console.log('Updating password to pass@123...\n');
 
             // Update password
             existingAdmin.password_hash = 'pass@123'; // Will be hashed by pre-save hook
             await existingAdmin.save();
 
-            console.log('✅ Admin password updated successfully!');
         } else {
             // Create new admin
             const admin = await Admin.create({
@@ -33,15 +30,8 @@ async function createAdminGmail() {
                 permissions: ['*']
             });
 
-            console.log('\n✅ Admin created successfully!');
         }
 
-        console.log('\n📧 Login Credentials:');
-        console.log('─────────────────────────────────');
-        console.log('Email: admin@gmail.com');
-        console.log('Password: pass@123');
-        console.log('Role: super_admin');
-        console.log('─────────────────────────────────\n');
 
     } catch (error: any) {
         console.error('❌ Error:', error.message);

@@ -28,7 +28,6 @@ async function extractS3KeyFromUrl(url: string): Promise<string | null> {
 }
 
 async function migrateUserAvatars(): Promise<{ updated: number; skipped: number }> {
-  console.log('[Migration] Starting User avatar migration...');
 
   try {
     const User = (await import('../models/user.js')).default;

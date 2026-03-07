@@ -183,11 +183,11 @@ export const getOfferByIdDirect = async (req: AuthRequest, res: Response) => {
         }
 
         // If offer has multiple outlets, just return the first one as primary
-        const primaryOutlet = Array.isArray((offer as any).outlet_ids) 
-            ? (offer as any).outlet_ids[0] 
+        const primaryOutlet = Array.isArray((offer as any).outlet_ids)
+            ? (offer as any).outlet_ids[0]
             : (offer as any).outlet_ids;
 
-        return sendSuccess(res, { 
+        return sendSuccess(res, {
             offer: {
                 ...offer,
                 outlet: primaryOutlet,
@@ -403,12 +403,10 @@ export const getNearbyOffers = async (req: any, res: Response) => {
         ];
 
         const offers = await Offer.aggregate(pipeline);
-        console.log(`Found ${offers.length} nearby offers for [${lng}, ${lat}]`);
         if (offers.length === 0) {
             // Check if any active offers exist at all
             const totalActive = await Offer.countDocuments({ is_active: true } as any);
             const totalWithLoc = await Offer.countDocuments({ 'location.coordinates': { $exists: true } } as any);
-            console.log(`Total active: ${totalActive}, Total with location: ${totalWithLoc}`);
         }
 
         return sendSuccess(res, {

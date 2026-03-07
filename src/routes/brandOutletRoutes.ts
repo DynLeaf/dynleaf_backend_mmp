@@ -12,7 +12,6 @@ import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 router.use((req, res, next) => {
-    console.log(`🔍 [Router:brandOutlet] ${req.method} ${req.url} | Params: ${JSON.stringify(req.params)}`);
     next();
 });
 

@@ -40,13 +40,11 @@ const getProvider = (): SmsProvider => {
 
 export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> => {
   const provider = getProvider();
-  console.log('prov', provider)
 
   if (provider === 'noop') {
     if (process.env.NODE_ENV === 'production' && process.env.SMS_ALLOW_NOOP_IN_PROD !== 'true') {
       throw new Error('SMS is not configured (SMS_PROVIDER=noop)');
     }
-    console.log(`[SMS:NOOP] OTP for ${toPhone}: ${otp}`);
     return;
   }
 
@@ -87,7 +85,6 @@ export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> =>
     const templateId = process.env.SMSBUDDY_TEMPLATE_ID;
     const messageTemplate = process.env.SMSBUDDY_MESSAGE_TEMPLATE;
     ;
-    console.log(apiKey, senderId, templateId, messageTemplate, 'i am ajmal')
 
     if (!apiKey || !senderId || !templateId || !messageTemplate) {
       throw new Error('SMSBuddy is not configured. Set SMSBUDDY_API_KEY, SMSBUDDY_SENDER_ID, SMSBUDDY_TEMPLATE_ID, SMSBUDDY_MESSAGE_TEMPLATE');
@@ -107,10 +104,8 @@ export const sendOtpSms = async (toPhone: string, otp: string): Promise<void> =>
     params.append('template_id', templateId);
 
     try {
-      console.log(otp, 'otp')
       const url =
         `https://thesmsbuddy.com/api/v1/otp/create?key=${apiKey}&type=1&to=${mobile}&sender=${senderId}&message=Dear%20Customer%20%2C%20Your%20Dynleaf%20verification%20code%20is%20${otp}%20for%20Logged%20in%20.%20Please%20enter%20this%20OTP%20to%20continue&flash=0&template_id=1707176804088370688`;
-      console.log(url, 'url')
 
       const response = await axios.post(
         url, {},

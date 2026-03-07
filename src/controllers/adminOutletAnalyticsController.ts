@@ -41,7 +41,6 @@ export const getOutletAnalyticsOverview = async (req: Request, res: Response) =>
         const { range, date_from, date_to } = req.query;
         const { start, end } = parseDateRange(range as string, date_from as string, date_to as string);
 
-        console.log(`[getOutletAnalyticsOverview] Range: ${range || '7d'}, Start: ${start.toISOString()}, End: ${end.toISOString()}`);
 
         // Aggregate all summaries within the date range
         const aggregation = await OutletAnalyticsSummary.aggregate([
@@ -90,7 +89,6 @@ export const getOutletAnalyticsList = async (req: Request, res: Response) => {
         const limitNum = parseInt(limit as string);
         const skip = (pageNum - 1) * limitNum;
 
-        console.log(`[getOutletAnalyticsList] Range: ${range || '7d'}, Page: ${pageNum}, Limit: ${limitNum}`);
 
         // Aggregate summaries by outlet_id
         const outletAggregation = await OutletAnalyticsSummary.aggregate([
@@ -167,7 +165,6 @@ export const getOutletAnalyticsSummary = async (req: Request, res: Response) => 
             return sendError(res, 'Invalid outlet ID', 400);
         }
 
-        console.log(`[getOutletAnalyticsSummary] Outlet: ${id}, Range: ${range || '7d'}`);
 
         // Verify outlet exists
         const outlet = await Outlet.findById(id).select('name slug logo_url').lean();
@@ -316,7 +313,6 @@ export const getOutletFoodItemsAnalytics = async (req: Request, res: Response) =
             return sendError(res, 'Invalid outlet ID', 400);
         }
 
-        console.log(`[getOutletFoodItemsAnalytics] Outlet: ${id}, Range: ${range || '7d'}, Page: ${pageNum}`);
 
         // Aggregate food items by source (home vs menu)
         const foodItemsAggregation = await FoodItemAnalyticsSummary.aggregate([

@@ -1203,7 +1203,6 @@ export const addInstagramReel = async (req: AuthRequest, res: Response) => {
         outlet.instagram_reels = [...currentReels, newReel];
         await outlet.save();
 
-        console.log(`🎬 Added Instagram Reel to outlet ${outlet.name}`);
 
         return sendSuccess(res, {
             reel: newReel,
@@ -1257,7 +1256,6 @@ export const deleteInstagramReel = async (req: AuthRequest, res: Response) => {
             await s3.safeDeleteFromUrl(reelToDelete.thumbnail, null);
         }
 
-        console.log(`🗑️ Deleted Instagram Reel from outlet ${outlet.name}`);
 
         return sendSuccess(res, {
             message: 'Instagram Reel deleted successfully'
@@ -1307,7 +1305,6 @@ export const reorderInstagramReels = async (req: AuthRequest, res: Response) => 
         outlet.instagram_reels = reorderedReels;
         await outlet.save();
 
-        console.log(`🔄 Reordered Instagram Reels for outlet ${outlet.name}`);
 
         return sendSuccess(res, {
             reels: reorderedReels,
@@ -1352,7 +1349,6 @@ export const updateInstagramReel = async (req: AuthRequest, res: Response) => {
 
         await outlet.save();
 
-        console.log(`✏️ Updated Instagram Reel for outlet ${outlet.name}`);
 
         return sendSuccess(res, {
             reel,
@@ -1428,7 +1424,6 @@ export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
 
         await outlet.save();
 
-        console.log(`⚙️ Updated menu settings for outlet ${outlet.name}`);
 
         return sendSuccess(res, outlet.menu_settings, 'Menu settings updated successfully');
     } catch (error: any) {

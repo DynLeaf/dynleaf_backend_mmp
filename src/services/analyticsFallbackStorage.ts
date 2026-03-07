@@ -34,7 +34,6 @@ export class AnalyticsFallbackStorage {
             await fs.mkdir(path.join(this.fallbackDir, 'processed'), { recursive: true });
 
             this.isInitialized = true;
-            console.log('[FallbackStorage] Initialized at:', this.fallbackDir);
         } catch (error) {
             console.error('[FallbackStorage] Failed to initialize:', error);
             // Don't throw - we'll try to write anyway
@@ -62,7 +61,6 @@ export class AnalyticsFallbackStorage {
             // Append to JSONL file (one JSON object per line)
             await fs.appendFile(filepath, JSON.stringify(record) + '\n', 'utf8');
 
-            console.log('[FallbackStorage] Event saved to fallback:', event.event_hash);
             return true;
         } catch (error) {
             console.error('[FallbackStorage] CRITICAL: Failed to write to fallback:', error);
@@ -166,7 +164,6 @@ export class AnalyticsFallbackStorage {
 
             await fs.rename(filepath, processedPath);
 
-            console.log('[FallbackStorage] Event processed:', filename);
         } catch (error) {
             console.error('[FallbackStorage] Failed to mark as processed:', error);
             // Don't throw - event was already processed in DB
@@ -214,9 +211,7 @@ export class AnalyticsFallbackStorage {
                 }
             }
 
-            if (deletedCount > 0) {
-                console.log(`[FallbackStorage] Cleaned up ${deletedCount} old files`);
-            }
+
         } catch (error) {
             console.error('[FallbackStorage] Cleanup failed:', error);
         }
