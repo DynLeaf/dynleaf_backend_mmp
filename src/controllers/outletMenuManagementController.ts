@@ -6,7 +6,43 @@ import { AddOn } from '../models/AddOn.js';
 import { Combo } from '../models/Combo.js';
 import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
+import { CategoryImage } from '../models/CategoryImage.js';
+import { CategorySlugMap } from '../models/CategorySlugMap.js';
 import { sendSuccess, sendError } from '../utils/response.js';
+
+/**
+ * Best-effort: given a category name and its MongoDB document _id,
+ * look up category_slug_map for a matching image and apply it.
+ * If the slug is new, creates an unassigned entry.
+ * Never throws — errors are logged and silently swallowed.
+ */
+async function applyCategoryImageFromSlugMap(
+    categoryDocId: string,
+    categoryName: string
+): Promise<void> {
+    try {
+        const slug = categoryName
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-|-$/g, '');
+
+        // Try to find or upsert the slug map entry (setOnInsert so we never overwrite an existing mapping)
+        const mapEntry = await CategorySlugMap.findOneAndUpdate(
+            { slug },
+            { $setOnInsert: { slug, itemKey: null } },
+            { upsert: true, new: true }
+        ).lean();
+
+        if (mapEntry?.itemKey) {
+            const image = await CategoryImage.findById(mapEntry.itemKey).select('image_url').lean();
+            if (image?.image_url) {
+                await Category.findByIdAndUpdate(categoryDocId, { image_url: image.image_url });
+            }
+        }
+    } catch (err) {
+        console.error('[applyCategoryImageFromSlugMap] non-blocking error:', err);
+    }
+}
 
 /**
  * Outlet-Centric Menu Management Controller
@@ -928,6 +964,8 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                     const existingId = categoryIdByName.get(key);
                     if (existingId) {
                         categoryId = existingId;
+                        // Apply image from slug map for existing category (best-effort, non-blocking)
+                        void applyCategoryImageFromSlugMap(categoryId, categoryName);
                     } else if (createMissingCategories) {
                         const slug = await generateUniqueCategorySlugForOutlet(outletId, categoryName);
                         if (!dryRun) {
@@ -941,6 +979,8 @@ export const importMenuForOutlet = async (req: Request, res: Response) => {
                             });
                             categoryId = String(createdCategory._id);
                             categoryIdByName.set(key, categoryId);
+                            // Apply image from slug map for newly created category (best-effort, non-blocking)
+                            void applyCategoryImageFromSlugMap(categoryId, categoryName);
                         } else {
                             // Dry-run: pretend category will exist
                             categoryId = 'dry-run-category';

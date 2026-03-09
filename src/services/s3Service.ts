@@ -74,7 +74,7 @@ class S3UploadService {
         maxFileSize: number = 104857600 // 100MB default
     ): Promise<PresignedUrlResponse> {
         const s3Key = this.generateS3Key(assetType, userId);
-        
+
         try {
             const uploadUrl = await getSignedUrl(
                 this.s3Client,
@@ -302,7 +302,8 @@ class S3UploadService {
                 menu_item: { width: 2048, height: 2048, quality: 85 },
                 avatar: { width: 512, height: 512, quality: 80 },
                 story: { width: 1080, height: 1920, quality: 75 },
-                reel_thumbnail: { width: 1280, height: 720, quality: 80 }
+                reel_thumbnail: { width: 1280, height: 720, quality: 80 },
+                category_image: { width: 800, height: 800, quality: 85 },
             };
 
             const config = transformConfigs[assetType];
@@ -339,7 +340,9 @@ class S3UploadService {
             menu_item: 'menu',
             story: 'stories',
             avatar: 'avatars',
-            reel_thumbnail: 'reels'
+            reel_thumbnail: 'reels',
+            category_image: 'categories',
+            promotion_banner: 'promotions',
         };
 
         const folder = assetTypeToFolder[assetType] || 'uploads';

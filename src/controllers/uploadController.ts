@@ -14,13 +14,14 @@ type UploadAssetType =
     | 'menu_item'
     | 'story'
     | 'avatar'
-    | 'reel_thumbnail';
+    | 'reel_thumbnail'
+    | 'category_image';
 
 // Constants
 const CLOUDINARY_ENV_VARS = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'] as const;
 const VALID_ASSET_TYPES = [
-  'brand_logo', 'outlet_cover', 'gallery_interior', 'gallery_exterior',
-  'gallery_food', 'menu_item', 'story', 'avatar', 'reel_thumbnail'
+    'brand_logo', 'outlet_cover', 'gallery_interior', 'gallery_exterior',
+    'gallery_food', 'menu_item', 'story', 'avatar', 'reel_thumbnail', 'category_image'
 ] as const;
 
 const assetTypeToFolder: Record<UploadAssetType, string> = {
@@ -32,7 +33,8 @@ const assetTypeToFolder: Record<UploadAssetType, string> = {
     menu_item: 'menu',
     story: 'stories',
     avatar: 'avatars',
-    reel_thumbnail: 'reels'
+    reel_thumbnail: 'reels',
+    category_image: 'categories'
 };
 
 const assetTypeToResourceType: Record<UploadAssetType, 'image' | 'auto' | 'video'> = {
@@ -44,7 +46,8 @@ const assetTypeToResourceType: Record<UploadAssetType, 'image' | 'auto' | 'video
     menu_item: 'image',
     story: 'auto',
     avatar: 'image',
-    reel_thumbnail: 'image'
+    reel_thumbnail: 'image',
+    category_image: 'image'
 };
 
 // Cloudinary upload-time transformations to reduce *stored* asset sizes.
@@ -78,20 +81,20 @@ const signCloudinaryParams = (params: Record<string, string | number>, apiSecret
 
 // Helper functions
 const validateCloudinaryConfig = (cloudName?: string, apiKey?: string, apiSecret?: string): boolean => {
-  return !!(cloudName && apiKey && apiSecret);
+    return !!(cloudName && apiKey && apiSecret);
 };
 
 const isValidAssetType = (assetType: any): assetType is UploadAssetType => {
-  return assetType && (VALID_ASSET_TYPES as readonly string[]).includes(assetType);
+    return assetType && (VALID_ASSET_TYPES as readonly string[]).includes(assetType);
 };
 
 const determineResourceType = (assetType: UploadAssetType, mimeType?: string): 'image' | 'video' | 'auto' => {
-  if (assetType === 'story' && mimeType) {
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    return 'auto';
-  }
-  return assetTypeToResourceType[assetType];
+    if (assetType === 'story' && mimeType) {
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType.startsWith('video/')) return 'video';
+        return 'auto';
+    }
+    return assetTypeToResourceType[assetType];
 };
 
 // export const getCloudinarySignature = async (req: AuthRequest, res: Response) => {
@@ -165,10 +168,10 @@ export const getS3Signature = async (req: AuthRequest, res: Response) => {
         }
 
         const userId = req.user?.id || 'anonymous';
-        
+
         // Determine content type
         const contentType = mimeType || 'application/octet-stream';
-        
+
         // Set file size limits based on asset type (compressed images should be well under these)
         const fileSizeLimits: Record<UploadAssetType, number> = {
             brand_logo: 10485760, // 10MB — logos should be well compressed
@@ -179,7 +182,8 @@ export const getS3Signature = async (req: AuthRequest, res: Response) => {
             menu_item: 20971520, // 20MB — menu scans may include PDFs
             story: 52428800, // 50MB for story images (videos removed)
             avatar: 5242880, // 5MB — avatars are small
-            reel_thumbnail: 5242880 // 5MB — thumbnails are small
+            reel_thumbnail: 5242880, // 5MB — thumbnails are small
+            category_image: 10485760 // 10MB — category default images
         };
 
         const maxFileSize = fileSizeLimits[assetType];

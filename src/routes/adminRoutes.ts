@@ -10,6 +10,10 @@ import { Compliance } from "../models/Compliance.js";
 import { Story } from "../models/Story.js";
 import { BrandUpdateRequest } from "../models/BrandUpdateRequest.js";
 import { Menu } from "../models/Menu.js";
+import { CategoryImage } from "../models/CategoryImage.js";
+import { CategorySlugMap } from "../models/CategorySlugMap.js";
+import { Category } from "../models/Category.js";
+import { getS3Service } from "../services/s3Service.js";
 import { sendSuccess, sendError } from "../utils/response.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
@@ -1537,5 +1541,242 @@ router.delete('/admin-notifications', adminAuth, adminNotificationController.del
 
 // DELETE single notification
 router.delete('/admin-notifications/:id', adminAuth, adminNotificationController.deleteOne);
+
+// ─── Category Image Management ───────────────────────────────────────────────
+
+// POST /admin/category-images/upload-signature — get S3 presigned URL for category image
+router.post('/category-images/upload-signature', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const s3Service = getS3Service();
+    const mimeType = req.body?.mimeType || 'image/webp';
+    const maxFileSize = 10 * 1024 * 1024; // 10MB
+
+    const presignedResponse = await s3Service.generatePresignedPostUrl(
+      'category_image',
+      'admin',
+      mimeType,
+      maxFileSize
+    );
+
+    const fileUrl = s3Service.getFileUrl(presignedResponse.s3Key);
+
+    return sendSuccess(res, {
+      uploadUrl: presignedResponse.uploadUrl,
+      fields: presignedResponse.fields,
+      s3Key: presignedResponse.s3Key,
+      fileUrl,
+      maxFileSize,
+      provider: 's3',
+    });
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to get upload signature', null, 500);
+  }
+});
+
+// POST /admin/category-images/upload-via-backend — backend proxy upload (CORS fallback)
+router.post('/category-images/upload-via-backend', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const s3Service = getS3Service();
+    const { fileBuffer, fileName, mimeType } = req.body || {};
+
+    if (!fileBuffer || !fileName) {
+      return sendError(res, 'fileBuffer and fileName are required', null, 400);
+    }
+
+    const buffer = Buffer.from(fileBuffer, 'base64');
+    const uploadedFile = await s3Service.uploadBuffer(
+      buffer,
+      'category_image',
+      'admin',
+      fileName,
+      mimeType || 'application/octet-stream'
+    );
+
+    return sendSuccess(res, {
+      s3Key: uploadedFile.key,
+      fileUrl: s3Service.getFileUrl(uploadedFile.key),
+      size: uploadedFile.size,
+      mimeType: uploadedFile.mimeType,
+    });
+  } catch (error: any) {
+    return sendError(res, error.message || 'Failed to upload image', null, 500);
+  }
+});
+
+const toSlug = (name: string) =>
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+// GET /admin/category-images — list all category images
+router.get('/category-images', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const images = await CategoryImage.find().sort({ created_at: -1 }).lean();
+    return sendSuccess(res, images);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// POST /admin/category-images — create a new category image
+router.post('/category-images', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { name, image_url } = req.body as { name?: string; image_url?: string };
+
+    if (!name || !name.trim()) return sendError(res, 'name is required', null, 400);
+    if (!image_url || !image_url.trim()) return sendError(res, 'image_url is required', null, 400);
+
+    const slug = toSlug(name.trim());
+
+    // Prevent duplicate slug
+    const existing = await CategoryImage.findOne({ slug }).lean();
+    if (existing) return sendError(res, `A category image with slug "${slug}" already exists`, null, 409);
+
+    const image = await CategoryImage.create({ name: name.trim(), slug, image_url: image_url.trim() });
+
+    // Upsert slug map entry:
+    // - If entry already exists (slug auto-created from a menu import): update itemKey to this image
+    // - If entry doesn't exist yet: create it with itemKey set
+    await CategorySlugMap.findOneAndUpdate(
+      { slug },
+      {
+        $set: { itemKey: image._id },      // always write itemKey
+        $setOnInsert: { slug },            // only set slug on new entries
+      },
+      { upsert: true, new: true }
+    );
+
+    // Propagate image_url to any existing outlet Category documents with this slug
+    // that don't yet have an image, so they're immediately updated without re-importing
+    await (Category as any).updateMany(
+      { slug, $or: [{ image_url: { $exists: false } }, { image_url: null }, { image_url: '' }] },
+      { $set: { image_url: image_url.trim() } }
+    );
+
+    return sendSuccess(res, image, 'Category image created', 201);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// PATCH /admin/category-images/:id — update name and/or image_url (slug stays fixed)
+router.patch('/category-images/:id', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const { name, image_url } = req.body as { name?: string; image_url?: string };
+    const updates: any = {};
+    if (name !== undefined) updates.name = name.trim();
+    if (image_url !== undefined) updates.image_url = image_url.trim();
+
+    if (Object.keys(updates).length === 0) return sendError(res, 'No update fields provided', null, 400);
+
+    const image = await CategoryImage.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!image) return sendError(res, 'Category image not found', null, 404);
+
+    return sendSuccess(res, image, 'Category image updated');
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// DELETE /admin/category-images/:id — delete image and nullify related slug map entries
+router.delete('/category-images/:id', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const image = await CategoryImage.findByIdAndDelete(req.params.id);
+    if (!image) return sendError(res, 'Category image not found', null, 404);
+
+    // Nullify all slug map entries pointing to this image
+    await CategorySlugMap.updateMany({ itemKey: image._id }, { $set: { itemKey: null } });
+
+    return sendSuccess(res, null, 'Category image deleted');
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// GET /admin/category-slug-map — list all slug mappings (supports ?unassigned=true)
+router.get('/category-slug-map', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const unassigned = req.query.unassigned === 'true';
+    const query: any = unassigned ? { itemKey: null } : {};
+
+    const mappings = await CategorySlugMap.find(query)
+      .populate('itemKey', 'name slug image_url')
+      .sort({ slug: 1 })
+      .lean();
+
+    return sendSuccess(res, mappings);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// PATCH /admin/category-slug-map/:slug — assign or clear itemKey for a slug
+router.patch('/category-slug-map/:slug', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const slug = req.params.slug.toLowerCase();
+    const { itemKey } = req.body as { itemKey: string | null };
+
+    let imageUrl: string | null = null;
+
+    if (itemKey !== null && itemKey !== undefined) {
+      const image = await CategoryImage.findById(itemKey).lean();
+      if (!image) return sendError(res, 'CategoryImage not found', null, 404);
+      imageUrl = image.image_url;
+    }
+
+    // Update the slug map
+    const mapping = await CategorySlugMap.findOneAndUpdate(
+      { slug },
+      { $set: { itemKey: itemKey ?? null } },
+      { new: true, upsert: true }
+    ).populate('itemKey', 'name slug image_url');
+
+    // Propagate image_url to all outlet Category documents that share this slug
+    if (imageUrl) {
+      await (Category as any).updateMany(
+        { slug, $or: [{ image_url: { $exists: false } }, { image_url: null }, { image_url: '' }] },
+        { $set: { image_url: imageUrl } }
+      );
+    } else {
+      // Clearing the mapping — remove image from categories that had this image
+      await (Category as any).updateMany(
+        { slug },
+        { $unset: { image_url: '' } }
+      );
+    }
+
+    return sendSuccess(res, mapping, 'Slug mapping updated');
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// GET /admin/categories-without-images — list all outlet categories with no image_url
+router.get('/categories-without-images', adminAuth, async (req: AuthRequest, res) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const skip = (page - 1) * limit;
+
+    const query = { $or: [{ image_url: { $exists: false } }, { image_url: null }, { image_url: '' }] };
+
+    const [categories, total] = await Promise.all([
+      (Category as any)
+        .find(query)
+        .populate('outlet_id', 'name slug')
+        .select('name slug image_url outlet_id')
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      (Category as any).countDocuments(query),
+    ]);
+
+    return sendSuccess(res, { categories, total, page, limit, totalPages: Math.ceil(total / limit) });
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
 
 export default router;
