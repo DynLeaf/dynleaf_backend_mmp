@@ -397,7 +397,8 @@ export const getOutletStories = async (req: Request, res: Response) => {
                     select: 'name verification_status'
                 }
             })
-            .sort({ created_at: 1 }); // Oldest first (chronological order usually)
+            .sort({ created_at: 1 }) // Oldest first (chronological order usually)
+            .lean();
 
         return sendSuccess(res, stories);
     } catch (error: any) {
@@ -428,7 +429,8 @@ export const getAdminOutletStories = async (req: AuthRequest, res: Response) => 
                     select: 'name verification_status'
                 }
             })
-            .sort({ created_at: -1 }); // Newest first for admin view
+            .sort({ created_at: -1 }) // Newest first for admin view
+            .lean();
 
         return sendSuccess(res, stories);
     } catch (error: any) {
@@ -448,7 +450,21 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
-        if (status) story.status = status;
+        if (status) {
+            story.status = status;
+
+            // If archiving the story, immediately free up S3 storage
+            if (status === 'archived') {
+                const mediaKeys = story.slides
+                    .map((slide: any) => slide.mediaUrl)
+                    .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
+
+                if (mediaKeys.length > 0) {
+                    const s3 = getS3Service();
+                    await s3.deleteMultipleFiles(mediaKeys);
+                }
+            }
+        }
 
         if (typeof pinned === 'boolean' && pinned) {
             try {
