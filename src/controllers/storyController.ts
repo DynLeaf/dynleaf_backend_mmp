@@ -288,7 +288,7 @@ export const getStoryFeed = async (req: Request, res: Response) => {
                                 }
                             }
                         },
-                        { $sort: { created_at: -1 } }
+                        { $sort: { created_at: 1 } }
                     ],
                     as: 'stories'
                 }
@@ -398,6 +398,37 @@ export const getOutletStories = async (req: Request, res: Response) => {
                 }
             })
             .sort({ created_at: 1 }); // Oldest first (chronological order usually)
+
+        return sendSuccess(res, stories);
+    } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getAdminOutletStories = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId: idOrSlug } = req.params;
+
+        const outlet = await outletService.getOutletById(idOrSlug);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
+        }
+        const actualOutletId = outlet._id;
+
+        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
+            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
+        }
+
+        const stories = await Story.find({ outletId: actualOutletId })
+            .populate({
+                path: 'outletId',
+                select: 'name slug media.cover_image_url location address status approval_status brand_id',
+                populate: {
+                    path: 'brand_id',
+                    select: 'name verification_status'
+                }
+            })
+            .sort({ created_at: -1 }); // Newest first for admin view
 
         return sendSuccess(res, stories);
     } catch (error: any) {

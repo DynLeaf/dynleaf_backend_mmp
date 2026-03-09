@@ -8,7 +8,8 @@ import {
     deleteStory,
     recordView,
     getStoryAnalytics,
-    getSeenStatus
+    getSeenStatus,
+    getAdminOutletStories
 } from '../controllers/storyController.js';
 
 const router = express.Router();
@@ -20,6 +21,7 @@ router.get('/seen-status', getSeenStatus);
 router.post('/:storyId/view', recordView);
 
 // Protected routes (Restaurant/Admin)
+router.get('/admin/outlet/:outletId', protect, getAdminOutletStories);
 router.post('/', protect, createStory); // Body must contain outletId, internal check performs auth
 router.patch('/:storyId/status', protect, updateStoryStatus);
 router.delete('/:storyId', protect, deleteStory);
