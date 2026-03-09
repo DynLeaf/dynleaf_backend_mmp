@@ -8,6 +8,13 @@ import { MallQRConfig } from '../models/MallQRConfig.js';
 import mongoose from 'mongoose';
 import * as outletService from '../services/outletService.js';
 import { sendSuccess, sendError, ErrorCode } from '../utils/response.js';
+import {
+  buildMallKey,
+  extractGroupKeyFromMallKey,
+  extractMallName,
+  getMallGroupKey,
+  normalizeMallName
+} from '../utils/mallKeyUtils.js';
 
 // Constants
 const DEFAULT_FEATURED_LIMIT = 10;
@@ -28,44 +35,6 @@ const toSlug = (value?: string) => {
     .replace(/[^a-z0-9\s-]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
-};
-
-const toTitleCase = (value?: string) => {
-  if (!value) return '';
-  return value
-    .toLowerCase()
-    .split(' ')
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-};
-
-const extractMallName = (addressFull?: string) => {
-  if (!addressFull) return null;
-
-  const normalized = addressFull.replace(/\s+/g, ' ').trim();
-  const segmentPatterns = [
-    /([^,]*\b(?:mall|food\s*court)\b[^,]*)/i,
-    /([^|]*\b(?:mall|food\s*court)\b[^|]*)/i,
-    /(\b(?:mall|food\s*court)\b.*)$/i
-  ];
-
-  for (const pattern of segmentPatterns) {
-    const match = normalized.match(pattern);
-    const candidate = match?.[1]?.trim();
-    if (candidate && candidate.length >= 3) {
-      return toTitleCase(candidate);
-    }
-  }
-
-  return null;
-};
-
-const buildMallKey = (mallName: string, city?: string, state?: string) => {
-  const mallSlug = toSlug(mallName);
-  const citySlug = toSlug(city) || 'unknown-city';
-  const stateSlug = toSlug(state) || 'unknown-state';
-  return `${mallSlug}-${citySlug}-${stateSlug}`;
 };
 
 const calcDistanceMeters = (
@@ -626,11 +595,12 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
     const mallMap = new Map<string, any>();
 
     for (const outlet of outlets) {
-      const mallName = extractMallName(outlet.address?.full);
+      const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
       if (!mallName) continue;
 
       const key = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
-      const existing = mallMap.get(key);
+      const groupKey = getMallGroupKey(mallName);
+      const existing = mallMap.get(groupKey);
 
       const outletPayload = {
         _id: outlet._id,
@@ -644,8 +614,9 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
       };
 
       if (!existing) {
-        mallMap.set(key, {
-          key,
+        mallMap.set(groupKey, {
+          key: null,
+          group_key: groupKey,
           slug: toSlug(mallName),
           name: mallName,
           city: outlet.address?.city || null,
@@ -654,10 +625,12 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
           distance: Math.round(outlet.distance || 0),
           cover_image_url: outlet.media?.cover_image_url || outlet.brand?.logo_url || null,
           outlet_count: 1,
+          key_candidates: new Map([[key, 1]]),
           outlets_preview: [outletPayload]
         });
       } else {
         existing.outlet_count += 1;
+        existing.key_candidates.set(key, (existing.key_candidates.get(key) || 0) + 1);
         existing.distance = Math.min(existing.distance, Math.round(outlet.distance || 0));
         if (!existing.cover_image_url && (outlet.media?.cover_image_url || outlet.brand?.logo_url)) {
           existing.cover_image_url = outlet.media?.cover_image_url || outlet.brand?.logo_url;
@@ -668,21 +641,38 @@ export const getNearbyMalls = async (req: Request, res: Response) => {
       }
     }
 
-    const mallKeys = Array.from(mallMap.keys());
-    const mallConfigs = await MallQRConfig.find({
-      mall_key: { $in: mallKeys }
-    }).lean();
+    const mallKeys = Array.from(mallMap.values()).flatMap((mall: any) =>
+      Array.from((mall.key_candidates as Map<string, number>).keys())
+    );
+    const mallConfigs = mallKeys.length
+      ? await MallQRConfig.find({
+          mall_key: { $in: mallKeys }
+        }).lean()
+      : [];
 
     const configMap = new Map();
     mallConfigs.forEach(c => configMap.set(c.mall_key, c));
 
     // Convert map to array and merge images
     const allMalls = Array.from(mallMap.values()).map(mall => {
-      const config = configMap.get(mall.key);
-      if (config && config.image) {
-        mall.cover_image_url = config.image;
-      }
-      return mall;
+      const keyCandidates = Array.from((mall.key_candidates as Map<string, number>).entries())
+        .sort((a, b) => b[1] - a[1]);
+      const keyWithConfig = keyCandidates.find(([candidateKey]) => configMap.has(candidateKey))?.[0];
+      const selectedKey = keyWithConfig || keyCandidates[0]?.[0] || mall.group_key;
+      const config = (keyWithConfig && configMap.get(keyWithConfig)) || configMap.get(selectedKey);
+
+      return {
+        key: selectedKey,
+        slug: mall.slug,
+        name: mall.name,
+        city: mall.city,
+        state: mall.state,
+        country: mall.country,
+        distance: mall.distance,
+        cover_image_url: config?.image || mall.cover_image_url,
+        outlet_count: mall.outlet_count,
+        outlets_preview: mall.outlets_preview
+      };
     });
 
     const malls = allMalls
@@ -712,6 +702,7 @@ export const getMallDetail = async (req: Request, res: Response) => {
   try {
     const { mallKey } = req.params;
     const { latitude, longitude } = req.query;
+    const requestedGroupKey = extractGroupKeyFromMallKey(mallKey);
 
     const lat = latitude ? parseFloat(latitude as string) : null;
     const lng = longitude ? parseFloat(longitude as string) : null;
@@ -725,6 +716,7 @@ export const getMallDetail = async (req: Request, res: Response) => {
       .lean();
 
     const matchedOutlets: any[] = [];
+    const matchedMallKeys = new Set<string>([mallKey]);
     let mallMeta: any = null;
 
     for (const outlet of outlets as any[]) {
@@ -733,11 +725,14 @@ export const getMallDetail = async (req: Request, res: Response) => {
         continue;
       }
 
-      const mallName = extractMallName(outlet.address?.full);
+      const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
       if (!mallName) continue;
 
       const outletMallKey = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
-      if (outletMallKey !== mallKey) continue;
+      const outletGroupKey = getMallGroupKey(mallName);
+      if (outletMallKey !== mallKey && outletGroupKey !== requestedGroupKey) continue;
+
+      matchedMallKeys.add(outletMallKey);
 
       if (!mallMeta) {
         mallMeta = {
@@ -789,7 +784,12 @@ export const getMallDetail = async (req: Request, res: Response) => {
       return sendError(res, 'Mall not found', ErrorCode.RESOURCE_NOT_FOUND, STATUS_CODE_NOT_FOUND);
     }
 
-    const mallConfig = await MallQRConfig.findOne({ mall_key: mallKey }).lean();
+    const mallConfigCandidates = await MallQRConfig.find({
+      mall_key: { $in: Array.from(matchedMallKeys) }
+    }).lean();
+    const mallConfig =
+      mallConfigCandidates.find((config) => config.mall_key === mallKey) ||
+      mallConfigCandidates[0];
     if (mallConfig?.image) {
       mallMeta.cover_image_url = mallConfig.image;
     }

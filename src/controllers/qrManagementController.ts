@@ -2,54 +2,13 @@ import { Request, Response } from 'express';
 import { Outlet } from '../models/Outlet.js';
 import OutletQRConfig from '../models/OutletQRConfig.js';
 import MallQRConfig from '../models/MallQRConfig.js';
-
-const toSlug = (value?: string) => {
-    if (!value) return '';
-    return value
-        .toLowerCase()
-        .trim()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-');
-};
-
-const toTitleCase = (value?: string) => {
-    if (!value) return '';
-    return value
-        .toLowerCase()
-        .split(' ')
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ');
-};
-
-const extractMallName = (addressFull?: string) => {
-    if (!addressFull) return null;
-
-    const normalized = addressFull.replace(/\s+/g, ' ').trim();
-    const segmentPatterns = [
-        /([^,]*\b(?:mall|food\s*court)\b[^,]*)/i,
-        /([^|]*\b(?:mall|food\s*court)\b[^|]*)/i,
-        /(\b(?:mall|food\s*court)\b.*)$/i
-    ];
-
-    for (const pattern of segmentPatterns) {
-        const match = normalized.match(pattern);
-        const candidate = match?.[1]?.trim();
-        if (candidate && candidate.length >= 3) {
-            return toTitleCase(candidate);
-        }
-    }
-
-    return null;
-};
-
-const buildMallKey = (mallName: string, city?: string, state?: string) => {
-    const mallSlug = toSlug(mallName);
-    const citySlug = toSlug(city) || 'unknown-city';
-    const stateSlug = toSlug(state) || 'unknown-state';
-    return `${mallSlug}-${citySlug}-${stateSlug}`;
-};
+import {
+    buildMallKey,
+    extractGroupKeyFromMallKey,
+    extractMallName,
+    getMallGroupKey,
+    normalizeMallName
+} from '../utils/mallKeyUtils.js';
 
 /**
  * Get all approved outlets for QR management
@@ -250,22 +209,28 @@ export const getDerivedMalls = async (req: Request, res: Response) => {
             const brand = outlet.brand_id;
             if (!brand || brand.verification_status !== 'approved' || !brand.is_active) continue;
 
-            const mallName = extractMallName(outlet.address?.full);
+            const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
             if (!mallName) continue;
 
             const mallKey = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
+            const groupKey = getMallGroupKey(mallName);
 
-            if (!mallMap.has(mallKey)) {
-                mallMap.set(mallKey, {
-                    key: mallKey,
+            if (!mallMap.has(groupKey)) {
+                mallMap.set(groupKey, {
+                    key: null,
+                    group_key: groupKey,
                     name: mallName,
                     city: outlet.address?.city || null,
                     state: outlet.address?.state || null,
-                    outlet_count: 0
+                    outlet_count: 0,
+                    key_candidates: new Map([[mallKey, 1]])
                 });
+            } else {
+                const existing = mallMap.get(groupKey);
+                existing.key_candidates.set(mallKey, (existing.key_candidates.get(mallKey) || 0) + 1);
             }
 
-            mallMap.get(mallKey).outlet_count += 1;
+            mallMap.get(groupKey).outlet_count += 1;
         }
 
         let malls = Array.from(mallMap.values());
@@ -279,15 +244,28 @@ export const getDerivedMalls = async (req: Request, res: Response) => {
             );
         }
 
-        const mallKeys = malls.map((m) => m.key);
-        const configs = await MallQRConfig.find({ mall_key: { $in: mallKeys } }).lean();
+        const mallKeys = malls.flatMap((m: any) => Array.from((m.key_candidates as Map<string, number>).keys()));
+        const configs = mallKeys.length
+            ? await MallQRConfig.find({ mall_key: { $in: mallKeys } }).lean()
+            : [];
         const configMap = new Map(configs.map((config: any) => [config.mall_key, config]));
 
         const enrichedMalls = malls
-            .map((mall) => ({
-                ...mall,
-                qr_config: configMap.get(mall.key) || null
-            }))
+            .map((mall: any) => {
+                const keyCandidates = Array.from((mall.key_candidates as Map<string, number>).entries())
+                    .sort((a, b) => b[1] - a[1]);
+                const keyWithConfig = keyCandidates.find(([candidateKey]) => configMap.has(candidateKey))?.[0];
+                const selectedKey = keyWithConfig || keyCandidates[0]?.[0] || mall.group_key;
+
+                return {
+                    key: selectedKey,
+                    name: mall.name,
+                    city: mall.city,
+                    state: mall.state,
+                    outlet_count: mall.outlet_count,
+                    qr_config: (keyWithConfig && configMap.get(keyWithConfig)) || configMap.get(selectedKey) || null
+                };
+            })
             .sort((a, b) => a.name.localeCompare(b.name));
 
         const total = enrichedMalls.length;
@@ -320,6 +298,7 @@ export const getDerivedMalls = async (req: Request, res: Response) => {
 export const getMallQRConfig = async (req: Request, res: Response) => {
     try {
         const { mallKey } = req.params;
+        const requestedGroupKey = extractGroupKeyFromMallKey(mallKey);
 
         const outlets = await Outlet.find({
             approval_status: 'APPROVED',
@@ -329,14 +308,21 @@ export const getMallQRConfig = async (req: Request, res: Response) => {
             .select('name slug address brand_id')
             .lean();
 
+        const matchedMallKeys = new Set<string>([mallKey]);
+
         const mallOutlets = (outlets as any[])
             .filter((outlet) => {
                 const brand = outlet.brand_id;
                 if (!brand || brand.verification_status !== 'approved' || !brand.is_active) return false;
-                const mallName = extractMallName(outlet.address?.full);
+                const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
                 if (!mallName) return false;
                 const key = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
-                return key === mallKey;
+                const groupKey = getMallGroupKey(mallName);
+                if (key === mallKey || groupKey === requestedGroupKey) {
+                    matchedMallKeys.add(key);
+                    return true;
+                }
+                return false;
             })
             .map((outlet) => ({
                 _id: outlet._id,
@@ -353,14 +339,18 @@ export const getMallQRConfig = async (req: Request, res: Response) => {
         }
 
         const sampleOutlet = (outlets as any[]).find((outlet) => {
-            const mallName = extractMallName(outlet.address?.full);
+            const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
             if (!mallName) return false;
             const key = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
-            return key === mallKey;
+            const groupKey = getMallGroupKey(mallName);
+            return key === mallKey || groupKey === requestedGroupKey;
         }) as any;
 
-        const mallName = extractMallName(sampleOutlet?.address?.full) || 'Mall Food Court';
-        const config = await MallQRConfig.findOne({ mall_key: mallKey }).lean();
+        const mallName = normalizeMallName(extractMallName(sampleOutlet?.address?.full) || '') || 'Mall Food Court';
+        const configCandidates = await MallQRConfig.find({
+            mall_key: { $in: Array.from(matchedMallKeys) }
+        }).lean();
+        const config = configCandidates.find((candidate) => candidate.mall_key === mallKey) || configCandidates[0] || null;
 
         return res.json({
             success: true,
@@ -493,6 +483,8 @@ export const updateMallQRConfig = async (req: Request, res: Response) => {
 };
 
 const getMallMetaByKey = async (mallKey: string): Promise<{ mallName: string; city?: string; state?: string } | null> => {
+    const requestedGroupKey = extractGroupKeyFromMallKey(mallKey);
+
     const outlets = await Outlet.find({
         approval_status: 'APPROVED',
         status: 'ACTIVE'
@@ -504,10 +496,11 @@ const getMallMetaByKey = async (mallKey: string): Promise<{ mallName: string; ci
     for (const outlet of outlets as any[]) {
         const brand = outlet.brand_id;
         if (!brand || brand.verification_status !== 'approved' || !brand.is_active) continue;
-        const mallName = extractMallName(outlet.address?.full);
+        const mallName = normalizeMallName(extractMallName(outlet.address?.full) || '');
         if (!mallName) continue;
         const key = buildMallKey(mallName, outlet.address?.city, outlet.address?.state);
-        if (key === mallKey) {
+        const groupKey = getMallGroupKey(mallName);
+        if (key === mallKey || groupKey === requestedGroupKey) {
             return {
                 mallName,
                 city: outlet.address?.city,
