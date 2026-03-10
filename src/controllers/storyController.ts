@@ -39,12 +39,7 @@ const validateStoryPinning = async (outlet: any): Promise<void> => {
     }
 };
 
-const unpinOtherStories = async (outletId: string, excludeStoryId?: mongoose.Types.ObjectId): Promise<void> => {
-    await Story.updateMany(
-        { outletId, _id: { $ne: excludeStoryId || null } },
-        { $set: { pinned: false } }
-    );
-};
+
 
 // Constants
 const MAX_STORIES_PER_DAY = 10;
@@ -61,20 +56,23 @@ const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> 
     if (user.activeRole?.role === 'admin') return true;
 
     // Check if user has access to this outlet in their roles
-    const hasAccess = user.roles.some((r: any) => {
+    // Guard: user.roles may be undefined for older accounts
+    const roles: any[] = Array.isArray(user.roles) ? user.roles : [];
+    const hasAccess = roles.some((r: any) => {
         if (r.role === 'admin') return true;
         if (r.scope === 'outlet' && r.outletId?.toString() === outletId) return true;
-        // If scope is brand, we'd need to check if outlet belongs to brand, but for now strict outlet check
-        // Ideally we fetch outlet and check brand ownership too if scope is brand
         return false;
     });
 
     // Also check if they are the owner of the outlet (created_by) or in managers list
     if (!hasAccess) {
         const outlet = await Outlet.findById(outletId);
-        if (outlet && (outlet.created_by_user_id.toString() === user.id ||
-            outlet.managers?.some(m => m.user_id.toString() === user.id))) {
-            return true;
+        if (outlet) {
+            // Guard: created_by_user_id may be null for older outlets
+            const ownerId = outlet.created_by_user_id?.toString();
+            const isOwner = ownerId && ownerId === user.id;
+            const isManager = outlet.managers?.some((m: any) => m.user_id?.toString() === user.id);
+            if (isOwner || isManager) return true;
         }
         return false;
     }
@@ -184,12 +182,6 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             if (!hasFeature(subscription.plan, SUBSCRIPTION_FEATURES.STORY_PINNING)) {
                 return sendError(res, 'Story pinning is a premium feature. Upgrade your subscription to pin stories.', 403);
             }
-
-            // If pinning this story, unpin all other stories for this outlet
-            await Story.updateMany(
-                { outletId: actualOutletId, _id: { $ne: null } },
-                { $set: { pinned: false } }
-            );
         }
 
         // 4. Create Story
@@ -397,10 +389,37 @@ export const getOutletStories = async (req: Request, res: Response) => {
                     select: 'name verification_status'
                 }
             })
-            .sort({ created_at: 1 }); // Oldest first (chronological order usually)
+            .sort({ created_at: 1 }) // Oldest first (chronological order usually)
+            .lean();
 
         return sendSuccess(res, stories);
     } catch (error: any) {
+        return sendError(res, error.message);
+    }
+};
+
+export const getAdminOutletStories = async (req: AuthRequest, res: Response) => {
+    try {
+        const { outletId: idOrSlug } = req.params;
+
+        const outlet = await outletService.getOutletById(idOrSlug);
+        if (!outlet) {
+            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
+        }
+        const actualOutletId = outlet._id;
+
+        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
+            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
+        }
+
+        const stories = await Story.find({ outletId: actualOutletId })
+            .populate('outletId', 'name slug media.cover_image_url location address status approval_status')
+            .sort({ created_at: -1 })
+            .lean();
+
+        return sendSuccess(res, stories);
+    } catch (error: any) {
+        console.error('[getAdminOutletStories] ERROR:', error?.message, error?.stack);
         return sendError(res, error.message);
     }
 };
@@ -448,13 +467,26 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
-        if (status) story.status = status;
+        if (status) {
+            story.status = status;
+
+            // If archiving the story, immediately free up S3 storage
+            if (status === 'archived') {
+                const mediaKeys = story.slides
+                    .map((slide: any) => slide.mediaUrl)
+                    .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
+
+                if (mediaKeys.length > 0) {
+                    const s3 = getS3Service();
+                    await s3.deleteMultipleFiles(mediaKeys);
+                }
+            }
+        }
 
         if (typeof pinned === 'boolean' && pinned) {
             try {
                 const outlet = await Outlet.findById(story.outletId);
                 await validateStoryPinning(outlet);
-                await unpinOtherStories(story.outletId.toString(), story._id);
                 story.pinned = true;
             } catch (error: any) {
                 return sendError(res, error.message, STATUS_CODE_FORBIDDEN);
