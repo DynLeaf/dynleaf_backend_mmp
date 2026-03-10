@@ -411,7 +411,7 @@ export const getAdminOutletStories = async (req: AuthRequest, res: Response) => 
         }
         const actualOutletId = outlet._id;
 
-        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
+        if (!req.user || !await checkOutletAccess(req.user, String(actualOutletId))) {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
@@ -435,7 +435,7 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
         const story = await Story.findById(storyId);
         if (!story) return sendError(res, 'Story not found', STATUS_CODE_NOT_FOUND);
 
-        if (!req.user || !await checkOutletAccess(req.user, story.outletId.toString())) {
+        if (!req.user || !await checkOutletAccess(req.user, String(story.outletId))) {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
@@ -481,7 +481,7 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
         const story = await Story.findById(storyId);
         if (!story) return sendError(res, 'Story not found', STATUS_CODE_NOT_FOUND);
 
-        if (!req.user || !await checkOutletAccess(req.user, story.outletId.toString())) {
+        if (!req.user || !await checkOutletAccess(req.user, String(story.outletId))) {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
@@ -577,7 +577,7 @@ export const getStoryAnalytics = async (req: AuthRequest, res: Response) => {
         }
         const actualOutletId = outlet._id;
 
-        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
+        if (!req.user || !await checkOutletAccess(req.user, String(actualOutletId))) {
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
