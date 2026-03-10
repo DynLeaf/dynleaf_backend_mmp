@@ -11,6 +11,7 @@ import { AuthRequest } from '../middleware/authMiddleware.js';
 
 import { SUBSCRIPTION_FEATURES, hasFeature } from '../config/subscriptionPlans.js';
 import * as outletService from '../services/outletService.js';
+import fs from 'fs';
 
 const normalizePoint = (value: any): { x: number; y: number } | undefined => {
     if (!value || typeof value !== 'object') return undefined;
@@ -55,29 +56,36 @@ const STATUS_CODE_NOT_FOUND = 404;
 const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> => {
     if (user.activeRole?.role === 'admin') return true;
 
-    // Check if user has access to this outlet in their roles
     // Guard: user.roles may be undefined for older accounts
     const roles: any[] = Array.isArray(user.roles) ? user.roles : [];
-    const hasAccess = roles.some((r: any) => {
-        if (r.role === 'admin') return true;
-        if (r.scope === 'outlet' && r.outletId?.toString() === outletId) return true;
+
+    // 1. Check direct outlet-scope or admin role
+    const hasDirectAccess = roles.some((r: any) => {
+        if (r?.role === 'admin') return true;
+        if (r?.scope === 'outlet' && r?.outletId?.toString() === outletId) return true;
         return false;
     });
+    if (hasDirectAccess) return true;
 
-    // Also check if they are the owner of the outlet (created_by) or in managers list
-    if (!hasAccess) {
-        const outlet = await Outlet.findById(outletId);
-        if (outlet) {
-            // Guard: created_by_user_id may be null for older outlets
-            const ownerId = outlet.created_by_user_id?.toString();
-            const isOwner = ownerId && ownerId === user.id;
-            const isManager = outlet.managers?.some((m: any) => m.user_id?.toString() === user.id);
-            if (isOwner || isManager) return true;
-        }
-        return false;
+    // Fetch outlet once for the remaining checks
+    const outlet = await Outlet.findById(outletId);
+    if (!outlet) return false;
+
+    // 2. Check brand-scope access: user's brand role matches this outlet's brand_id
+    const outletBrandId = outlet.brand_id?.toString();
+    if (outletBrandId) {
+        const hasBrandAccess = roles.some((r: any) =>
+            r?.scope === 'brand' && r?.brandId?.toString() === outletBrandId
+        );
+        if (hasBrandAccess) return true;
     }
 
-    return hasAccess;
+    // 3. Check if they are the creator or a manager of the outlet
+    const ownerId = outlet.created_by_user_id?.toString();
+    if (ownerId && ownerId === user.id) return true;
+    if (outlet.managers?.some((m: any) => m?.user_id?.toString() === user.id)) return true;
+
+    return false;
 };
 
 // --- Controllers ---
@@ -90,13 +98,30 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             return sendError(res, 'Missing required fields (outletId, slides, category)', STATUS_CODE_BAD_REQUEST);
         }
 
-        const outlet = await outletService.getOutletById(idOrSlug);
+        let outlet: any;
+        try {
+            outlet = await outletService.getOutletById(idOrSlug);
+        } catch (getOutletErr: any) {
+            const msg = `getOutletById failed: ${getOutletErr?.message}`;
+            fs.appendFileSync('debug-500.txt', `\n[createStory:getOutletById] ERROR: ${getOutletErr?.stack}\n`);
+            return sendError(res, msg, 500);
+        }
+
         if (!outlet) {
             return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
         }
-        const actualOutletId = outlet._id.toString();
+        const actualOutletId = outlet._id;
 
-        if (!req.user || !await checkOutletAccess(req.user, actualOutletId)) {
+        let accessOk = false;
+        try {
+            accessOk = !req.user || !await checkOutletAccess(req.user, String(actualOutletId));
+        } catch (accessErr: any) {
+            const msg = `checkOutletAccess failed: ${accessErr?.message}`;
+            fs.appendFileSync('debug-500.txt', `\n[createStory:checkOutletAccess] ERROR: ${accessErr?.stack}\n`);
+            return sendError(res, msg, 500);
+        }
+
+        if (accessOk) {
             return sendError(res, 'Unauthorized to create story for this outlet', STATUS_CODE_FORBIDDEN);
         }
 
@@ -111,6 +136,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             return sendError(res, `Daily story limit reached (${MAX_STORIES_PER_DAY})`, STATUS_CODE_BAD_REQUEST);
         }
         const processedSlides = await Promise.all(slides.map(async (slide: any, index: number) => {
+            if (!slide) return null;
             let mediaUrl = slide.mediaUrl;
             if (mediaUrl && mediaUrl.startsWith('data:')) {
                 const s3Service = getS3Service();
@@ -163,6 +189,8 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             };
         }));
 
+        const validSlides = processedSlides.filter(s => s !== null);
+
         // 3.5. Check subscription for pinning feature
         if (pinned) {
             if (!outlet?.subscription_id) {
@@ -191,7 +219,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
         const story = await Story.create({
             outletId: actualOutletId,
-            slides: processedSlides,
+            slides: validSlides,
             category,
             status: 'live', // Auto-publish for now, or use 'draft' if requested
             pinned: pinned || false,
@@ -208,7 +236,9 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
         return sendSuccess(res, story, 'Story created successfully', 201);
     } catch (error: any) {
-        return sendError(res, error.message);
+        const msg = error?.message || 'Internal server error';
+        fs.appendFileSync('debug-500.txt', `\n[createStory] ERROR: ${error?.stack}\n`);
+        return sendError(res, msg);
     }
 };
 
@@ -401,26 +431,53 @@ export const getOutletStories = async (req: Request, res: Response) => {
 export const getAdminOutletStories = async (req: AuthRequest, res: Response) => {
     try {
         const { outletId: idOrSlug } = req.params;
+        console.error('[getAdminOutletStories] START - idOrSlug:', idOrSlug);
 
-        const outlet = await outletService.getOutletById(idOrSlug);
+        let outlet: any;
+        try {
+            outlet = await outletService.getOutletById(idOrSlug);
+        } catch (getOutletErr: any) {
+            console.error('[getAdminOutletStories] CRASH in getOutletById:', getOutletErr?.stack);
+            return sendError(res, getOutletErr?.message || 'getOutletById failed', 500);
+        }
+
         if (!outlet) {
+            console.error('[getAdminOutletStories] Outlet not found for:', idOrSlug);
             return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
         }
         const actualOutletId = outlet._id;
+        console.error('[getAdminOutletStories] Outlet found:', String(actualOutletId));
 
-        if (!req.user || !await checkOutletAccess(req.user, String(actualOutletId))) {
+        let hasAccess = false;
+        try {
+            hasAccess = await checkOutletAccess(req.user!, String(actualOutletId));
+        } catch (accessErr: any) {
+            console.error('[getAdminOutletStories] CRASH in checkOutletAccess:', accessErr?.stack);
+            return sendError(res, accessErr?.message || 'checkOutletAccess failed', 500);
+        }
+
+        if (!req.user || !hasAccess) {
+            console.error('[getAdminOutletStories] Unauthorized - user:', req.user?.id, 'hasAccess:', hasAccess);
             return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
         }
 
-        const stories = await Story.find({ outletId: actualOutletId })
-            .populate('outletId', 'name slug media.cover_image_url location address status approval_status')
-            .sort({ created_at: -1 })
-            .lean();
+        let stories: any[];
+        try {
+            stories = await Story.find({ outletId: actualOutletId })
+                .populate('outletId', 'name slug media.cover_image_url location address status approval_status')
+                .sort({ created_at: -1 })
+                .lean();
+        } catch (findErr: any) {
+            console.error('[getAdminOutletStories] CRASH in Story.find:', findErr?.stack);
+            return sendError(res, findErr?.message || 'Story.find failed', 500);
+        }
 
+        console.error('[getAdminOutletStories] SUCCESS - stories count:', stories.length);
         return sendSuccess(res, stories);
     } catch (error: any) {
-        console.error('[getAdminOutletStories] ERROR:', error?.message, error?.stack);
-        return sendError(res, error.message);
+        const msg = error?.message || 'Internal server error';
+        console.error('[getAdminOutletStories] UNHANDLED ERROR:', error?.stack);
+        return sendError(res, msg);
     }
 };
 
@@ -442,7 +499,7 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
             // If archiving the story, immediately free up S3 storage
             if (status === 'archived') {
                 const mediaKeys = story.slides
-                    .map((slide: any) => slide.mediaUrl)
+                    .map((slide: any) => slide?.mediaUrl)
                     .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
 
                 if (mediaKeys.length > 0) {
@@ -484,8 +541,8 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
 
         // Collect S3 keys from story slides (stored as S3 keys, not full URLs)
         const mediaKeys = story.slides
-            .map(slide => slide.mediaUrl)
-            .filter((url): url is string => Boolean(url) && !url.startsWith('http'));
+            .map((slide: any) => slide?.mediaUrl)
+            .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
 
         await Story.deleteOne({ _id: storyId });
         await StoryMetrics.deleteOne({ storyId: storyId });
