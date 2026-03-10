@@ -59,8 +59,8 @@ const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> 
     // Guard: user.roles may be undefined for older accounts
     const roles: any[] = Array.isArray(user.roles) ? user.roles : [];
     const hasAccess = roles.some((r: any) => {
-        if (r.role === 'admin') return true;
-        if (r.scope === 'outlet' && r.outletId?.toString() === outletId) return true;
+        if (r?.role === 'admin') return true;
+        if (r?.scope === 'outlet' && r?.outletId?.toString() === outletId) return true;
         return false;
     });
 
@@ -71,7 +71,7 @@ const checkOutletAccess = async (user: any, outletId: string): Promise<boolean> 
             // Guard: created_by_user_id may be null for older outlets
             const ownerId = outlet.created_by_user_id?.toString();
             const isOwner = ownerId && ownerId === user.id;
-            const isManager = outlet.managers?.some((m: any) => m.user_id?.toString() === user.id);
+            const isManager = outlet.managers?.some((m: any) => m?.user_id?.toString() === user.id);
             if (isOwner || isManager) return true;
         }
         return false;
@@ -111,6 +111,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             return sendError(res, `Daily story limit reached (${MAX_STORIES_PER_DAY})`, STATUS_CODE_BAD_REQUEST);
         }
         const processedSlides = await Promise.all(slides.map(async (slide: any, index: number) => {
+            if (!slide) return null;
             let mediaUrl = slide.mediaUrl;
             if (mediaUrl && mediaUrl.startsWith('data:')) {
                 const s3Service = getS3Service();
@@ -163,6 +164,8 @@ export const createStory = async (req: AuthRequest, res: Response) => {
             };
         }));
 
+        const validSlides = processedSlides.filter(s => s !== null);
+
         // 3.5. Check subscription for pinning feature
         if (pinned) {
             if (!outlet?.subscription_id) {
@@ -191,7 +194,7 @@ export const createStory = async (req: AuthRequest, res: Response) => {
 
         const story = await Story.create({
             outletId: actualOutletId,
-            slides: processedSlides,
+            slides: validSlides,
             category,
             status: 'live', // Auto-publish for now, or use 'draft' if requested
             pinned: pinned || false,
@@ -442,7 +445,7 @@ export const updateStoryStatus = async (req: AuthRequest, res: Response) => {
             // If archiving the story, immediately free up S3 storage
             if (status === 'archived') {
                 const mediaKeys = story.slides
-                    .map((slide: any) => slide.mediaUrl)
+                    .map((slide: any) => slide?.mediaUrl)
                     .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
 
                 if (mediaKeys.length > 0) {
@@ -484,8 +487,8 @@ export const deleteStory = async (req: AuthRequest, res: Response) => {
 
         // Collect S3 keys from story slides (stored as S3 keys, not full URLs)
         const mediaKeys = story.slides
-            .map(slide => slide.mediaUrl)
-            .filter((url): url is string => Boolean(url) && !url.startsWith('http'));
+            .map((slide: any) => slide?.mediaUrl)
+            .filter((url: string): url is string => Boolean(url) && !url.startsWith('http'));
 
         await Story.deleteOne({ _id: storyId });
         await StoryMetrics.deleteOne({ storyId: storyId });
