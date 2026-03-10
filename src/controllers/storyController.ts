@@ -413,32 +413,6 @@ export const getAdminOutletStories = async (req: AuthRequest, res: Response) => 
         }
 
         const stories = await Story.find({ outletId: actualOutletId })
-            .populate('outletId', 'name slug media.cover_image_url location address status approval_status')
-            .sort({ created_at: -1 })
-            .lean();
-
-        return sendSuccess(res, stories);
-    } catch (error: any) {
-        console.error('[getAdminOutletStories] ERROR:', error?.message, error?.stack);
-        return sendError(res, error.message);
-    }
-};
-
-export const getAdminOutletStories = async (req: AuthRequest, res: Response) => {
-    try {
-        const { outletId: idOrSlug } = req.params;
-
-        const outlet = await outletService.getOutletById(idOrSlug);
-        if (!outlet) {
-            return sendError(res, 'Outlet not found', STATUS_CODE_NOT_FOUND);
-        }
-        const actualOutletId = outlet._id;
-
-        if (!req.user || !await checkOutletAccess(req.user, actualOutletId.toString())) {
-            return sendError(res, 'Unauthorized', STATUS_CODE_FORBIDDEN);
-        }
-
-        const stories = await Story.find({ outletId: actualOutletId })
             .populate({
                 path: 'outletId',
                 select: 'name slug media.cover_image_url location address status approval_status brand_id',
