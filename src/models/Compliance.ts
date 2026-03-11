@@ -1,5 +1,11 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+const emptyToUndefined = (value: string | undefined | null): string | undefined => {
+    if (value === null || value === undefined) return undefined;
+    const normalized = String(value).trim();
+    return normalized ? normalized : undefined;
+};
+
 export interface ICompliance extends Document {
     outlet_id: mongoose.Types.ObjectId;
     fssai_number?: string;
@@ -17,6 +23,7 @@ const complianceSchema = new Schema<ICompliance>({
     fssai_number: { 
         type: String, 
         trim: true,
+        set: emptyToUndefined,
         validate: {
             validator: function(v: string) {
                 return !v || /^[0-9]{14}$/.test(v);
@@ -28,6 +35,7 @@ const complianceSchema = new Schema<ICompliance>({
         type: String, 
         uppercase: true,
         trim: true,
+        set: emptyToUndefined,
         validate: {
             validator: function(v: string) {
                 return !v || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(v);

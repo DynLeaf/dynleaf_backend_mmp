@@ -195,8 +195,8 @@ export const submitOnboarding = async (req: AuthRequest, res: Response) => {
             try {
                 const complianceDoc = await Compliance.create({
                     outlet_id: newOutlet._id,
-                    fssai_number: compliance.fssai?.trim(),
-                    gst_number: compliance.gstNo?.trim()?.toUpperCase(),
+                    fssai_number: compliance.fssai?.trim() || undefined,
+                    gst_number: compliance.gstNo?.trim()?.toUpperCase() || undefined,
                     gst_percentage: compliance.gstPercent ? parseFloat(compliance.gstPercent) : undefined,
                     is_verified: false
                 });
