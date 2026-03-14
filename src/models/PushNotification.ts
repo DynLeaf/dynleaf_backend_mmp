@@ -281,7 +281,6 @@ const pushNotificationSchema = new Schema<IPushNotificationDocument>(
 pushNotificationSchema.index({ created_by: 1, created_at: -1 });
 pushNotificationSchema.index({ status: 1, created_at: -1 });
 pushNotificationSchema.index({ notification_type: 1 });
-pushNotificationSchema.index({ campaign_id: 1 });
 pushNotificationSchema.index({ tags: 1 });
 pushNotificationSchema.index({ 'scheduling.scheduled_at': 1 });
 pushNotificationSchema.index({ status: 1, 'scheduling.scheduled_at': 1 }); // For scheduler jobs

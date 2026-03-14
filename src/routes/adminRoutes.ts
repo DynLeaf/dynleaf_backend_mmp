@@ -1779,4 +1779,53 @@ router.get('/categories-without-images', adminAuth, async (req: AuthRequest, res
   }
 });
 
+// ─── Staff Module: Sales Management (admin panel view) ───────────────────────
+// These endpoints expose staff-module data to the main admin panel
+// using the existing admin (cookie) auth, so the main admin SPA can access them.
+import { adminDashboardService } from '../modules/staff/services/dashboard.service.js';
+import { staffUserService } from '../modules/staff/services/staffUser.service.js';
+
+router.get('/staff/sales-tracking', adminAuth, async (_req, res) => {
+  try {
+    const data = await adminDashboardService.getSalesTracking();
+    return sendSuccess(res, data);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+router.get('/staff/crafter-tracking', adminAuth, async (_req, res) => {
+  try {
+    const data = await adminDashboardService.getCrafterTracking();
+    return sendSuccess(res, data);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// List all staff users (for admin panel)
+router.get('/staff/users', adminAuth, async (req, res) => {
+  try {
+    const { role, status } = req.query as any;
+    const users = await staffUserService.getAll({ role, status });
+    return sendSuccess(res, users);
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// Create a staff user directly from the main admin panel
+router.post('/staff/users', adminAuth, async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ status: false, error: 'name, email, password and role are required' });
+    }
+    const user = await staffUserService.create({ name, email, password, role });
+    return res.status(201).json({ status: true, data: user, message: 'Staff user created' });
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
 export default router;

@@ -50,7 +50,6 @@ const MallQRConfigSchema = new Schema<IMallQRConfig>(
     }
 );
 
-MallQRConfigSchema.index({ mall_key: 1 });
 MallQRConfigSchema.index({ last_generated_at: -1 });
 
 const MallQRConfig = mongoose.model<IMallQRConfig>(
