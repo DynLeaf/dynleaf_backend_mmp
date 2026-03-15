@@ -8,7 +8,7 @@ import { Offer } from '../models/Offer.js';
 import { Outlet } from '../models/Outlet.js';
 import { AuthRequest } from '../middleware/authMiddleware.js';
 
-import { sendSuccess, sendError, sendAuthError, sendNotFoundError } from '../utils/response.js';
+import { sendSuccess, sendError, sendAuthError, sendNotFoundError, sendValidationError } from '../utils/response.js';
 import { getS3Service } from '../services/s3Service.js';
 
 // Constants
@@ -191,14 +191,29 @@ export const updateUserProfile = async (req: AuthRequest, res: Response) => {
             return sendAuthError(res, 'INVALID_CREDENTIALS', ERROR_MESSAGES.UNAUTHORIZED);
         }
 
-        const { full_name, email, bio } = req.body;
+        const { full_name, email, phone, bio } = req.body;
         const avatar_url = extractAvatarUrl(req.body);
 
         const updateData: any = {};
 
         if (full_name !== undefined) updateData.full_name = full_name;
-        if (email !== undefined) updateData.email = email;
         if (bio !== undefined) updateData.bio = bio;
+
+        if (email !== undefined && email !== "") {
+            const existingEmail = await User.findOne({ email, _id: { $ne: userId } });
+            if (existingEmail) {
+                return sendValidationError(res, { email: 'Email is already in use by another account.' });
+            }
+            updateData.email = email;
+        }
+
+        if (phone !== undefined && phone !== "") {
+            const existingPhone = await User.findOne({ phone, _id: { $ne: userId } });
+            if (existingPhone) {
+                return sendValidationError(res, { phone: 'Mobile number is already in use by another account.' });
+            }
+            updateData.phone = phone;
+        }
 
         if (typeof avatar_url === 'string') {
             // Handle different avatar input types:
