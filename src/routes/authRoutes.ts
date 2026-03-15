@@ -9,7 +9,8 @@ import {
     getSessions,
     deleteSession,
     adminLogin,
-    adminLogout
+    adminLogout,
+    exchangeGoogleCode
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { otpSendLimiter, otpVerifyLimiter } from '../middleware/rateLimiter.js';
@@ -19,6 +20,9 @@ const router = express.Router();
 router.post('/otp/send', otpSendLimiter, sendOtp);
 router.post('/otp/verify', otpVerifyLimiter, verifyOtp);
 router.post('/refresh', refreshToken);
+
+// Google OAuth 2.0 — code exchange (no Firebase)
+router.post('/google/exchange', exchangeGoogleCode);
 
 router.post('/logout', authenticate, logout);
 router.get('/me', authenticate, getCurrentUser);

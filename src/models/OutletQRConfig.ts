@@ -38,7 +38,6 @@ const OutletQRConfigSchema = new Schema<IOutletQRConfig>(
 );
 
 // Indexes for efficient queries
-OutletQRConfigSchema.index({ outlet_id: 1 });
 OutletQRConfigSchema.index({ last_generated_at: -1 });
 
 const OutletQRConfig = mongoose.model<IOutletQRConfig>(

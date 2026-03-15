@@ -4,7 +4,7 @@ export interface IUser extends Document {
     username?: string;
     full_name?: string;
     email?: string;
-    phone: string;
+    phone?: string;
     password_hash?: string;
     google_id?: string;
     avatar_url?: string;
@@ -62,8 +62,8 @@ export interface IUser extends Document {
 const userSchema = new Schema<IUser>({
     username: { type: String, unique: true, sparse: true },
     full_name: { type: String },
-    email: { type: String, sparse: true },
-    phone: { type: String, unique: true, required: true },
+    email: { type: String, unique: true, sparse: true },
+    phone: { type: String, unique: true, sparse: true },
     password_hash: { type: String },
     google_id: { type: String, unique: true, sparse: true },
     avatar_url: { type: String },

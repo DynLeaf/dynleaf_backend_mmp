@@ -78,7 +78,6 @@ const adminSchema = new Schema<IAdmin>({
 });
 
 // Indexes
-adminSchema.index({ email: 1 });
 adminSchema.index({ is_active: 1 });
 adminSchema.index({ role: 1 });
 

@@ -29,6 +29,7 @@ import geminiRoutes from './routes/geminiRoutes.js';
 import followRoutes from './routes/followRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
 import socialShareRoutes, { restaurantShareRouter } from './routes/socialShareRoutes.js';
+import staffModuleRouter from './modules/staff/index.js';
 import './config/firebaseAdmin.js';
 import logger from './middleware/logger.js';
 import s3ResponseEnricher from './middleware/s3ResponseEnricher.js';
@@ -44,15 +45,21 @@ app.use(cors({
         // Allow requests with no origin (like mobile apps, Postman, curl)
         if (!origin) return callback(null, true);
 
-        const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS?.split(',').filter(Boolean) || [];
+        const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+            .split(',')
+            .map(o => o.trim())
+            .filter(Boolean);
 
         // Allow any origin from local network (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
         const localNetworkPattern = /^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
 
-        if (allowedOrigins.includes(origin) || localNetworkPattern.test(origin)) {
+        const isAllowed = allowedOrigins.includes(origin) || localNetworkPattern.test(origin);
+        
+        if (isAllowed) {
             callback(null, true);
         } else {
-            callback(new Error('Not allowed by CORS'), false);
+            console.error(`🚫 [CORS_BLOCKED] Origin "${origin}" not in allowed list:`, allowedOrigins);
+            callback(new Error(`CORS Error: Origin "${origin}" not allowed`), false);
         }
     },
     credentials: true
@@ -125,6 +132,9 @@ app.use('/v1/social-share', socialShareRoutes);
 app.get('/v1/promotions/featured', promotionController.getFeaturedPromotions);
 app.post('/v1/promotions/:id/impression', promotionController.trackImpression);
 app.post('/v1/promotions/:id/click', promotionController.trackClick);
+
+// Staff portal module (isolated)
+app.use('/v1/staff', staffModuleRouter);
 
 // Global error handler (should be after routes)
 app.use(errorHandler);
