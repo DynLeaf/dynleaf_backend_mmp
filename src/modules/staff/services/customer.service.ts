@@ -81,7 +81,7 @@ export const customerService = {
     const { data, total } = await customerRepository.findPaginated({
       salespersonId: opts.salespersonId,
       search: opts.search,
-      status: opts.status as CustomerStatus | 'all',
+      tab: opts.status as 'all' | 'followup' | 'missed' | 'converted' | 'cancelled' | undefined,
       sortBy: opts.sortBy,
       sortOrder: opts.sortOrder as 'asc' | 'desc',
       page,
