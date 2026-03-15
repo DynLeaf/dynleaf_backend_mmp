@@ -63,7 +63,7 @@ const userSchema = new Schema<IUser>({
     username: { type: String, unique: true, sparse: true },
     full_name: { type: String },
     email: { type: String, sparse: true },
-    phone: { type: String, unique: true, required: true },
+    phone: { type: String, unique: true, sparse: true },
     password_hash: { type: String },
     google_id: { type: String, unique: true, sparse: true },
     avatar_url: { type: String },

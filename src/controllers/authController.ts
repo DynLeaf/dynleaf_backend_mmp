@@ -12,6 +12,7 @@ import { sendSuccess, sendError } from "../utils/response.js";
 import { Admin } from "../models/Admin.js";
 import jwt from "jsonwebtoken";
 import { createAdminNotification } from "../services/adminNotificationService.js";
+import axios from "axios";
 
 interface AuthRequest extends Request {
   user?: any;
@@ -661,6 +662,180 @@ export const adminLogin = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Admin login error:", error);
     return sendError(res, error.message);
+  }
+};
+
+/**
+ * Pure Google OAuth 2.0 — Authorization Code Exchange
+ * Frontend sends the `code` it received from Google's redirect.
+ * Backend exchanges it for tokens, fetches the user profile, and issues a session.
+ */
+export const exchangeGoogleCode = async (req: Request, res: Response) => {
+  try {
+    const { code, redirect_uri } = req.body;
+
+    if (!code || typeof code !== "string") {
+      return sendError(res, "Authorization code is required", null, 400);
+    }
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+    if (!clientId || !clientSecret) {
+      console.error("[GoogleOAuth] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured");
+      return sendError(res, "Google OAuth is not configured on the server", null, 500);
+    }
+
+    // 1. Exchange authorization code for access token
+
+    const effectiveRedirectUri = redirect_uri || process.env.GOOGLE_REDIRECT_URI || "";
+    console.log("[GoogleOAuth] Exchanging code. redirect_uri being sent:", effectiveRedirectUri);
+    let accessTokenData: any;
+    try {
+      const tokenResponse = await axios.post(
+        "https://oauth2.googleapis.com/token",
+        new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: effectiveRedirectUri,
+          grant_type: "authorization_code",
+        }),
+        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      );
+      accessTokenData = tokenResponse.data;
+    } catch (tokenError: any) {
+      const googleErr = tokenError.response?.data;
+      console.error("[GoogleOAuth] Token exchange failed:", googleErr || tokenError.message);
+      const detail = googleErr?.error_description || googleErr?.error || tokenError.message || "unknown";
+      return sendError(res, `Failed to exchange Google authorization code: ${detail}`, null, 401);
+    }
+
+    // 2. Fetch user profile using the access token
+    let googleProfile: { sub: string; email?: string; name?: string; picture?: string };
+    try {
+      const profileResponse = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
+        headers: { Authorization: `Bearer ${accessTokenData.access_token}` },
+      });
+      googleProfile = profileResponse.data;
+    } catch (profileError: any) {
+      console.error("[GoogleOAuth] Userinfo fetch failed:", profileError.message);
+      return sendError(res, "Failed to fetch Google user profile", null, 401);
+    }
+
+    const googleId = googleProfile.sub; // Google's stable user ID
+
+    // 3. Find or create user — google_id first, fallback to email for account linking
+    let user = await User.findOne({ google_id: googleId });
+    let isNewUser = false;
+
+    if (!user && googleProfile.email) {
+      user = await User.findOne({ email: googleProfile.email });
+      if (user) {
+        // Link this Google account to the existing phone/OTP user
+        user.google_id = googleId;
+        if (!user.avatar_url && googleProfile.picture) user.avatar_url = googleProfile.picture;
+        if (!user.full_name && googleProfile.name) user.full_name = googleProfile.name;
+        await user.save();
+        console.info(`[GoogleOAuth] Linked google_id to existing user ${user._id}`);
+      }
+    }
+
+    if (!user) {
+      isNewUser = true;
+      user = await User.create({
+        google_id: googleId,
+        email: googleProfile.email,
+        full_name: googleProfile.name,
+        avatar_url: googleProfile.picture,
+        roles: [{ scope: "platform", role: "customer", assignedAt: new Date() }],
+        is_verified: true,
+        is_active: true,
+        currentStep: "BRAND",
+      });
+
+      createAdminNotification({
+        title: "New User Joined",
+        message: `A new user registered via Google${googleProfile.email ? ` (${googleProfile.email})` : ""}.`,
+        type: "user",
+        referenceId: user._id.toString(),
+      });
+    }
+
+    // 4. Gate checks
+    if (user.is_suspended) {
+      return sendError(res, "Account suspended", { reason: user.suspension_reason }, 403);
+    }
+    const lockCheck = checkAccountLock(user.locked_until);
+    if (lockCheck.isLocked) {
+      return sendError(res, "Account temporarily locked", { locked_until: lockCheck.locked_until }, 403);
+    }
+
+    // 5. Create session — same pipeline as OTP login
+    const deviceInfo = (req.body.deviceInfo as any) || {};
+    const initialRefreshToken = tokenService.generateRefreshToken(user._id.toString(), "", 1);
+
+    const session = await sessionService.createSession(user._id.toString(), initialRefreshToken, {
+      device_id: deviceInfo.deviceId || `google-oauth-${Date.now()}`,
+      device_name: deviceInfo.deviceName || "Google Sign-In",
+      device_type: deviceInfo.deviceType || "web",
+      os: deviceInfo.os || "unknown",
+      browser: deviceInfo.browser || "unknown",
+      ip_address: req.ip || req.socket.remoteAddress || "unknown",
+    });
+
+    const newAccessToken = tokenService.generateAccessToken(user, session._id.toString(), undefined);
+    const newRefreshToken = tokenService.generateRefreshToken(user._id.toString(), session._id.toString(), 1);
+
+    await sessionService.rotateRefreshToken(session._id.toString(), newRefreshToken);
+
+    updateLoginMetadata(user, req, deviceInfo);
+    await user.save();
+
+    // 6. Business role enrichment
+    const brands = await Brand.find({ admin_user_id: user._id });
+    const outlets = await outletService.getUserOutletsList(user._id.toString());
+    await ensureRestaurantOwnerRole(user, outlets);
+
+    const hasCompletedOnboarding =
+      user.roles.some((r) => r.role === "restaurant_owner") &&
+      brands.length > 0 &&
+      user.currentStep === "DONE";
+
+    // 7. Set auth cookies — identical to OTP flow
+    setAuthCookies(res, newAccessToken, newRefreshToken, {
+      source: "googleOAuth",
+      userId: user._id.toString(),
+      roleCount: user.roles?.length || 0,
+    });
+
+    return sendSuccess(res, {
+      user: {
+        id: user._id,
+        phone: user.phone,
+        email: user.email,
+        username: user.username,
+        avatar_url: user.avatar_url,
+        full_name: user.full_name,
+        saved_items: user.saved_items || [],
+        shared_items: user.shared_items || [],
+        engagement_summary: buildEngagementSummary(user),
+        roles: user.roles,
+        currentStep: user.currentStep,
+        hasCompletedOnboarding,
+        brands: brands.map(mapBrandToResponse),
+        outlets: outlets.map(mapOutletToResponse),
+        is_verified: user.is_verified,
+        is_active: user.is_active,
+        isNewUser,
+      },
+    });
+  } catch (error: any) {
+    console.error("[GoogleOAuth] Error:", error);
+    if (typeof error?.message === "string" && error.message.startsWith("ACCESS_TOKEN_TOO_LARGE:")) {
+      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
+    }
+    return sendError(res, error.message || "Google login failed");
   }
 };
 
