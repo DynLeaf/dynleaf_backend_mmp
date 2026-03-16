@@ -1384,7 +1384,16 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
             settings.grid_columns_mobile = 3;
         }
 
-        return sendSuccess(res, settings);
+        const payload = {
+            ...((settings as any).toObject ? (settings as any).toObject() : settings),
+            ordering_settings: outlet.ordering_settings || {
+                whatsapp_number: '',
+                enable_qr_ordering: false,
+                enable_link_ordering: false
+            }
+        };
+
+        return sendSuccess(res, payload);
     } catch (error: any) {
         console.error('getMenuSettings error:', error);
         return sendError(res, error.message);
@@ -1422,10 +1431,18 @@ export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
             })()
         };
 
+        if (req.body.ordering_settings) {
+            outlet.ordering_settings = req.body.ordering_settings;
+        }
+
         await outlet.save();
 
+        const payload = {
+            ...((outlet.menu_settings as any).toObject ? (outlet.menu_settings as any).toObject() : outlet.menu_settings),
+            ordering_settings: outlet.ordering_settings
+        };
 
-        return sendSuccess(res, outlet.menu_settings, 'Menu settings updated successfully');
+        return sendSuccess(res, payload, 'Menu settings updated successfully');
     } catch (error: any) {
         console.error('updateMenuSettings error:', error);
         return sendError(res, error.message);

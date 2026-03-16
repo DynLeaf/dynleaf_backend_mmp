@@ -98,6 +98,11 @@ export interface IOutlet extends Document {
         has_sub_menus: boolean;
         ask_submenu_on_scan: boolean;
     };
+    ordering_settings?: {
+        whatsapp_number?: string;
+        enable_qr_ordering: boolean;
+        enable_link_ordering: boolean;
+    };
 }
 
 const outletSchema = new Schema<IOutlet>({
@@ -214,6 +219,11 @@ const outletSchema = new Schema<IOutlet>({
     multi_menu_settings: {
         has_sub_menus: { type: Boolean, default: false },
         ask_submenu_on_scan: { type: Boolean, default: false }
+    },
+    ordering_settings: {
+        whatsapp_number: { type: String, trim: true },
+        enable_qr_ordering: { type: Boolean, default: false },
+        enable_link_ordering: { type: Boolean, default: false }
     }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 

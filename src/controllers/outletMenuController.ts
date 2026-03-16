@@ -328,7 +328,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
           address: outlet.address,
           contact: outlet.contact,
           is_following: isFollowing,
-          followers_count: followersCount
+          followers_count: followersCount,
+          ordering_settings: outlet.ordering_settings
         },
         menu: formattedMenu,
         combos: formattedCombos,
