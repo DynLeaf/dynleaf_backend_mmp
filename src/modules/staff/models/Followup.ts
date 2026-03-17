@@ -62,4 +62,9 @@ const followupSchema = new Schema<IFollowup>(
   { timestamps: true }
 );
 
+// Compound indexes for efficient time-based filtering
+followupSchema.index({ salespersonId: 1, followupDate: 1, status: 1 });
+followupSchema.index({ salespersonId: 1, status: 1 });
+followupSchema.index({ salespersonId: 1, followupDate: -1 });
+
 export const Followup = mongoose.model<IFollowup>('StaffFollowup', followupSchema);

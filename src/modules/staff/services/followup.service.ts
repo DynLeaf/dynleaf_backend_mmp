@@ -1,6 +1,8 @@
 import { followupRepository } from '../repositories/followup.repository.js';
 import { IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
 
+export type FollowupFilter = 'today' | 'missed' | 'upcoming' | 'all';
+
 export const followupService = {
   async getByCustomer(customerId: string): Promise<IFollowup[]> {
     return followupRepository.findByCustomer(customerId);
@@ -144,5 +146,34 @@ export const followupService = {
       limit,
     });
     return { data, pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 } };
+  },
+
+  async getFiltered(opts: {
+    salespersonId: string;
+    filter: FollowupFilter;
+    search?: string;
+    status?: string;
+    sortBy?: string;
+    sortOrder?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: IFollowup[]; pagination: { page: number; limit: number; total: number; pages: number } }> {
+    const page = Math.max(1, Number(opts.page) || 1);
+    const limit = Math.min(200, Math.max(1, Number(opts.limit) || 20));
+    const { data, total } = await followupRepository.findFiltered({
+      salespersonId: opts.salespersonId,
+      filter: opts.filter,
+      search: opts.search?.trim() || undefined,
+      status: opts.status as FollowupStatus | undefined,
+      sortBy: opts.sortBy,
+      sortOrder: opts.sortOrder as 'asc' | 'desc' | undefined,
+      page,
+      limit,
+    });
+    return { data, pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 } };
+  },
+
+  async getStats(salespersonId: string): Promise<{ today: number; missed: number; upcoming: number }> {
+    return followupRepository.getStatsBySalesperson(salespersonId);
   },
 };

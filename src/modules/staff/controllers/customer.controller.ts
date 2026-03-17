@@ -42,7 +42,12 @@ export const customerController = {
 
   async update(req: Request, res: Response) {
     try {
-      const customer = await customerService.update(req.params.id, req.body);
+      const requester = (req as any).staffUser;
+      // Pass createdBy so the service can sync the StaffFollowup on reschedule
+      const customer = await customerService.update(req.params.id, {
+        ...req.body,
+        createdBy: requester.id,
+      });
       return res.status(200).json({ status: true, data: customer });
     } catch (err: any) {
       return res.status(400).json({ status: false, error: err.message });

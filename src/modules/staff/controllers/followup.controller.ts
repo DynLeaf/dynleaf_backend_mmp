@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { followupService } from '../services/followup.service.js';
+import type { FollowupFilter } from '../services/followup.service.js';
 
 export const followupController = {
   async getByCustomer(req: Request, res: Response) {
@@ -84,6 +85,57 @@ export const followupController = {
       const { message } = req.body;
       const followup = await followupService.markDone(req.params.id, message);
       return res.status(200).json({ status: true, data: followup, message: 'Followup marked as done' });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
+  /** GET /followups?filter=today|missed|all|upcoming&search=&page=&limit=&sortBy=&sortOrder=&status= */
+  async getFiltered(req: Request, res: Response) {
+    try {
+      const { id } = (req as any).staffUser;
+      const {
+        filter = 'all',
+        search,
+        status,
+        sortBy,
+        sortOrder,
+        page,
+        limit,
+      } = req.query as Record<string, string>;
+
+      const validFilters: FollowupFilter[] = ['today', 'missed', 'upcoming', 'all'];
+      const safeFilter: FollowupFilter = validFilters.includes(filter as FollowupFilter)
+        ? (filter as FollowupFilter)
+        : 'all';
+
+      const result = await followupService.getFiltered({
+        salespersonId: id,
+        filter: safeFilter,
+        search,
+        status,
+        sortBy,
+        sortOrder,
+        page: page ? parseInt(page, 10) : 1,
+        limit: limit ? parseInt(limit, 10) : 20,
+      });
+
+      return res.status(200).json({
+        status: true,
+        data: result.data,
+        pagination: result.pagination,
+      });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
+  /** GET /followups/stats */
+  async getStats(req: Request, res: Response) {
+    try {
+      const { id } = (req as any).staffUser;
+      const stats = await followupService.getStats(id);
+      return res.status(200).json({ status: true, data: stats });
     } catch (err: any) {
       return res.status(400).json({ status: false, error: err.message });
     }
