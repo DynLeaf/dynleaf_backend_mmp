@@ -1306,6 +1306,78 @@ router.get("/users/:id", adminAuth, async (req, res) => {
   }
 });
 
+// Block a user — Super Admin only
+router.patch("/users/:id/block", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    // Only super_admin can block/unblock users
+    if (req.user?.role !== 'super_admin') {
+      return sendError(res, "Only Super Admin can block users", null, 403);
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, "Invalid user id", null, 400);
+    }
+
+    const user = await User.findById(id).select("is_active is_suspended");
+    if (!user) {
+      return sendError(res, "User not found", null, 404);
+    }
+
+    // Prevent redundant update
+    if (user.is_suspended && !user.is_active) {
+      return sendError(res, "User is already blocked", null, 400);
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      id,
+      { is_active: false, is_suspended: true, suspended_at: new Date(), suspended_by: req.user?.userId },
+      { new: true }
+    ).select("-password_hash");
+
+    return sendSuccess(res, updated, "User blocked successfully");
+  } catch (error: any) {
+    console.error("Block user error:", error);
+    return sendError(res, error.message);
+  }
+});
+
+// Unblock a user — Super Admin only
+router.patch("/users/:id/unblock", adminAuth, async (req: AuthRequest, res) => {
+  try {
+    // Only super_admin can block/unblock users
+    if (req.user?.role !== 'super_admin') {
+      return sendError(res, "Only Super Admin can unblock users", null, 403);
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, "Invalid user id", null, 400);
+    }
+
+    const user = await User.findById(id).select("is_active is_suspended");
+    if (!user) {
+      return sendError(res, "User not found", null, 404);
+    }
+
+    // Prevent redundant update
+    if (user.is_active && !user.is_suspended) {
+      return sendError(res, "User is already active", null, 400);
+    }
+
+    const updated = await User.findByIdAndUpdate(
+      id,
+      { is_active: true, is_suspended: false, $unset: { suspended_at: 1, suspended_by: 1 } },
+      { new: true }
+    ).select("-password_hash");
+
+    return sendSuccess(res, updated, "User unblocked successfully");
+  } catch (error: any) {
+    console.error("Unblock user error:", error);
+    return sendError(res, error.message);
+  }
+});
+
 // --- Content Moderation Routes ---
 
 // Get pending stories for moderation
@@ -1784,6 +1856,7 @@ router.get('/categories-without-images', adminAuth, async (req: AuthRequest, res
 // using the existing admin (cookie) auth, so the main admin SPA can access them.
 import { adminDashboardService } from '../modules/staff/services/dashboard.service.js';
 import { staffUserService } from '../modules/staff/services/staffUser.service.js';
+import { staffUserRepository } from '../modules/staff/repositories/staffUser.repository.js';
 
 router.get('/staff/sales-tracking', adminAuth, async (_req, res) => {
   try {
@@ -1815,14 +1888,63 @@ router.get('/staff/users', adminAuth, async (req, res) => {
 });
 
 // Create a staff user directly from the main admin panel
+// NOTE: Admin panel (super admin) can create admin-role staff users.
+//       We call the repository directly to bypass the staff-level role restriction.
 router.post('/staff/users', adminAuth, async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password || !role) {
       return res.status(400).json({ status: false, error: 'name, email, password and role are required' });
     }
-    const user = await staffUserService.create({ name, email, password, role });
+    const validRoles = ['salesman', 'crafter', 'admin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ status: false, error: 'Invalid role. Must be one of: salesman, crafter, admin' });
+    }
+    if (!name.trim()) return res.status(400).json({ status: false, error: 'Name is required' });
+    if (!email.trim()) return res.status(400).json({ status: false, error: 'Email is required' });
+    if (!password || password.length < 6) return res.status(400).json({ status: false, error: 'Password must be at least 6 characters' });
+
+    const existing = await staffUserRepository.findByEmail(email);
+    if (existing) return res.status(400).json({ status: false, error: 'Email already in use' });
+
+    const user = await staffUserRepository.create({ name, email, password, role });
     return res.status(201).json({ status: true, data: user, message: 'Staff user created' });
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// Block a staff user — admin panel (super admin) can block ANY staff user including admins
+router.patch('/staff/users/:id/block', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 'Invalid user id', null, 400);
+    }
+    const user = await staffUserRepository.findById(id);
+    if (!user) return sendError(res, 'Staff user not found', null, 404);
+    if (user.status === 'blocked') return sendError(res, 'User is already blocked', null, 400);
+
+    const updated = await staffUserRepository.updateStatus(id, 'blocked');
+    return sendSuccess(res, updated, 'Staff user blocked successfully');
+  } catch (error: any) {
+    return sendError(res, error.message);
+  }
+});
+
+// Unblock a staff user — admin panel (super admin)
+router.patch('/staff/users/:id/unblock', adminAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 'Invalid user id', null, 400);
+    }
+    const user = await staffUserRepository.findById(id);
+    if (!user) return sendError(res, 'Staff user not found', null, 404);
+    if (user.status === 'active') return sendError(res, 'User is already active', null, 400);
+
+    const updated = await staffUserRepository.updateStatus(id, 'active');
+    return sendSuccess(res, updated, 'Staff user unblocked successfully');
   } catch (error: any) {
     return sendError(res, error.message);
   }

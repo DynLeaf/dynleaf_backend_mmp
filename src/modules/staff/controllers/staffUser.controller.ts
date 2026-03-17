@@ -33,7 +33,8 @@ export const staffUserController = {
 
   async blockUser(req: Request, res: Response) {
     try {
-      const user = await staffUserService.blockUser(req.params.id);
+      const requesterId = (req as any).staffUser?.id;
+      const user = await staffUserService.blockUser(req.params.id, requesterId);
       return res.status(200).json({ status: true, data: user, message: 'User blocked' });
     } catch (err: any) {
       return res.status(400).json({ status: false, error: err.message });

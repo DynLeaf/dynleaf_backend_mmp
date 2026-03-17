@@ -23,8 +23,11 @@ export const staffUserService = {
     if (!data.email?.trim()) throw new Error('Email is required');
     if (!data.password || data.password.length < 6) throw new Error('Password must be at least 6 characters');
 
-    const roles: StaffRole[] = ['salesman', 'crafter', 'admin'];
-    if (!roles.includes(data.role)) throw new Error('Invalid role');
+    // Only non-admin roles can be created by staff admins
+    const allowedCreationRoles: StaffRole[] = ['salesman', 'crafter'];
+    if (!allowedCreationRoles.includes(data.role)) {
+      throw new Error(`Role '${data.role}' cannot be assigned during user creation. Allowed roles: salesman, crafter`);
+    }
 
     const existing = await staffUserRepository.findByEmail(data.email);
     if (existing) throw new Error('Email already in use');
@@ -38,7 +41,20 @@ export const staffUserService = {
     return user;
   },
 
-  async blockUser(id: string): Promise<IStaffUser> {
+  async blockUser(id: string, requesterId?: string): Promise<IStaffUser> {
+    const target = await staffUserRepository.findById(id);
+    if (!target) throw new Error('Staff user not found');
+
+    // Prevent blocking admin-role users
+    if (target.role === 'admin') {
+      throw new Error('Admin users cannot be blocked');
+    }
+
+    // Prevent self-blocking
+    if (requesterId && String(target._id) === String(requesterId)) {
+      throw new Error('You cannot block your own account');
+    }
+
     return this.updateStatus(id, 'blocked');
   },
 
