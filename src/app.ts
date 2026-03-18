@@ -30,6 +30,7 @@ import followRoutes from './routes/followRoutes.js';
 import placesRoutes from './routes/placesRoutes.js';
 import socialShareRoutes, { restaurantShareRouter } from './routes/socialShareRoutes.js';
 import staffModuleRouter from './modules/staff/index.js';
+import locationRoutes from './routes/locationRoutes.js';
 import './config/firebaseAdmin.js';
 import logger from './middleware/logger.js';
 import s3ResponseEnricher from './middleware/s3ResponseEnricher.js';
@@ -39,6 +40,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const app = express();
+
+// Trust proxy — required to correctly read client IP from x-forwarded-for in production
+app.set('trust proxy', true);
 
 app.use(cors({
     origin: function (origin, callback) {
@@ -117,6 +121,9 @@ app.use('/v1/offers', offerSearchRoutes);
 app.use('/v1/stories', storyRoutes);
 app.use('/v1/places', placesRoutes);
 app.use('/v1', menuRoutes); // Menu routes handle multiple paths
+
+// Geo-location detection (public, no auth required)
+app.use('/v1', locationRoutes);
 
 // Food item analytics
 app.use('/v1/analytics/food-items', foodItemAnalyticsRoutes);

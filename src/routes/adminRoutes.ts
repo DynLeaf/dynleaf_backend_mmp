@@ -15,6 +15,7 @@ import { CategorySlugMap } from "../models/CategorySlugMap.js";
 import { Category } from "../models/Category.js";
 import { getS3Service } from "../services/s3Service.js";
 import { sendSuccess, sendError } from "../utils/response.js";
+import * as adminDeleteController from "../controllers/adminDeleteController.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
@@ -1147,6 +1148,12 @@ router.patch("/outlets/:id/change-owner", adminAuth, async (req: AuthRequest, re
     return sendError(res, error.message);
   }
 });
+
+// DELETE /admin/outlets/:id — permanently hard-delete an outlet and all related data
+router.delete("/outlets/:id", adminAuth, adminDeleteController.hardDeleteOutlet);
+
+// DELETE /admin/brands/:id — permanently hard-delete a brand, all its outlets, and all related data
+router.delete("/brands/:id", adminAuth, adminDeleteController.hardDeleteBrand);
 
 // Get all users
 router.get("/users", adminAuth, async (req: AuthRequest, res) => {
