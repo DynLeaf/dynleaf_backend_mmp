@@ -12,6 +12,15 @@ export const earningsService = {
     return crafterEarningRepository.findAll(filter);
   },
 
+  async getPaginatedEarnings(query: {
+    crafterId?: string;
+    status?: string;
+    page: number;
+    limit: number;
+  }): Promise<{ data: ICrafterEarning[]; total: number }> {
+    return crafterEarningRepository.findPaginated(query);
+  },
+
   async updateEarningsStatus(ids: string[], status: 'pending' | 'paid'): Promise<void> {
     return crafterEarningRepository.updateManyStatus(ids, status);
   },

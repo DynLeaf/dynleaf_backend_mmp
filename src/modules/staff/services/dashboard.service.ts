@@ -32,14 +32,33 @@ export const salesDashboardService = {
       priorityFollowups: priorityCustomers || [],
     };
   },
+
   async getPriorityTasks(salespersonId: string, query: any) {
     const page = parseInt(query.page as string) || 1;
     const limit = parseInt(query.limit as string) || 10;
     return customerRepository.findPriorityPaginatedBySalesperson(salespersonId, page, limit);
   },
 
+  // Legacy kept for older clients
   async replyToPriorityNote(customerId: string, reply: string) {
     return customerRepository.updateById(customerId, { salespersonReply: reply });
+  },
+
+  async sendPriorityMessage(customerId: string, salespersonId: string, content: string) {
+    const customer = await customerRepository.findById(customerId);
+    if (!customer) throw new Error('Customer not found');
+    const ownerId = String((customer.createdBy as any)?._id ?? customer.createdBy);
+    if (ownerId !== salespersonId) throw new Error('Forbidden');
+    if (!customer.isPriority) throw new Error('This customer is not marked as a priority task');
+    return customerRepository.addPriorityMessage(customerId, 'salesperson', salespersonId, content);
+  },
+
+  async markTaskSeen(customerId: string, salespersonId: string) {
+    const customer = await customerRepository.findById(customerId);
+    if (!customer) throw new Error('Customer not found');
+    const ownerId = String((customer.createdBy as any)?._id ?? customer.createdBy);
+    if (ownerId !== salespersonId) throw new Error('Forbidden');
+    return customerRepository.markPriorityMessagesSeen(customerId, 'salesperson');
   },
 };
 
@@ -153,12 +172,32 @@ export const adminDashboardService = {
     });
   },
 
-  async setCustomerPriority(customerId: string, isPriority: boolean, note: string) {
-    return customerRepository.updateById(customerId, {
+  async setCustomerPriority(customerId: string, isPriority: boolean, note: string, adminId: string) {
+    const now = new Date();
+    const update: any = {
       isPriority,
       adminPriorityNote: note,
-      priorityUpdatedAt: isPriority ? new Date() : undefined
-    });
+      priorityUpdatedAt: isPriority ? now : undefined,
+    };
+    const updated = await customerRepository.updateById(customerId, update);
+    // Push the note as the first message when flagging as priority
+    if (isPriority && note?.trim()) {
+      await customerRepository.addPriorityMessage(customerId, 'admin', adminId, note.trim());
+    }
+    return updated;
+  },
+
+  async sendAdminPriorityMessage(customerId: string, adminId: string, content: string) {
+    const customer = await customerRepository.findById(customerId);
+    if (!customer) throw new Error('Customer not found');
+    if (!customer.isPriority) throw new Error('This customer is not marked as a priority task');
+    return customerRepository.addPriorityMessage(customerId, 'admin', adminId, content);
+  },
+
+  async markAdminTaskSeen(customerId: string) {
+    const customer = await customerRepository.findById(customerId);
+    if (!customer) throw new Error('Customer not found');
+    return customerRepository.markPriorityMessagesSeen(customerId, 'admin');
   },
 
   async getCrafterDetails(crafterId: string) {

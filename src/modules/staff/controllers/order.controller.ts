@@ -15,6 +15,11 @@ export const orderController = {
       };
       if (requester.role === 'salesman') opts.salespersonId = requester.id;
       else if (requester.role === 'crafter') opts.crafterId = requester.id;
+      else if (requester.role === 'admin') {
+        const { salespersonId, crafterId: qCrafterId } = req.query as Record<string, string>;
+        if (salespersonId) opts.salespersonId = salespersonId;
+        if (qCrafterId) opts.crafterId = qCrafterId;
+      }
       const result = await orderService.getPaginated(opts);
       return res.status(200).json({ status: true, data: result.data, pagination: result.pagination });
     } catch (err: any) {

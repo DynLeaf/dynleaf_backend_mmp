@@ -1,5 +1,5 @@
 import { Customer, ICustomer, CustomerStatus } from '../models/Customer.js';
-import mongoose from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 
 export const customerRepository = {
   async findById(id: string): Promise<ICustomer | null> {
@@ -85,7 +85,7 @@ export const customerRepository = {
     const { salespersonId, search, tab, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
     const filter: any = {};
     if (salespersonId) filter.createdBy = new mongoose.Types.ObjectId(salespersonId);
-    
+
     if (tab === 'converted') filter.status = 'converted';
     else if (tab === 'cancelled') filter.status = 'cancelled';
     else if (tab === 'followup') {
@@ -111,17 +111,46 @@ export const customerRepository = {
     ]);
     return { data: data as ICustomer[], total };
   },
+
   async findPriorityBySalesperson(salespersonId: string): Promise<ICustomer[]> {
-    return Customer.find({ createdBy: salespersonId, isPriority: true }).sort({ updatedAt: -1 }).lean();
+    return Customer.find({ createdBy: salespersonId, isPriority: true }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();
   },
 
   async findPriorityPaginatedBySalesperson(salespersonId: string, page: number, limit: number): Promise<{ data: ICustomer[]; total: number }> {
     const filter = { createdBy: salespersonId, isPriority: true };
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
-      Customer.find(filter).sort({ updatedAt: -1 }).skip(skip).limit(limit).lean(),
+      Customer.find(filter).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).skip(skip).limit(limit).lean(),
       Customer.countDocuments(filter),
     ]);
     return { data: data as ICustomer[], total };
+  },
+
+  async addPriorityMessage(
+    customerId: string,
+    senderRole: 'admin' | 'salesperson',
+    senderId: string,
+    content: string
+  ): Promise<ICustomer | null> {
+    const now = new Date();
+    return Customer.findByIdAndUpdate(
+      customerId,
+      {
+        $push: { priorityMessages: { senderRole, senderId: new Types.ObjectId(senderId), content, seenAt: null, createdAt: now } },
+        $set: { priorityLastMessageAt: now },
+      },
+      { new: true }
+    ).lean();
+  },
+
+  async markPriorityMessagesSeen(
+    customerId: string,
+    viewerRole: 'admin' | 'salesperson'
+  ): Promise<void> {
+    await Customer.updateOne(
+      { _id: customerId },
+      { $set: { 'priorityMessages.$[msg].seenAt': new Date() } },
+      { arrayFilters: [{ 'msg.senderRole': { $ne: viewerRole }, 'msg.seenAt': null }] }
+    );
   },
 };

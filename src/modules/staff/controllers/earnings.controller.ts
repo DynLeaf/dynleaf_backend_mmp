@@ -45,7 +45,30 @@ export const earningsController = {
 
   async getAllEarnings(req: Request, res: Response) {
     try {
-      const { status, crafterId } = req.query as any;
+      const { status, crafterId, page, limit } = req.query as any;
+      
+      if (page || limit) {
+        const p = parseInt(page as string) || 1;
+        const l = parseInt(limit as string) || 15;
+        const { data, total } = await earningsService.getPaginatedEarnings({
+          crafterId,
+          status,
+          page: p,
+          limit: l
+        });
+        
+        return res.status(200).json({
+          status: true,
+          data,
+          pagination: {
+            total,
+            page: p,
+            limit: l,
+            pages: Math.ceil(total / l)
+          }
+        });
+      }
+
       const filter: any = {};
       if (status) filter.status = status;
       if (crafterId) filter.crafterId = crafterId;

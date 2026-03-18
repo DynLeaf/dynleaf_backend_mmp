@@ -2,6 +2,15 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export type CustomerStatus = 'active' | 'converted' | 'cancelled';
 
+export interface IPriorityMessage {
+  _id: mongoose.Types.ObjectId;
+  senderRole: 'admin' | 'salesperson';
+  senderId: mongoose.Types.ObjectId;
+  content: string;
+  seenAt?: Date;
+  createdAt: Date;
+}
+
 export interface ICustomer extends Document {
   name: string;
   instagramId?: string;
@@ -16,9 +25,21 @@ export interface ICustomer extends Document {
   adminPriorityNote?: string;
   salespersonReply?: string;
   priorityUpdatedAt?: Date;
+  priorityMessages: IPriorityMessage[];
+  priorityLastMessageAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const priorityMessageSchema = new Schema<IPriorityMessage>(
+  {
+    senderRole: { type: String, enum: ['admin', 'salesperson'], required: true },
+    senderId: { type: Schema.Types.ObjectId, ref: 'StaffUser', required: true },
+    content: { type: String, required: true, trim: true },
+    seenAt: { type: Date, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false } }
+);
 
 const customerSchema = new Schema<ICustomer>(
   {
@@ -43,6 +64,8 @@ const customerSchema = new Schema<ICustomer>(
     adminPriorityNote: { type: String, trim: true },
     salespersonReply: { type: String, trim: true },
     priorityUpdatedAt: { type: Date },
+    priorityMessages: { type: [priorityMessageSchema], default: [] },
+    priorityLastMessageAt: { type: Date },
   },
   { timestamps: true }
 );

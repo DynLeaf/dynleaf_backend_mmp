@@ -8,14 +8,52 @@ export const crafterEarningRepository = {
 
   async findByCrafter(crafterId: string): Promise<ICrafterEarning[]> {
     return CrafterEarning.find({ crafterId })
-      .populate('orderId', 'productType quantity designType')
+      .populate({
+        path: 'orderId',
+        select: 'productType quantity designType customerId',
+        populate: { path: 'customerId', select: 'name' },
+      })
       .sort({ createdAt: -1 })
       .lean();
   },
 
+  async findPaginated(opts: {
+    crafterId?: string;
+    status?: string;
+    page: number;
+    limit: number;
+  }): Promise<{ data: ICrafterEarning[]; total: number }> {
+    const { crafterId, status, page, limit } = opts;
+    const filter: any = {};
+    if (crafterId) filter.crafterId = crafterId;
+    if (status) filter.status = status;
+
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      CrafterEarning.find(filter)
+        .populate({
+          path: 'orderId',
+          select: 'productType quantity designType customerId',
+          populate: { path: 'customerId', select: 'name' },
+        })
+        .populate('crafterId', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CrafterEarning.countDocuments(filter),
+    ]);
+
+    return { data: data as ICrafterEarning[], total };
+  },
+
   async findAll(filter: any = {}): Promise<ICrafterEarning[]> {
     return CrafterEarning.find(filter)
-      .populate('orderId', 'productType quantity designType')
+      .populate({
+        path: 'orderId',
+        select: 'productType quantity designType customerId',
+        populate: { path: 'customerId', select: 'name' },
+      })
       .populate('crafterId', 'name')
       .sort({ createdAt: -1 })
       .lean();

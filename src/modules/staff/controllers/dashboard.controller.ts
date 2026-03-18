@@ -27,6 +27,29 @@ export const dashboardController = {
       return res.status(400).json({ status: false, error: err.message });
     }
   },
+
+  async sendPriorityMessage(req: Request, res: Response) {
+    try {
+      const { id } = (req as any).staffUser;
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ status: false, error: 'Content is required' });
+      const data = await salesDashboardService.sendPriorityMessage(req.params.customerId, id, content.trim());
+      return res.status(200).json({ status: true, data, message: 'Message sent' });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
+  async markPriorityTaskSeen(req: Request, res: Response) {
+    try {
+      const { id } = (req as any).staffUser;
+      await salesDashboardService.markTaskSeen(req.params.customerId, id);
+      return res.status(200).json({ status: true, message: 'Marked as seen' });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
   async getSalesDashboard(req: Request, res: Response) {
     try {
       const { id } = (req as any).staffUser;
@@ -64,6 +87,7 @@ export const dashboardController = {
       return res.status(400).json({ status: false, error: err.message });
     }
   },
+
   async getAdminSalespersonDetails(req: Request, res: Response) {
     try {
       const data = await adminDashboardService.getSalespersonDetails(req.params.id);
@@ -78,15 +102,10 @@ export const dashboardController = {
       const { data, total } = await adminDashboardService.getSalespersonCustomers(req.params.id, req.query);
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
-      return res.status(200).json({ 
-        status: true, 
-        data, 
-        pagination: {
-          total,
-          page,
-          limit,
-          pages: Math.ceil(total / limit)
-        }
+      return res.status(200).json({
+        status: true,
+        data,
+        pagination: { total, page, limit, pages: Math.ceil(total / limit) }
       });
     } catch (err: any) {
       return res.status(400).json({ status: false, error: err.message });
@@ -96,8 +115,30 @@ export const dashboardController = {
   async setAdminCustomerPriority(req: Request, res: Response) {
     try {
       const { isPriority, note } = req.body;
-      const data = await adminDashboardService.setCustomerPriority(req.params.customerId, isPriority, note);
+      const { id: adminId } = (req as any).staffUser;
+      const data = await adminDashboardService.setCustomerPriority(req.params.customerId, isPriority, note, adminId);
       return res.status(200).json({ status: true, data });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
+  async sendAdminPriorityMessage(req: Request, res: Response) {
+    try {
+      const { id: adminId } = (req as any).staffUser;
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ status: false, error: 'Content is required' });
+      const data = await adminDashboardService.sendAdminPriorityMessage(req.params.customerId, adminId, content.trim());
+      return res.status(200).json({ status: true, data, message: 'Message sent' });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
+  async markAdminPriorityTaskSeen(req: Request, res: Response) {
+    try {
+      await adminDashboardService.markAdminTaskSeen(req.params.customerId);
+      return res.status(200).json({ status: true, message: 'Marked as seen' });
     } catch (err: any) {
       return res.status(400).json({ status: false, error: err.message });
     }
