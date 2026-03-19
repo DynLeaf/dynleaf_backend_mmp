@@ -1,4 +1,4 @@
-import { Followup, IFollowup, FollowupStatus } from '../models/Followup.js';
+import { Followup, IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -388,5 +388,24 @@ export const followupRepository = {
       Followup.countDocuments(filter),
     ]);
     return { data: data as IFollowup[], total };
+  },
+
+  async markPendingAsDone(customerId: string, message?: string): Promise<void> {
+    const historyEntry: IFollowupEvent = {
+      message: message || 'Marked done automatically',
+      status: 'done',
+      followupDate: new Date(),
+      followupTime: '00:00',
+      recordedAt: new Date(),
+    };
+    
+    // We update all pending followups, appending history and changing status.
+    await Followup.updateMany(
+      { customerId, status: 'pending' },
+      {
+        $set: { status: 'done' },
+        $push: { history: historyEntry }
+      }
+    );
   },
 };

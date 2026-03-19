@@ -76,7 +76,7 @@ export const customerRepository = {
   async findPaginated(opts: {
     salespersonId?: string;
     search?: string;
-    tab?: 'all' | 'followup' | 'missed' | 'converted' | 'cancelled';
+    tab?: 'all' | 'followup' | 'missed' | 'converted' | 'cancelled' | 'active';
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     page: number;
@@ -88,6 +88,7 @@ export const customerRepository = {
 
     if (tab === 'converted') filter.status = 'converted';
     else if (tab === 'cancelled') filter.status = 'cancelled';
+    else if (tab === 'active') filter.status = 'active';
     else if (tab === 'followup') {
       filter.status = 'active';
       filter.followupRequired = true;
@@ -109,11 +110,26 @@ export const customerRepository = {
       Customer.find(filter).populate('createdBy', 'name email').sort(sort).skip(skip).limit(limit).lean(),
       Customer.countDocuments(filter),
     ]);
-    return { data: data as ICustomer[], total };
+
+    const { Order } = await import('../models/Order.js');
+    const customerIds = data.map(c => c._id);
+    const orders = await Order.find({ customerId: { $in: customerIds } }).select('customerId').lean();
+    const customersWithOrders = new Set(orders.map(o => o.customerId.toString()));
+    
+    const enrichedData = data.map(c => ({
+      ...c,
+      hasOrders: customersWithOrders.has(c._id.toString())
+    }));
+
+    return { data: enrichedData as unknown as ICustomer[], total };
   },
 
   async findPriorityBySalesperson(salespersonId: string): Promise<ICustomer[]> {
-    return Customer.find({ createdBy: salespersonId, isPriority: true }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();
+    return Customer.find({ 
+      createdBy: salespersonId, 
+      isPriority: true,
+      priorityMessages: { $elemMatch: { senderRole: 'admin', seenAt: null } }
+    }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();
   },
 
   async findPriorityPaginatedBySalesperson(salespersonId: string, page: number, limit: number): Promise<{ data: ICustomer[]; total: number }> {

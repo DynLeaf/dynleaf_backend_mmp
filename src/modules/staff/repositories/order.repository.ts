@@ -79,16 +79,18 @@ export const orderRepository = {
   async findPaginated(opts: {
     salespersonId?: string;
     crafterId?: string;
+    customerId?: string;
     status?: string;
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     page: number;
     limit: number;
   }): Promise<{ data: IOrder[]; total: number }> {
-    const { salespersonId, crafterId, status, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
+    const { salespersonId, crafterId, customerId, status, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
     const filter: any = {};
     if (salespersonId) filter.salespersonId = salespersonId;
     if (crafterId) filter.crafterId = crafterId;
+    if (customerId) filter.customerId = customerId;
     const ACTIVE = ['accepted', 'printed', 'poured', 'sticker'];
     if (status === 'active') filter.status = { $in: ACTIVE };
     else if (status && status !== 'all') filter.status = status;

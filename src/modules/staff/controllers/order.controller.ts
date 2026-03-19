@@ -5,13 +5,14 @@ export const orderController = {
   async getAll(req: Request, res: Response) {
     try {
       const requester = (req as any).staffUser;
-      const { status, sortBy, sortOrder, page, limit } = req.query as Record<string, string>;
+      const { status, sortBy, sortOrder, page, limit, customerId } = req.query as Record<string, string>;
       const opts: any = {
         status,
         sortBy,
         sortOrder,
         page: page ? parseInt(page, 10) : 1,
         limit: limit ? parseInt(limit, 10) : 20,
+        customerId,
       };
       if (requester.role === 'salesman') opts.salespersonId = requester.id;
       else if (requester.role === 'crafter') opts.crafterId = requester.id;

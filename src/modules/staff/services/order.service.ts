@@ -60,7 +60,7 @@ export const orderService = {
   async accept(id: string, crafterId: string): Promise<IOrder> {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
-    if (order.status !== 'pending') throw new Error('Only pending orders can be accepted');
+    if (!['pending', 'resubmitted'].includes(order.status)) throw new Error('Only pending or resubmitted orders can be accepted');
 
     const updated = await orderRepository.updateStatus(id, 'accepted', { crafterId: crafterId as any });
     if (!updated) throw new Error('Order not found');
@@ -71,14 +71,27 @@ export const orderService = {
     if (!reason?.trim()) throw new Error('Rejection reason is required');
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
-    if (!['pending', 'accepted'].includes(order.status)) {
+    if (!['pending', 'resubmitted', 'accepted'].includes(order.status)) {
       throw new Error('Order cannot be rejected at this stage');
     }
 
-    const updated = await orderRepository.updateStatus(id, 'rejected', {
+    const updated = await orderRepository.updateById(id, {
+      status: 'rejected',
       crafterId: crafterId as any,
       rejectionReason: reason,
-    });
+      $push: {
+        rejectionLog: {
+          rejectedAt: new Date(),
+          reason
+        },
+        communicationLogs: {
+          senderRole: 'crafter',
+          senderId: crafterId as any,
+          content: `Order Rejected: ${reason}`,
+          timestamp: new Date()
+        }
+      }
+    } as any);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -161,7 +174,7 @@ export const orderService = {
     return updated;
   },
 
-  async resubmit(id: string, salespersonId: string, data: Partial<IOrder>): Promise<IOrder> {
+  async resubmit(id: string, salespersonId: string, data: Partial<IOrder> & { salesAdditionalNotes?: string }): Promise<IOrder> {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
@@ -173,11 +186,51 @@ export const orderService = {
     }
     if (order.status !== 'rejected') throw new Error('Only rejected orders can be resubmitted');
 
+    if (!data.salesAdditionalNotes?.trim()) {
+      throw new Error('A resubmit note explaining the changes is required');
+    }
+
+    const { salesAdditionalNotes, ...orderFields } = data;
+
+    // Track explicit changes
+    const changes: any[] = [];
+    if (orderFields.productType && orderFields.productType !== order.productType) {
+      changes.push({ field: 'Product Type', oldValue: order.productType, newValue: orderFields.productType });
+    }
+    if (orderFields.quantity && Number(orderFields.quantity) !== Number(order.quantity)) {
+      changes.push({ field: 'Quantity', oldValue: order.quantity, newValue: orderFields.quantity });
+    }
+    
+    // Compare dates as strings YYYY-MM-DD
+    const oldDateStr = order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '';
+    const newDateStr = orderFields.expectedDeliveryDate ? String(orderFields.expectedDeliveryDate).split('T')[0] : '';
+    if (newDateStr && newDateStr !== oldDateStr) {
+      changes.push({ field: 'Expected Delivery Date', oldValue: oldDateStr || 'None', newValue: newDateStr });
+    }
+    
+    if (orderFields.notes !== undefined && orderFields.notes !== order.notes) {
+      changes.push({ field: 'Notes', oldValue: order.notes || 'None', newValue: orderFields.notes || 'None' });
+    }
+
     const updated = await orderRepository.updateById(id, {
-      ...data,
-      status: 'pending',
+      ...orderFields,
+      salesAdditionalNotes,
+      status: 'resubmitted',
       rejectionReason: undefined,
-    });
+      $push: {
+        communicationLogs: {
+          senderRole: 'salesman',
+          senderId: salespersonId as any,
+          content: salesAdditionalNotes,
+          timestamp: new Date(),
+        },
+        resubmissionLog: {
+          resubmittedAt: new Date(),
+          note: salesAdditionalNotes,
+          changes
+        }
+      },
+    } as any);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -233,6 +286,7 @@ export const orderService = {
   async getPaginated(opts: {
     salespersonId?: string;
     crafterId?: string;
+    customerId?: string;
     status?: string;
     sortBy?: string;
     sortOrder?: string;
@@ -244,6 +298,7 @@ export const orderService = {
     const { data, total } = await orderRepository.findPaginated({
       salespersonId: opts.salespersonId,
       crafterId: opts.crafterId,
+      customerId: opts.customerId,
       status: opts.status,
       sortBy: opts.sortBy,
       sortOrder: opts.sortOrder as 'asc' | 'desc',

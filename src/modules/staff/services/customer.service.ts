@@ -158,12 +158,14 @@ export const customerService = {
   async markConverted(id: string): Promise<ICustomer> {
     const customer = await customerRepository.updateStatus(id, 'converted');
     if (!customer) throw new Error('Customer not found');
+    await followupRepository.markPendingAsDone(id, 'Customer marked as converted');
     return customer;
   },
 
   async markCancelled(id: string): Promise<ICustomer> {
     const customer = await customerRepository.updateStatus(id, 'cancelled');
     if (!customer) throw new Error('Customer not found');
+    await followupRepository.markPendingAsDone(id, 'Customer marked as cancelled');
     return customer;
   },
 
@@ -181,7 +183,7 @@ export const customerService = {
     const { data, total } = await customerRepository.findPaginated({
       salespersonId: opts.salespersonId,
       search: opts.search,
-      tab: opts.status as 'all' | 'followup' | 'missed' | 'converted' | 'cancelled' | undefined,
+      tab: opts.status as 'all' | 'followup' | 'missed' | 'converted' | 'cancelled' | 'active' | undefined,
       sortBy: opts.sortBy,
       sortOrder: opts.sortOrder as 'asc' | 'desc',
       page,

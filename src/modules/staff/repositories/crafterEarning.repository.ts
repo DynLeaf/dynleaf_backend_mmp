@@ -10,8 +10,11 @@ export const crafterEarningRepository = {
     return CrafterEarning.find({ crafterId })
       .populate({
         path: 'orderId',
-        select: 'productType quantity designType customerId',
-        populate: { path: 'customerId', select: 'name' },
+        select: 'productType quantity designType customerId salespersonId',
+        populate: [
+          { path: 'customerId', select: 'name' },
+          { path: 'salespersonId', select: 'name' },
+        ],
       })
       .sort({ createdAt: -1 })
       .lean();
@@ -33,8 +36,11 @@ export const crafterEarningRepository = {
       CrafterEarning.find(filter)
         .populate({
           path: 'orderId',
-          select: 'productType quantity designType customerId',
-          populate: { path: 'customerId', select: 'name' },
+          select: 'productType quantity designType customerId salespersonId',
+          populate: [
+            { path: 'customerId', select: 'name' },
+            { path: 'salespersonId', select: 'name' },
+          ],
         })
         .populate('crafterId', 'name')
         .sort({ createdAt: -1 })
@@ -51,8 +57,11 @@ export const crafterEarningRepository = {
     return CrafterEarning.find(filter)
       .populate({
         path: 'orderId',
-        select: 'productType quantity designType customerId',
-        populate: { path: 'customerId', select: 'name' },
+        select: 'productType quantity designType customerId salespersonId',
+        populate: [
+          { path: 'customerId', select: 'name' },
+          { path: 'salespersonId', select: 'name' },
+        ],
       })
       .populate('crafterId', 'name')
       .sort({ createdAt: -1 })

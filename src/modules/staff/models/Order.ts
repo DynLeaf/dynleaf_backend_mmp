@@ -2,6 +2,7 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export type OrderStatus =
   | 'pending'
+  | 'resubmitted'
   | 'accepted'
   | 'rejected'
   | 'printed'
@@ -34,6 +35,19 @@ export interface IOrder extends Document {
   crafterNotes?: string;
   salesAdditionalNotes?: string;
   crafterReply?: string;
+  resubmissionLog?: Array<{
+    resubmittedAt: Date;
+    note: string;
+    changes: Array<{
+      field: string;
+      oldValue: any;
+      newValue: any;
+    }>;
+  }>;
+  rejectionLog?: Array<{
+    rejectedAt: Date;
+    reason: string;
+  }>;
   communicationLogs: Array<{
     senderRole: 'salesman' | 'crafter';
     senderId: mongoose.Types.ObjectId;
@@ -87,7 +101,7 @@ const orderSchema = new Schema<IOrder>(
     shippingAddress: { type: String, trim: true },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'rejected', 'printed', 'poured', 'sticker', 'completed', 'shipped'],
+      enum: ['pending', 'resubmitted', 'accepted', 'rejected', 'printed', 'poured', 'sticker', 'completed', 'shipped'],
       default: 'pending',
     },
     notes: { type: String, trim: true },
@@ -100,6 +114,19 @@ const orderSchema = new Schema<IOrder>(
       senderId: { type: Schema.Types.ObjectId, ref: 'StaffUser', required: true },
       content: { type: String, required: true, trim: true },
       timestamp: { type: Date, default: Date.now }
+    }],
+    resubmissionLog: [{
+      resubmittedAt: { type: Date, default: Date.now },
+      note: { type: String, required: true },
+      changes: [{
+        field: { type: String, required: true },
+        oldValue: { type: Schema.Types.Mixed },
+        newValue: { type: Schema.Types.Mixed }
+      }]
+    }],
+    rejectionLog: [{
+      rejectedAt: { type: Date, default: Date.now },
+      reason: { type: String, required: true }
     }]
   },
   { timestamps: true }

@@ -18,6 +18,24 @@ export const dashboardController = {
     }
   },
 
+  async fixFollowups(req: Request, res: Response) {
+    try {
+      const { Customer } = await import('../models/Customer.js');
+      const { followupRepository } = await import('../repositories/followup.repository.js');
+      const convertedCustomers = await Customer.find({ status: 'converted' }).lean();
+      
+      let updatedCount = 0;
+      for (const customer of convertedCustomers) {
+        const customerId = (customer._id as any).toString();
+        await followupRepository.markPendingAsDone(customerId, 'Auto-cleaned up: Customer already converted');
+        updatedCount++;
+      }
+      return res.status(200).json({ status: true, message: `Completed followups for ${updatedCount} converted customers` });
+    } catch (err: any) {
+      return res.status(400).json({ status: false, error: err.message });
+    }
+  },
+
   async replyToPriorityNote(req: Request, res: Response) {
     try {
       const { reply } = req.body;
