@@ -1,20 +1,21 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { followupService } from '../services/followup.service.js';
 import type { FollowupFilter } from '../services/followup.service.js';
+import { StaffRequest } from '../middleware/staffAuth.middleware.js';
 
 export const followupController = {
-  async getByCustomer(req: Request, res: Response) {
+  async getByCustomer(req: StaffRequest, res: Response) {
     try {
       const followups = await followupService.getByCustomer(req.params.customerId);
       return res.status(200).json({ status: true, data: followups });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getMine(req: Request, res: Response) {
+  async getMine(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const { status, sortBy, sortOrder, page, limit } = req.query as Record<string, string>;
       const result = await followupService.getPaginated({
         salespersonId: id,
@@ -25,75 +26,75 @@ export const followupController = {
         limit: limit ? parseInt(limit, 10) : 20,
       });
       return res.status(200).json({ status: true, data: result.data, pagination: result.pagination });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getToday(req: Request, res: Response) {
+  async getToday(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const followups = await followupService.getTodayBySalesperson(id);
       return res.status(200).json({ status: true, data: followups });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getMissed(req: Request, res: Response) {
+  async getMissed(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const followups = await followupService.getMissed(id);
       return res.status(200).json({ status: true, data: followups });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async create(req: Request, res: Response) {
+  async create(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const followup = await followupService.create({ ...req.body, salespersonId: id });
       return res.status(201).json({ status: true, data: followup, message: 'Followup created' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async reschedule(req: Request, res: Response) {
+  async reschedule(req: StaffRequest, res: Response) {
     try {
       const followup = await followupService.reschedule(req.params.id, req.body);
       return res.status(200).json({ status: true, data: followup, message: 'Followup rescheduled' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async addNote(req: Request, res: Response) {
+  async addNote(req: StaffRequest, res: Response) {
     try {
       const { message } = req.body;
       if (!message?.trim()) return res.status(400).json({ status: false, error: 'Message is required' });
       const followup = await followupService.addNote(req.params.id, message);
       return res.status(200).json({ status: true, data: followup });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async markDone(req: Request, res: Response) {
+  async markDone(req: StaffRequest, res: Response) {
     try {
       const { message } = req.body;
       const followup = await followupService.markDone(req.params.id, message);
       return res.status(200).json({ status: true, data: followup, message: 'Followup marked as done' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
   /** GET /followups?filter=today|missed|all|upcoming&search=&page=&limit=&sortBy=&sortOrder=&status= */
-  async getFiltered(req: Request, res: Response) {
+  async getFiltered(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const {
         filter = 'all',
         search,
@@ -125,19 +126,19 @@ export const followupController = {
         data: result.data,
         pagination: result.pagination,
       });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
   /** GET /followups/stats */
-  async getStats(req: Request, res: Response) {
+  async getStats(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const stats = await followupService.getStats(id);
       return res.status(200).json({ status: true, data: stats });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 };

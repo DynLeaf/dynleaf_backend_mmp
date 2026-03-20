@@ -17,7 +17,7 @@ export const crafterPayoutRepository = {
   },
 
   async findAll(status?: PayoutStatus): Promise<ICrafterPayout[]> {
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     return CrafterPayout.find(filter)
       .populate('crafterId', 'name email')

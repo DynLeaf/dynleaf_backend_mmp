@@ -5,6 +5,8 @@ import { StaffUser } from '../models/StaffUser.js';
 import { crafterEarningRepository } from '../repositories/crafterEarning.repository.js';
 import { crafterPayoutRepository } from '../repositories/crafterPayout.repository.js';
 
+import mongoose from 'mongoose';
+
 export const salesDashboardService = {
   async getSummary(salespersonId: string) {
     const [
@@ -36,7 +38,7 @@ export const salesDashboardService = {
     };
   },
 
-  async getPriorityTasks(salespersonId: string, query: any) {
+  async getPriorityTasks(salespersonId: string, query: Record<string, unknown>) {
     const page = parseInt(query.page as string) || 1;
     const limit = parseInt(query.limit as string) || 10;
     return customerRepository.findPriorityPaginatedBySalesperson(salespersonId, page, limit);
@@ -50,7 +52,7 @@ export const salesDashboardService = {
   async sendPriorityMessage(customerId: string, salespersonId: string, content: string) {
     const customer = await customerRepository.findById(customerId);
     if (!customer) throw new Error('Customer not found');
-    const ownerId = String((customer.createdBy as any)?._id ?? customer.createdBy);
+    const ownerId = String((customer.createdBy as { _id?: mongoose.Types.ObjectId })?._id ?? customer.createdBy);
     if (ownerId !== salespersonId) throw new Error('Forbidden');
     if (!customer.isPriority) throw new Error('This customer is not marked as a priority task');
     return customerRepository.addPriorityMessage(customerId, 'salesperson', salespersonId, content);
@@ -59,7 +61,7 @@ export const salesDashboardService = {
   async markTaskSeen(customerId: string, salespersonId: string) {
     const customer = await customerRepository.findById(customerId);
     if (!customer) throw new Error('Customer not found');
-    const ownerId = String((customer.createdBy as any)?._id ?? customer.createdBy);
+    const ownerId = String((customer.createdBy as { _id?: mongoose.Types.ObjectId })?._id ?? customer.createdBy);
     if (ownerId !== salespersonId) throw new Error('Forbidden');
     return customerRepository.markPriorityMessagesSeen(customerId, 'salesperson');
   },
@@ -88,7 +90,7 @@ export const adminDashboardService = {
 
     const tracking = await Promise.all(
       salesmen.map(async (s) => {
-        const id = (s._id as any).toString();
+        const id = String(s._id);
         const [total, converted, cancelled, missed, upcoming] = await Promise.all([
           customerRepository.countByCreatedBy(id),
           customerRepository.countByStatus(id, 'converted'),
@@ -116,7 +118,7 @@ export const adminDashboardService = {
 
     const tracking = await Promise.all(
       crafters.map(async (c) => {
-        const id = (c._id as any).toString();
+        const id = String(c._id);
         const [accepted, completed, pending, totalEarnings, pendingPayout] = await Promise.all([
           orderRepository.countByCrafter(id, 'accepted'),
           orderRepository.countByCrafter(id, 'completed'),
@@ -157,14 +159,14 @@ export const adminDashboardService = {
     };
   },
 
-  async getSalespersonCustomers(salespersonId: string, query: any) {
+  async getSalespersonCustomers(salespersonId: string, query: Record<string, unknown>) {
     const page = parseInt(query.page as string) || 1;
     const limit = parseInt(query.limit as string) || 20;
-    const tab = (query.tab as any) || 'all';
+    const tab = (query.tab as string) || 'all';
 
     return customerRepository.findPaginated({
       salespersonId,
-      tab,
+      tab: tab as 'active' | 'converted' | 'cancelled' | 'all' | 'followup' | 'missed',
       page,
       limit,
     });
@@ -172,7 +174,7 @@ export const adminDashboardService = {
 
   async setCustomerPriority(customerId: string, isPriority: boolean, note: string, adminId: string) {
     const now = new Date();
-    const update: any = {
+    const update: Record<string, unknown> = {
       isPriority,
       adminPriorityNote: note,
       priorityUpdatedAt: isPriority ? now : undefined,

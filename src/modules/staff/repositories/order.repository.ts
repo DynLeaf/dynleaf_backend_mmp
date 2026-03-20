@@ -15,7 +15,7 @@ export const orderRepository = {
   },
 
   async findBySalesperson(salespersonId: string, status?: OrderStatus): Promise<IOrder[]> {
-    const filter: any = { salespersonId };
+    const filter: Record<string, unknown> = { salespersonId };
     if (status) filter.status = status;
     return Order.find(filter)
       .populate('customerId', 'name')
@@ -25,7 +25,7 @@ export const orderRepository = {
   },
 
   async findByCrafter(crafterId: string, status?: OrderStatus): Promise<IOrder[]> {
-    const filter: any = { crafterId };
+    const filter: Record<string, unknown> = { crafterId };
     if (status) filter.status = status;
     return Order.find(filter)
       .populate('customerId', 'name')
@@ -51,7 +51,7 @@ export const orderRepository = {
       .lean();
   },
 
-  async create(data: Record<string, any>): Promise<IOrder> {
+  async create(data: Partial<IOrder>): Promise<IOrder> {
     const order = new Order(data);
     return order.save();
   },
@@ -65,13 +65,13 @@ export const orderRepository = {
   },
 
   async countBySalesperson(salespersonId: string, status?: OrderStatus): Promise<number> {
-    const filter: any = { salespersonId };
+    const filter: Record<string, unknown> = { salespersonId };
     if (status) filter.status = status;
     return Order.countDocuments(filter);
   },
 
   async countByCrafter(crafterId: string, status?: OrderStatus): Promise<number> {
-    const filter: any = { crafterId };
+    const filter: Record<string, unknown> = { crafterId };
     if (status) filter.status = status;
     return Order.countDocuments(filter);
   },
@@ -87,7 +87,7 @@ export const orderRepository = {
     limit: number;
   }): Promise<{ data: IOrder[]; total: number }> {
     const { salespersonId, crafterId, customerId, status, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (salespersonId) filter.salespersonId = salespersonId;
     if (crafterId) filter.crafterId = crafterId;
     if (customerId) filter.customerId = customerId;
@@ -96,7 +96,7 @@ export const orderRepository = {
     else if (status && status !== 'all') filter.status = status;
     const allowed = ['createdAt', 'expectedDeliveryDate', 'updatedAt'];
     const field = allowed.includes(sortBy) ? sortBy : 'createdAt';
-    const sort: any = { [field]: sortOrder === 'asc' ? 1 : -1 };
+    const sort: Record<string, 1 | -1> = { [field]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       Order.find(filter)

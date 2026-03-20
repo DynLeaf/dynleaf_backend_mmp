@@ -27,7 +27,7 @@ export const crafterEarningRepository = {
     limit: number;
   }): Promise<{ data: ICrafterEarning[]; total: number }> {
     const { crafterId, status, page, limit } = opts;
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (crafterId) filter.crafterId = crafterId;
     if (status) filter.status = status;
 
@@ -53,7 +53,7 @@ export const crafterEarningRepository = {
     return { data: data as ICrafterEarning[], total };
   },
 
-  async findAll(filter: any = {}): Promise<ICrafterEarning[]> {
+  async findAll(filter: Record<string, unknown> = {}): Promise<ICrafterEarning[]> {
     return CrafterEarning.find(filter)
       .populate({
         path: 'orderId',

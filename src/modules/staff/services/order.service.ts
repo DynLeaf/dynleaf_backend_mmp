@@ -1,7 +1,8 @@
 import { orderRepository } from '../repositories/order.repository.js';
 import { crafterEarningRepository } from '../repositories/crafterEarning.repository.js';
-import { IOrder, OrderStatus, DeliveryMethod } from '../models/Order.js';
+import { IOrder, OrderStatus, DeliveryMethod, OrderPriority } from '../models/Order.js';
 import { EARNING_RATES, EarningAction } from '../models/CrafterEarning.js';
+import mongoose from 'mongoose';
 
 export const orderService = {
   async getAll(filter?: Partial<{ status: OrderStatus; salespersonId: string; crafterId: string }>): Promise<IOrder[]> {
@@ -52,6 +53,9 @@ export const orderService = {
 
     return orderRepository.create({
       ...data,
+      customerId: data.customerId as unknown as mongoose.Types.ObjectId,
+      salespersonId: data.salespersonId as unknown as mongoose.Types.ObjectId,
+      priority: data.priority as OrderPriority | undefined,
       expectedDeliveryDate: new Date(data.expectedDeliveryDate),
       status: 'pending',
     });
@@ -62,7 +66,7 @@ export const orderService = {
     if (!order) throw new Error('Order not found');
     if (!['pending', 'resubmitted'].includes(order.status)) throw new Error('Only pending or resubmitted orders can be accepted');
 
-    const updated = await orderRepository.updateStatus(id, 'accepted', { crafterId: crafterId as any });
+    const updated = await orderRepository.updateStatus(id, 'accepted', { crafterId: crafterId as unknown as mongoose.Types.ObjectId });
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -77,7 +81,7 @@ export const orderService = {
 
     const updated = await orderRepository.updateById(id, {
       status: 'rejected',
-      crafterId: crafterId as any,
+      crafterId: crafterId as unknown as mongoose.Types.ObjectId,
       rejectionReason: reason,
       $push: {
         rejectionLog: {
@@ -86,12 +90,12 @@ export const orderService = {
         },
         communicationLogs: {
           senderRole: 'crafter',
-          senderId: crafterId as any,
+          senderId: crafterId as unknown as mongoose.Types.ObjectId,
           content: `Order Rejected: ${reason}`,
           timestamp: new Date()
         }
       }
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -105,7 +109,7 @@ export const orderService = {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
-    const orderCrafterId = (order.crafterId as any)?._id?.toString() || (order.crafterId as any)?.toString();
+    const orderCrafterId = String((order.crafterId as { _id?: mongoose.Types.ObjectId })?._id || order.crafterId);
     if (orderCrafterId !== crafterId) throw new Error('Not authorized for this order');
 
     const statusOrder: OrderStatus[] = ['pending', 'accepted', 'printed', 'poured', 'sticker', 'completed', 'shipped'];
@@ -160,8 +164,8 @@ export const orderService = {
       if (!existing.some(e => e.action === action)) {
         const rate = EARNING_RATES[action];
         await crafterEarningRepository.create({
-          orderId: (order._id as any).toString() as any,
-          crafterId: crafterId as any,
+          orderId: String(order._id) as unknown as mongoose.Types.ObjectId,
+          crafterId: crafterId as unknown as mongoose.Types.ObjectId,
           action,
           quantity: order.quantity,
           rate,
@@ -179,7 +183,7 @@ export const orderService = {
     if (!order) throw new Error('Order not found');
 
     // Handle populated or raw salespersonId
-    const orderSalespersonId = (order.salespersonId as any)?._id?.toString() || (order.salespersonId as any)?.toString();
+    const orderSalespersonId = String((order.salespersonId as { _id?: mongoose.Types.ObjectId })?._id || order.salespersonId);
 
     if (orderSalespersonId !== salespersonId) {
       throw new Error('Not authorized');
@@ -193,7 +197,7 @@ export const orderService = {
     const { salesAdditionalNotes, ...orderFields } = data;
 
     // Track explicit changes
-    const changes: any[] = [];
+    const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
     if (orderFields.productType && orderFields.productType !== order.productType) {
       changes.push({ field: 'Product Type', oldValue: order.productType, newValue: orderFields.productType });
     }
@@ -220,7 +224,7 @@ export const orderService = {
       $push: {
         communicationLogs: {
           senderRole: 'salesman',
-          senderId: salespersonId as any,
+          senderId: salespersonId as unknown as mongoose.Types.ObjectId,
           content: salesAdditionalNotes,
           timestamp: new Date(),
         },
@@ -230,7 +234,7 @@ export const orderService = {
           changes
         }
       },
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -240,7 +244,7 @@ export const orderService = {
     if (!order) throw new Error('Order not found');
 
     // Handle populated or raw salespersonId
-    const orderSalespersonId = (order.salespersonId as any)?._id?.toString() || (order.salespersonId as any)?.toString();
+    const orderSalespersonId = String((order.salespersonId as { _id?: mongoose.Types.ObjectId })?._id || order.salespersonId);
 
     if (orderSalespersonId !== salespersonId) {
       throw new Error('Not authorized');
@@ -251,12 +255,12 @@ export const orderService = {
       $push: {
         communicationLogs: {
           senderRole: 'salesman',
-          senderId: salespersonId as any,
+          senderId: salespersonId as unknown as mongoose.Types.ObjectId,
           content: note,
           timestamp: new Date()
         }
       }
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -265,7 +269,7 @@ export const orderService = {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
-    const orderCrafterId = (order.crafterId as any)?._id?.toString() || (order.crafterId as any)?.toString();
+    const orderCrafterId = String((order.crafterId as { _id?: mongoose.Types.ObjectId })?._id || order.crafterId);
     if (orderCrafterId !== crafterId) throw new Error('Not authorized');
 
     const updated = await orderRepository.updateById(id, {
@@ -273,12 +277,12 @@ export const orderService = {
       $push: {
         communicationLogs: {
           senderRole: 'crafter',
-          senderId: crafterId as any,
+          senderId: crafterId as unknown as mongoose.Types.ObjectId,
           content: note,
           timestamp: new Date()
         }
       }
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },

@@ -40,8 +40,8 @@ export interface IOrder extends Document {
     note: string;
     changes: Array<{
       field: string;
-      oldValue: any;
-      newValue: any;
+      oldValue: unknown;
+      newValue: unknown;
     }>;
   }>;
   rejectionLog?: Array<{

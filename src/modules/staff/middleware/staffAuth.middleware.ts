@@ -27,7 +27,7 @@ export const staffAuthenticate = async (req: StaffRequest, res: Response, next: 
 
     req.staffUser = { ...payload, status: user.status };
     next();
-  } catch (err: any) {
+  } catch (err: unknown) {
     return res.status(401).json({ status: false, error: 'Invalid or expired token' });
   }
 };

@@ -36,15 +36,15 @@ export const staffAuthService = {
     }
 
     const payload: StaffTokenPayload = {
-      id: (user._id as any).toString(),
+      id: String(user._id),
       role: user.role,
       name: user.name,
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
-    const { password: _pw, ...safeUser } = user as any;
-    return { token, user: safeUser };
+    const { password: _pw, ...safeUser } = user as IStaffUser & { password?: string };
+    return { token, user: safeUser as Omit<IStaffUser, 'password'> };
   },
 
   verifyToken(token: string): StaffTokenPayload {

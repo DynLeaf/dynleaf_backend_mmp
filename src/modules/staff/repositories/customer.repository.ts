@@ -21,7 +21,7 @@ export const customerRepository = {
     const end = new Date();
     end.setHours(23, 59, 59, 999);
 
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       followupDate: { $gte: start, $lte: end },
     };
@@ -32,7 +32,7 @@ export const customerRepository = {
 
   async findMissedFollowups(salespersonId?: string): Promise<ICustomer[]> {
     const now = new Date();
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       status: 'active',
       followupDate: { $lt: now },
@@ -43,7 +43,7 @@ export const customerRepository = {
 
   async findUpcomingFollowups(salespersonId?: string): Promise<ICustomer[]> {
     const now = new Date();
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       status: 'active',
       followupDate: { $gt: now },
@@ -52,7 +52,7 @@ export const customerRepository = {
     return Customer.find(filter).sort({ followupDate: 1 }).lean();
   },
 
-  async create(data: Record<string, any>): Promise<ICustomer> {
+  async create(data: Partial<ICustomer>): Promise<ICustomer> {
     const customer = new Customer(data);
     const saved = await customer.save();
     return Customer.findById(saved._id).lean() as Promise<ICustomer>;
@@ -84,7 +84,7 @@ export const customerRepository = {
     limit: number;
   }): Promise<{ data: ICustomer[]; total: number }> {
     const { salespersonId, search, tab, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (salespersonId) filter.createdBy = new mongoose.Types.ObjectId(salespersonId);
 
     if (tab === 'converted') filter.status = 'converted';
@@ -105,7 +105,7 @@ export const customerRepository = {
     }
     const allowed = ['createdAt', 'name', 'followupDate', 'updatedAt'];
     const field = allowed.includes(sortBy) ? sortBy : 'createdAt';
-    const sort: any = { [field]: sortOrder === 'asc' ? 1 : -1 };
+    const sort: Record<string, 1 | -1> = { [field]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       Customer.find(filter).populate('createdBy', 'name email').sort(sort).skip(skip).limit(limit).lean(),

@@ -1,55 +1,57 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { earningsService } from '../services/earnings.service.js';
+import { StaffRequest } from '../middleware/staffAuth.middleware.js';
 
 export const earningsController = {
-  async getMyEarnings(req: Request, res: Response) {
+  async getMyEarnings(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const earnings = await earningsService.getEarningsByCrafter(id);
       return res.status(200).json({ status: true, data: earnings });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getMySummary(req: Request, res: Response) {
+  async getMySummary(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const summary = await earningsService.getEarningsSummary(id);
       return res.status(200).json({ status: true, data: summary });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getMyPayouts(req: Request, res: Response) {
+  async getMyPayouts(req: StaffRequest, res: Response) {
     try {
-      const { id } = (req as any).staffUser;
+      const { id } = req.staffUser!;
       const payouts = await earningsService.getPayoutsByCrafter(id);
       return res.status(200).json({ status: true, data: payouts });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
   // Admin endpoints
-  async getAllPayouts(req: Request, res: Response) {
+  async getAllPayouts(req: StaffRequest, res: Response) {
     try {
-      const status = req.query.status as any;
-      const payouts = await earningsService.getAllPayouts(status);
+      const { status } = req.query as Record<string, string>;
+      const payoutStatus = status === 'pending' || status === 'paid' ? status : undefined;
+      const payouts = await earningsService.getAllPayouts(payoutStatus);
       return res.status(200).json({ status: true, data: payouts });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getAllEarnings(req: Request, res: Response) {
+  async getAllEarnings(req: StaffRequest, res: Response) {
     try {
-      const { status, crafterId, page, limit } = req.query as any;
+      const { status, crafterId, page, limit } = req.query as Record<string, string>;
 
       if (page || limit) {
-        const p = parseInt(page as string) || 1;
-        const l = parseInt(limit as string) || 15;
+        const p = parseInt(page) || 1;
+        const l = parseInt(limit) || 15;
         const { data, total } = await earningsService.getPaginatedEarnings({
           crafterId,
           status,
@@ -69,56 +71,56 @@ export const earningsController = {
         });
       }
 
-      const filter: any = {};
+      const filter: { status?: string; crafterId?: string } = {};
       if (status) filter.status = status;
       if (crafterId) filter.crafterId = crafterId;
       const earnings = await earningsService.getAllEarnings(filter);
       return res.status(200).json({ status: true, data: earnings });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async updateEarningsStatus(req: Request, res: Response) {
+  async updateEarningsStatus(req: StaffRequest, res: Response) {
     try {
       const { ids, status } = req.body;
       if (!ids || !Array.isArray(ids)) throw new Error('IDs array is required');
       if (!['pending', 'paid'].includes(status)) throw new Error('Invalid status');
       await earningsService.updateEarningsStatus(ids, status);
       return res.status(200).json({ status: true, message: 'Earnings status updated' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async getPendingPayouts(req: Request, res: Response) {
+  async getPendingPayouts(req: StaffRequest, res: Response) {
     try {
       const payouts = await earningsService.getPendingPayouts();
       return res.status(200).json({ status: true, data: payouts });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async createPayout(req: Request, res: Response) {
+  async createPayout(req: StaffRequest, res: Response) {
     try {
       const payout = await earningsService.createPayout(req.body);
       return res.status(201).json({ status: true, data: payout, message: 'Payout created' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 
-  async markPayoutPaid(req: Request, res: Response) {
+  async markPayoutPaid(req: StaffRequest, res: Response) {
     try {
-      const admin = (req as any).staffUser || (req as any).admin;
-      const adminId = admin?.id || admin?._id?.toString();
+      const admin = req.staffUser;
+      const adminId = admin?.id;
       const { note } = req.body;
       if (!note?.trim()) return res.status(400).json({ status: false, error: 'Note is required' });
-      const payout = await earningsService.markPayoutPaid(req.params.id, note, adminId);
+      const payout = await earningsService.markPayoutPaid(req.params.id, note, adminId ?? '');
       return res.status(200).json({ status: true, data: payout, message: 'Payout marked as paid' });
-    } catch (err: any) {
-      return res.status(400).json({ status: false, error: err.message });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
 };
