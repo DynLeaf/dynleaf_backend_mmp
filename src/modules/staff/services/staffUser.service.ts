@@ -1,6 +1,8 @@
 import { staffUserRepository } from '../repositories/staffUser.repository.js';
 import { IStaffUser, StaffRole, StaffStatus } from '../models/StaffUser.js';
 
+export type { IStaffUser, StaffRole, StaffStatus };
+
 export const staffUserService = {
   async getAll(filter?: { role?: StaffRole; status?: StaffStatus }): Promise<IStaffUser[]> {
     return staffUserRepository.findAll(filter);

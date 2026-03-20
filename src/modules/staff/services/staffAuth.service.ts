@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { staffUserRepository } from '../repositories/staffUser.repository.js';
-import { IStaffUser, StaffUser } from '../models/StaffUser.js';
+import { IStaffUser } from '../models/StaffUser.js';
 
 const JWT_SECRET = process.env.STAFF_JWT_SECRET || process.env.JWT_SECRET || 'staff_secret_change_me';
 const JWT_EXPIRES_IN = '7d';
@@ -27,7 +27,7 @@ export const staffAuthService = {
     }
 
     // comparePassword needs the full document (not lean)
-    const fullUser = await StaffUser.findById(user._id).select('+password');
+    const fullUser = await staffUserRepository.findDocumentByIdWithPassword(String(user._id));
     if (!fullUser) throw new Error('Invalid credentials');
 
     const isMatch = await fullUser.comparePassword(password);

@@ -1,7 +1,7 @@
 import { customerRepository } from '../repositories/customer.repository.js';
 import { followupRepository } from '../repositories/followup.repository.js';
 import { orderRepository } from '../repositories/order.repository.js';
-import { StaffUser } from '../models/StaffUser.js';
+import { staffUserRepository } from '../repositories/staffUser.repository.js';
 import { crafterEarningRepository } from '../repositories/crafterEarning.repository.js';
 import { crafterPayoutRepository } from '../repositories/crafterPayout.repository.js';
 
@@ -85,8 +85,20 @@ export const crafterDashboardService = {
 };
 
 export const adminDashboardService = {
+  async fixFollowups() {
+    const convertedCustomers = await customerRepository.findByStatus('converted');
+
+    let updatedCount = 0;
+    for (const customer of convertedCustomers) {
+      const customerId = (customer._id as mongoose.Types.ObjectId).toString();
+      await followupRepository.markPendingAsDone(customerId, 'Auto-cleaned up: Customer already converted');
+      updatedCount++;
+    }
+    return updatedCount;
+  },
+
   async getSalesTracking() {
-    const salesmen = await StaffUser.find({ role: 'salesman' }).lean();
+    const salesmen = await staffUserRepository.findByRole('salesman');
 
     const tracking = await Promise.all(
       salesmen.map(async (s) => {
@@ -114,7 +126,7 @@ export const adminDashboardService = {
   },
 
   async getCrafterTracking() {
-    const crafters = await StaffUser.find({ role: 'crafter' }).lean();
+    const crafters = await staffUserRepository.findByRole('crafter');
 
     const tracking = await Promise.all(
       crafters.map(async (c) => {
@@ -142,7 +154,7 @@ export const adminDashboardService = {
   },
 
   async getSalespersonDetails(salespersonId: string) {
-    const salesperson = await StaffUser.findById(salespersonId).lean();
+    const salesperson = await staffUserRepository.findById(salespersonId);
     if (!salesperson) throw new Error('Salesperson not found');
 
     const [customers, followups, orders] = await Promise.all([
@@ -201,7 +213,7 @@ export const adminDashboardService = {
   },
 
   async getCrafterDetails(crafterId: string) {
-    const crafter = await StaffUser.findById(crafterId).lean();
+    const crafter = await staffUserRepository.findById(crafterId);
     if (!crafter) throw new Error('Crafter not found');
 
     const [orders, earnings, payouts] = await Promise.all([

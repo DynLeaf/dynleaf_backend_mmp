@@ -15,6 +15,10 @@ export const customerRepository = {
     return Customer.find().populate('createdBy', 'name email').sort({ createdAt: -1 }).lean();
   },
 
+  async findByStatus(status: CustomerStatus): Promise<ICustomer[]> {
+    return Customer.find({ status }).lean();
+  },
+
   async findWithFollowupToday(salespersonId?: string): Promise<ICustomer[]> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);

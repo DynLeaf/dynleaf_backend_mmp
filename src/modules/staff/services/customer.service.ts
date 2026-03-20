@@ -118,10 +118,7 @@ export const customerService = {
     newTime: string,
     message: string
   ): Promise<void> {
-    const { Followup } = await import('../models/Followup.js');
-    const existing = await Followup.findOne({ customerId, salespersonId, status: 'pending' })
-      .sort({ updatedAt: -1 })
-      .lean();
+    const existing = await followupRepository.findLatestPending(customerId, salespersonId);
 
     if (existing) {
       const historyEntry: IFollowupEvent = {

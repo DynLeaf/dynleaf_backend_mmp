@@ -1,7 +1,6 @@
 import { Response } from 'express';
-import { staffUserService } from '../services/staffUser.service.js';
+import { staffUserService, StaffRole, StaffStatus } from '../services/staffUser.service.js';
 import { StaffRequest } from '../middleware/staffAuth.middleware.js';
-import { StaffRole, StaffStatus } from '../models/StaffUser.js';
 
 export const staffUserController = {
   async getAll(req: StaffRequest, res: Response) {

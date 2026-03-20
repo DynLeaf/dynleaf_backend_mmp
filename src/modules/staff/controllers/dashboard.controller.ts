@@ -1,9 +1,6 @@
 import { Response } from 'express';
 import { salesDashboardService, crafterDashboardService, adminDashboardService } from '../services/dashboard.service.js';
-import { Customer } from '../models/Customer.js';
-import { followupRepository } from '../repositories/followup.repository.js';
 import { StaffRequest } from '../middleware/staffAuth.middleware.js';
-import mongoose from 'mongoose';
 
 export const dashboardController = {
   async getPriorityTasks(req: StaffRequest, res: Response) {
@@ -24,14 +21,7 @@ export const dashboardController = {
 
   async fixFollowups(req: StaffRequest, res: Response) {
     try {
-      const convertedCustomers = await Customer.find({ status: 'converted' }).lean();
-
-      let updatedCount = 0;
-      for (const customer of convertedCustomers) {
-        const customerId = (customer._id as mongoose.Types.ObjectId).toString();
-        await followupRepository.markPendingAsDone(customerId, 'Auto-cleaned up: Customer already converted');
-        updatedCount++;
-      }
+      const updatedCount = await adminDashboardService.fixFollowups();
       return res.status(200).json({ status: true, message: `Completed followups for ${updatedCount} converted customers` });
     } catch (err: unknown) {
       return res.status(400).json({ status: false, error: (err as Error).message });

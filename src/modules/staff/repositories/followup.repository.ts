@@ -7,7 +7,14 @@ export const followupRepository = {
   async findById(id: string): Promise<IFollowup | null> {
     return Followup.findById(id)
       .populate('customerId', 'name instagramId mobile')
+      .populate('customerId', 'name instagramId mobile')
       .populate('salespersonId', 'name email')
+      .lean();
+  },
+
+  async findLatestPending(customerId: string, salespersonId: string): Promise<IFollowup | null> {
+    return Followup.findOne({ customerId, salespersonId, status: 'pending' })
+      .sort({ updatedAt: -1 })
       .lean();
   },
 
