@@ -46,7 +46,7 @@ export const earningsController = {
   async getAllEarnings(req: Request, res: Response) {
     try {
       const { status, crafterId, page, limit } = req.query as any;
-      
+
       if (page || limit) {
         const p = parseInt(page as string) || 1;
         const l = parseInt(limit as string) || 15;
@@ -56,7 +56,7 @@ export const earningsController = {
           page: p,
           limit: l
         });
-        
+
         return res.status(200).json({
           status: true,
           data,

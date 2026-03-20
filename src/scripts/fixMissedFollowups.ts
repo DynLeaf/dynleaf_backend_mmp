@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Customer } from '../models/Customer.js';
+import { Customer } from '../modules/staff/models/Customer.js';
 import { followupRepository } from '../repositories/followup.repository.js';
 
 dotenv.config();
@@ -17,7 +17,7 @@ async function run() {
 
     let updatedCount = 0;
     for (const customer of convertedCustomers) {
-      const customerId = (customer._id as any).toString();
+      const customerId = (customer._id as mongoose.Types.ObjectId).toString();
       await followupRepository.markPendingAsDone(customerId, 'Auto-cleaned up: Customer already converted');
       updatedCount++;
     }

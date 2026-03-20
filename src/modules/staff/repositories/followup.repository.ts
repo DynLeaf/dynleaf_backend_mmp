@@ -1,17 +1,5 @@
 import { Followup, IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Convert followupDate (Date) + followupTime (string "HH:MM") into a real
- * UTC Date so we can compare against new Date() accurately.
- */
-function buildFollowupDateTime(date: Date, time: string): Date {
-  const [hours, minutes] = time.split(':').map(Number);
-  const dt = new Date(date);
-  dt.setHours(hours, minutes, 0, 0);
-  return dt;
-}
+import { buildFollowupDateTime } from '../utils/dateUtils.js';
 
 // ─── Repository ───────────────────────────────────────────────────────────────
 
@@ -212,11 +200,11 @@ export const followupRepository = {
       combined.sort((a, b) => {
         let valA = a[field as keyof IFollowup] as any;
         let valB = b[field as keyof IFollowup] as any;
-        
+
         // Use exact timestamp for precise chronological sorting
         if (field === 'followupDate') {
-           valA = buildFollowupDateTime(a.followupDate, a.followupTime).getTime();
-           valB = buildFollowupDateTime(b.followupDate, b.followupTime).getTime();
+          valA = buildFollowupDateTime(a.followupDate, a.followupTime).getTime();
+          valB = buildFollowupDateTime(b.followupDate, b.followupTime).getTime();
         }
 
         if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -398,7 +386,7 @@ export const followupRepository = {
       followupTime: '00:00',
       recordedAt: new Date(),
     };
-    
+
     // We update all pending followups, appending history and changing status.
     await Followup.updateMany(
       { customerId, status: 'pending' },

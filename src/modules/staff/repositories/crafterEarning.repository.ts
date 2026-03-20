@@ -120,15 +120,15 @@ export const crafterEarningRepository = {
   },
 
   async deleteByOrderAction(orderId: string, action: EarningAction): Promise<void> {
-    await CrafterEarning.deleteMany({ 
-      orderId: new mongoose.Types.ObjectId(orderId), 
+    await CrafterEarning.deleteMany({
+      orderId: new mongoose.Types.ObjectId(orderId),
       action,
       status: 'pending' // Only delete if pending
     });
   },
 
   async deleteByOrder(orderId: string): Promise<void> {
-    await CrafterEarning.deleteMany({ 
+    await CrafterEarning.deleteMany({
       orderId: new mongoose.Types.ObjectId(orderId),
       status: 'pending'
     });

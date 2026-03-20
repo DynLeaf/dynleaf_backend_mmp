@@ -1,5 +1,6 @@
 import { Customer, ICustomer, CustomerStatus } from '../models/Customer.js';
 import mongoose, { Types } from 'mongoose';
+import { Order } from '../models/Order.js';
 
 export const customerRepository = {
   async findById(id: string): Promise<ICustomer | null> {
@@ -111,11 +112,10 @@ export const customerRepository = {
       Customer.countDocuments(filter),
     ]);
 
-    const { Order } = await import('../models/Order.js');
     const customerIds = data.map(c => c._id);
     const orders = await Order.find({ customerId: { $in: customerIds } }).select('customerId').lean();
     const customersWithOrders = new Set(orders.map(o => o.customerId.toString()));
-    
+
     const enrichedData = data.map(c => ({
       ...c,
       hasOrders: customersWithOrders.has(c._id.toString())
@@ -125,8 +125,8 @@ export const customerRepository = {
   },
 
   async findPriorityBySalesperson(salespersonId: string): Promise<ICustomer[]> {
-    return Customer.find({ 
-      createdBy: salespersonId, 
+    return Customer.find({
+      createdBy: salespersonId,
       isPriority: true,
       priorityMessages: { $elemMatch: { senderRole: 'admin', seenAt: null } }
     }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();

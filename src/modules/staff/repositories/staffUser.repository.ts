@@ -18,7 +18,7 @@ export const staffUserRepository = {
     const query: any = {};
     if (filter.role) query.role = filter.role;
     if (filter.status) query.status = filter.status;
-    
+
     return StaffUser.find(query).select('-password').sort({ createdAt: -1 }).lean();
   },
 

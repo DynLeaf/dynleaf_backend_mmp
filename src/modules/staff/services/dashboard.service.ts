@@ -1,6 +1,9 @@
 import { customerRepository } from '../repositories/customer.repository.js';
 import { followupRepository } from '../repositories/followup.repository.js';
 import { orderRepository } from '../repositories/order.repository.js';
+import { StaffUser } from '../models/StaffUser.js';
+import { crafterEarningRepository } from '../repositories/crafterEarning.repository.js';
+import { crafterPayoutRepository } from '../repositories/crafterPayout.repository.js';
 
 export const salesDashboardService = {
   async getSummary(salespersonId: string) {
@@ -81,7 +84,6 @@ export const crafterDashboardService = {
 
 export const adminDashboardService = {
   async getSalesTracking() {
-    const { StaffUser } = await import('../models/StaffUser.js');
     const salesmen = await StaffUser.find({ role: 'salesman' }).lean();
 
     const tracking = await Promise.all(
@@ -110,10 +112,7 @@ export const adminDashboardService = {
   },
 
   async getCrafterTracking() {
-    const { StaffUser } = await import('../models/StaffUser.js');
     const crafters = await StaffUser.find({ role: 'crafter' }).lean();
-    const { crafterEarningRepository } = await import('../repositories/crafterEarning.repository.js');
-    const { crafterPayoutRepository } = await import('../repositories/crafterPayout.repository.js');
 
     const tracking = await Promise.all(
       crafters.map(async (c) => {
@@ -141,7 +140,6 @@ export const adminDashboardService = {
   },
 
   async getSalespersonDetails(salespersonId: string) {
-    const { StaffUser } = await import('../models/StaffUser.js');
     const salesperson = await StaffUser.findById(salespersonId).lean();
     if (!salesperson) throw new Error('Salesperson not found');
 
@@ -201,12 +199,8 @@ export const adminDashboardService = {
   },
 
   async getCrafterDetails(crafterId: string) {
-    const { StaffUser } = await import('../models/StaffUser.js');
     const crafter = await StaffUser.findById(crafterId).lean();
     if (!crafter) throw new Error('Crafter not found');
-
-    const { crafterEarningRepository } = await import('../repositories/crafterEarning.repository.js');
-    const { crafterPayoutRepository } = await import('../repositories/crafterPayout.repository.js');
 
     const [orders, earnings, payouts] = await Promise.all([
       orderRepository.findByCrafter(crafterId),

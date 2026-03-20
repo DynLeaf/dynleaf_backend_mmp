@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { salesDashboardService, crafterDashboardService, adminDashboardService } from '../services/dashboard.service.js';
+import { Customer } from '../models/Customer.js';
+import { followupRepository } from '../repositories/followup.repository.js';
 
 export const dashboardController = {
   async getPriorityTasks(req: Request, res: Response) {
@@ -20,10 +22,8 @@ export const dashboardController = {
 
   async fixFollowups(req: Request, res: Response) {
     try {
-      const { Customer } = await import('../models/Customer.js');
-      const { followupRepository } = await import('../repositories/followup.repository.js');
       const convertedCustomers = await Customer.find({ status: 'converted' }).lean();
-      
+
       let updatedCount = 0;
       for (const customer of convertedCustomers) {
         const customerId = (customer._id as any).toString();

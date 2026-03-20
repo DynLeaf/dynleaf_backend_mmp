@@ -117,7 +117,7 @@ export const orderService = {
     // If moving backward, check for paid earnings
     if (newIndex < currentIndex) {
       const existingEarnings = await crafterEarningRepository.findByOrder(id);
-      
+
       // Earning actions that might be undone
       const actionsToUndo: EarningAction[] = [];
       if (currentIndex >= statusOrder.indexOf('poured') && newIndex < statusOrder.indexOf('poured')) {
@@ -154,7 +154,7 @@ export const orderService = {
 
     if (earningActions[status]) {
       const action = earningActions[status];
-      
+
       // Check if already exists to avoid duplicates
       const existing = await crafterEarningRepository.findByOrder(id);
       if (!existing.some(e => e.action === action)) {
@@ -200,14 +200,14 @@ export const orderService = {
     if (orderFields.quantity && Number(orderFields.quantity) !== Number(order.quantity)) {
       changes.push({ field: 'Quantity', oldValue: order.quantity, newValue: orderFields.quantity });
     }
-    
+
     // Compare dates as strings YYYY-MM-DD
     const oldDateStr = order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '';
     const newDateStr = orderFields.expectedDeliveryDate ? String(orderFields.expectedDeliveryDate).split('T')[0] : '';
     if (newDateStr && newDateStr !== oldDateStr) {
       changes.push({ field: 'Expected Delivery Date', oldValue: oldDateStr || 'None', newValue: newDateStr });
     }
-    
+
     if (orderFields.notes !== undefined && orderFields.notes !== order.notes) {
       changes.push({ field: 'Notes', oldValue: order.notes || 'None', newValue: orderFields.notes || 'None' });
     }
@@ -241,7 +241,7 @@ export const orderService = {
 
     // Handle populated or raw salespersonId
     const orderSalespersonId = (order.salespersonId as any)?._id?.toString() || (order.salespersonId as any)?.toString();
-    
+
     if (orderSalespersonId !== salespersonId) {
       throw new Error('Not authorized');
     }
