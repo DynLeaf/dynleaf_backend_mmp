@@ -131,20 +131,22 @@ export const adminDashboardService = {
     const tracking = await Promise.all(
       crafters.map(async (c) => {
         const id = String(c._id);
-        const [accepted, completed, pending, totalEarnings, pendingPayout] = await Promise.all([
+        const [accepted, shipped, pending, totalEarnings, totalPaid, pendingPayout] = await Promise.all([
           orderRepository.countByCrafter(id, 'accepted'),
-          orderRepository.countByCrafter(id, 'completed'),
+          orderRepository.countByCrafter(id, 'shipped'),
           orderRepository.countByCrafter(id, 'pending'),
           crafterEarningRepository.sumByCrafter(id),
-          crafterPayoutRepository.sumPendingByCrafter(id),
+          crafterEarningRepository.sumByCrafterAndStatus(id, 'paid'),
+          crafterEarningRepository.sumByCrafterAndStatus(id, 'pending'),
         ]);
 
         return {
           crafter: { id, name: c.name, email: c.email },
           acceptedOrders: accepted,
-          completedOrders: completed,
+          completedOrders: shipped,
           pendingOrders: pending,
           totalEarnings,
+          totalPaid,
           pendingPayout,
         };
       })

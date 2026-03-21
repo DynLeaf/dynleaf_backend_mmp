@@ -52,15 +52,46 @@ export const orderRepository = {
   },
 
   async create(data: Partial<IOrder>): Promise<IOrder> {
-    const order = new Order(data);
+    const status = data.status || 'pending';
+    const order = new Order({
+      ...data,
+      statusHistory: [{
+        status,
+        changedAt: new Date(),
+        note: data.notes || data.crafterNotes || data.rejectionReason || data.salesAdditionalNotes || 'Order created',
+      }]
+    });
     return order.save();
   },
 
   async updateStatus(id: string, status: OrderStatus, extra?: Partial<IOrder>): Promise<IOrder | null> {
-    return Order.findByIdAndUpdate(id, { status, ...extra }, { new: true }).lean();
+    const updatePayload: mongoose.UpdateQuery<IOrder> = {
+      $set: { status, ...extra },
+      $push: {
+        statusHistory: {
+          status: status,
+          changedAt: new Date(),
+          note: extra?.notes || extra?.crafterNotes || extra?.rejectionReason || extra?.salesAdditionalNotes || '',
+        }
+      } as any
+    };
+    return Order.findByIdAndUpdate(id, updatePayload, { new: true }).lean();
   },
 
   async updateById(id: string, data: Partial<IOrder>): Promise<IOrder | null> {
+    if (data.status) {
+      const updatePayload: mongoose.UpdateQuery<IOrder> = {
+        $set: data,
+        $push: {
+          statusHistory: {
+            status: data.status,
+            changedAt: new Date(),
+            note: data.notes || data.crafterNotes || data.rejectionReason || data.salesAdditionalNotes || '',
+          }
+        } as any
+      };
+      return Order.findByIdAndUpdate(id, updatePayload, { new: true, runValidators: true }).lean();
+    }
     return Order.findByIdAndUpdate(id, data, { new: true, runValidators: true }).lean();
   },
 

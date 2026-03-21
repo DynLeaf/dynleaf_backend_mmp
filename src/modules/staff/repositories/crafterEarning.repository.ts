@@ -85,6 +85,16 @@ export const crafterEarningRepository = {
     return result[0]?.total ?? 0;
   },
 
+  async sumByCrafterAndStatus(crafterId: string, status?: 'pending' | 'paid'): Promise<number> {
+    const matchOptions: Record<string, unknown> = { crafterId: new mongoose.Types.ObjectId(crafterId) };
+    if (status) matchOptions.status = status;
+    const result = await CrafterEarning.aggregate([
+      { $match: matchOptions },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return result[0]?.total ?? 0;
+  },
+
   async sumByPeriod(crafterId: string, from: Date, to: Date): Promise<number> {
     const result = await CrafterEarning.aggregate([
       {

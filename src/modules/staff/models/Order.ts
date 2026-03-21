@@ -48,6 +48,11 @@ export interface IOrder extends Document {
     rejectedAt: Date;
     reason: string;
   }>;
+  statusHistory?: Array<{
+    status: OrderStatus;
+    changedAt: Date;
+    note?: string;
+  }>;
   communicationLogs: Array<{
     senderRole: 'salesman' | 'crafter';
     senderId: mongoose.Types.ObjectId;
@@ -127,6 +132,11 @@ const orderSchema = new Schema<IOrder>(
     rejectionLog: [{
       rejectedAt: { type: Date, default: Date.now },
       reason: { type: String, required: true }
+    }],
+    statusHistory: [{
+      status: { type: String, required: true },
+      changedAt: { type: Date, default: Date.now },
+      note: { type: String, trim: true }
     }]
   },
   { timestamps: true }
