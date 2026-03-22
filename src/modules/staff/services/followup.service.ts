@@ -1,5 +1,6 @@
 import { followupRepository } from '../repositories/followup.repository.js';
 import { IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
+import mongoose from 'mongoose';
 
 export type FollowupFilter = 'today' | 'missed' | 'upcoming' | 'all';
 
@@ -51,6 +52,8 @@ export const followupService = {
 
     return followupRepository.create({
       ...data,
+      customerId: data.customerId as unknown as mongoose.Types.ObjectId,
+      salespersonId: data.salespersonId as unknown as mongoose.Types.ObjectId,
       followupDate: new Date(data.followupDate),
       history: [initialHistory],
       status: 'pending',
@@ -78,7 +81,7 @@ export const followupService = {
       message: data.message || existing.message,
       status: 'pending',
       history: [...(existing.history || []), historyEntry],
-    } as any);
+    } as Partial<IFollowup>);
 
     if (!updated) throw new Error('Followup not found');
     return updated;
@@ -99,7 +102,7 @@ export const followupService = {
     const updated = await followupRepository.updateById(id, {
       message,
       history: [...(existing.history || []), historyEntry],
-    } as any);
+    } as Partial<IFollowup>);
 
     if (!updated) throw new Error('Followup not found');
     return updated;
@@ -121,7 +124,7 @@ export const followupService = {
       status: 'done',
       message: message || existing.message,
       history: [...(existing.history || []), historyEntry],
-    } as any);
+    } as Partial<IFollowup>);
 
     if (!updated) throw new Error('Followup not found');
     return updated;

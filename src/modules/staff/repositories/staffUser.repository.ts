@@ -10,16 +10,24 @@ export const staffUserRepository = {
     return StaffUser.findById(id).select('+password').lean();
   },
 
+  async findDocumentByIdWithPassword(id: string) {
+    return StaffUser.findById(id).select('+password');
+  },
+
   async findByEmail(email: string): Promise<IStaffUser | null> {
     return StaffUser.findOne({ email: email.toLowerCase() }).select('+password').lean();
   },
 
   async findAll(filter: Partial<{ role: StaffRole; status: StaffStatus }> = {}): Promise<IStaffUser[]> {
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (filter.role) query.role = filter.role;
     if (filter.status) query.status = filter.status;
-    
+
     return StaffUser.find(query).select('-password').sort({ createdAt: -1 }).lean();
+  },
+
+  async findByRole(role: StaffRole): Promise<IStaffUser[]> {
+    return StaffUser.find({ role }).select('-password').sort({ createdAt: -1 }).lean();
   },
 
   async create(data: {

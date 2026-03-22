@@ -10,8 +10,11 @@ export const crafterEarningRepository = {
     return CrafterEarning.find({ crafterId })
       .populate({
         path: 'orderId',
-        select: 'productType quantity designType customerId',
-        populate: { path: 'customerId', select: 'name' },
+        select: 'productType quantity designType customerId salespersonId',
+        populate: [
+          { path: 'customerId', select: 'name' },
+          { path: 'salespersonId', select: 'name' },
+        ],
       })
       .sort({ createdAt: -1 })
       .lean();
@@ -24,7 +27,7 @@ export const crafterEarningRepository = {
     limit: number;
   }): Promise<{ data: ICrafterEarning[]; total: number }> {
     const { crafterId, status, page, limit } = opts;
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (crafterId) filter.crafterId = crafterId;
     if (status) filter.status = status;
 
@@ -33,8 +36,11 @@ export const crafterEarningRepository = {
       CrafterEarning.find(filter)
         .populate({
           path: 'orderId',
-          select: 'productType quantity designType customerId',
-          populate: { path: 'customerId', select: 'name' },
+          select: 'productType quantity designType customerId salespersonId',
+          populate: [
+            { path: 'customerId', select: 'name' },
+            { path: 'salespersonId', select: 'name' },
+          ],
         })
         .populate('crafterId', 'name')
         .sort({ createdAt: -1 })
@@ -47,12 +53,15 @@ export const crafterEarningRepository = {
     return { data: data as ICrafterEarning[], total };
   },
 
-  async findAll(filter: any = {}): Promise<ICrafterEarning[]> {
+  async findAll(filter: Record<string, unknown> = {}): Promise<ICrafterEarning[]> {
     return CrafterEarning.find(filter)
       .populate({
         path: 'orderId',
-        select: 'productType quantity designType customerId',
-        populate: { path: 'customerId', select: 'name' },
+        select: 'productType quantity designType customerId salespersonId',
+        populate: [
+          { path: 'customerId', select: 'name' },
+          { path: 'salespersonId', select: 'name' },
+        ],
       })
       .populate('crafterId', 'name')
       .sort({ createdAt: -1 })
@@ -71,6 +80,16 @@ export const crafterEarningRepository = {
   async sumByCrafter(crafterId: string): Promise<number> {
     const result = await CrafterEarning.aggregate([
       { $match: { crafterId: new mongoose.Types.ObjectId(crafterId) } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return result[0]?.total ?? 0;
+  },
+
+  async sumByCrafterAndStatus(crafterId: string, status?: 'pending' | 'paid'): Promise<number> {
+    const matchOptions: Record<string, unknown> = { crafterId: new mongoose.Types.ObjectId(crafterId) };
+    if (status) matchOptions.status = status;
+    const result = await CrafterEarning.aggregate([
+      { $match: matchOptions },
       { $group: { _id: null, total: { $sum: '$amount' } } },
     ]);
     return result[0]?.total ?? 0;
@@ -111,15 +130,15 @@ export const crafterEarningRepository = {
   },
 
   async deleteByOrderAction(orderId: string, action: EarningAction): Promise<void> {
-    await CrafterEarning.deleteMany({ 
-      orderId: new mongoose.Types.ObjectId(orderId), 
+    await CrafterEarning.deleteMany({
+      orderId: new mongoose.Types.ObjectId(orderId),
       action,
       status: 'pending' // Only delete if pending
     });
   },
 
   async deleteByOrder(orderId: string): Promise<void> {
-    await CrafterEarning.deleteMany({ 
+    await CrafterEarning.deleteMany({
       orderId: new mongoose.Types.ObjectId(orderId),
       status: 'pending'
     });

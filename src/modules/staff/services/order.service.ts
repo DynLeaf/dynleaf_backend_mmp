@@ -1,7 +1,8 @@
 import { orderRepository } from '../repositories/order.repository.js';
 import { crafterEarningRepository } from '../repositories/crafterEarning.repository.js';
-import { IOrder, OrderStatus, DeliveryMethod } from '../models/Order.js';
+import { IOrder, OrderStatus, DeliveryMethod, OrderPriority } from '../models/Order.js';
 import { EARNING_RATES, EarningAction } from '../models/CrafterEarning.js';
+import mongoose from 'mongoose';
 
 export const orderService = {
   async getAll(filter?: Partial<{ status: OrderStatus; salespersonId: string; crafterId: string }>): Promise<IOrder[]> {
@@ -52,6 +53,9 @@ export const orderService = {
 
     return orderRepository.create({
       ...data,
+      customerId: data.customerId as unknown as mongoose.Types.ObjectId,
+      salespersonId: data.salespersonId as unknown as mongoose.Types.ObjectId,
+      priority: data.priority as OrderPriority | undefined,
       expectedDeliveryDate: new Date(data.expectedDeliveryDate),
       status: 'pending',
     });
@@ -60,9 +64,9 @@ export const orderService = {
   async accept(id: string, crafterId: string): Promise<IOrder> {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
-    if (order.status !== 'pending') throw new Error('Only pending orders can be accepted');
+    if (!['pending', 'resubmitted'].includes(order.status)) throw new Error('Only pending or resubmitted orders can be accepted');
 
-    const updated = await orderRepository.updateStatus(id, 'accepted', { crafterId: crafterId as any });
+    const updated = await orderRepository.updateStatus(id, 'accepted', { crafterId: crafterId as unknown as mongoose.Types.ObjectId });
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -71,14 +75,27 @@ export const orderService = {
     if (!reason?.trim()) throw new Error('Rejection reason is required');
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
-    if (!['pending', 'accepted'].includes(order.status)) {
+    if (!['pending', 'resubmitted', 'accepted'].includes(order.status)) {
       throw new Error('Order cannot be rejected at this stage');
     }
 
-    const updated = await orderRepository.updateStatus(id, 'rejected', {
-      crafterId: crafterId as any,
+    const updated = await orderRepository.updateById(id, {
+      status: 'rejected',
+      crafterId: crafterId as unknown as mongoose.Types.ObjectId,
       rejectionReason: reason,
-    });
+      $push: {
+        rejectionLog: {
+          rejectedAt: new Date(),
+          reason
+        },
+        communicationLogs: {
+          senderRole: 'crafter',
+          senderId: crafterId as unknown as mongoose.Types.ObjectId,
+          content: `Order Rejected: ${reason}`,
+          timestamp: new Date()
+        }
+      }
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -92,7 +109,7 @@ export const orderService = {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
-    const orderCrafterId = (order.crafterId as any)?._id?.toString() || (order.crafterId as any)?.toString();
+    const orderCrafterId = String((order.crafterId as { _id?: mongoose.Types.ObjectId })?._id || order.crafterId);
     if (orderCrafterId !== crafterId) throw new Error('Not authorized for this order');
 
     const statusOrder: OrderStatus[] = ['pending', 'accepted', 'printed', 'poured', 'sticker', 'completed', 'shipped'];
@@ -104,7 +121,7 @@ export const orderService = {
     // If moving backward, check for paid earnings
     if (newIndex < currentIndex) {
       const existingEarnings = await crafterEarningRepository.findByOrder(id);
-      
+
       // Earning actions that might be undone
       const actionsToUndo: EarningAction[] = [];
       if (currentIndex >= statusOrder.indexOf('poured') && newIndex < statusOrder.indexOf('poured')) {
@@ -141,14 +158,14 @@ export const orderService = {
 
     if (earningActions[status]) {
       const action = earningActions[status];
-      
+
       // Check if already exists to avoid duplicates
       const existing = await crafterEarningRepository.findByOrder(id);
       if (!existing.some(e => e.action === action)) {
         const rate = EARNING_RATES[action];
         await crafterEarningRepository.create({
-          orderId: (order._id as any).toString() as any,
-          crafterId: crafterId as any,
+          orderId: String(order._id) as unknown as mongoose.Types.ObjectId,
+          crafterId: crafterId as unknown as mongoose.Types.ObjectId,
           action,
           quantity: order.quantity,
           rate,
@@ -161,23 +178,63 @@ export const orderService = {
     return updated;
   },
 
-  async resubmit(id: string, salespersonId: string, data: Partial<IOrder>): Promise<IOrder> {
+  async resubmit(id: string, salespersonId: string, data: Partial<IOrder> & { salesAdditionalNotes?: string }): Promise<IOrder> {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
     // Handle populated or raw salespersonId
-    const orderSalespersonId = (order.salespersonId as any)?._id?.toString() || (order.salespersonId as any)?.toString();
+    const orderSalespersonId = String((order.salespersonId as { _id?: mongoose.Types.ObjectId })?._id || order.salespersonId);
 
     if (orderSalespersonId !== salespersonId) {
       throw new Error('Not authorized');
     }
     if (order.status !== 'rejected') throw new Error('Only rejected orders can be resubmitted');
 
+    if (!data.salesAdditionalNotes?.trim()) {
+      throw new Error('A resubmit note explaining the changes is required');
+    }
+
+    const { salesAdditionalNotes, ...orderFields } = data;
+
+    // Track explicit changes
+    const changes: Array<{ field: string; oldValue: unknown; newValue: unknown }> = [];
+    if (orderFields.productType && orderFields.productType !== order.productType) {
+      changes.push({ field: 'Product Type', oldValue: order.productType, newValue: orderFields.productType });
+    }
+    if (orderFields.quantity && Number(orderFields.quantity) !== Number(order.quantity)) {
+      changes.push({ field: 'Quantity', oldValue: order.quantity, newValue: orderFields.quantity });
+    }
+
+    // Compare dates as strings YYYY-MM-DD
+    const oldDateStr = order.expectedDeliveryDate ? new Date(order.expectedDeliveryDate).toISOString().split('T')[0] : '';
+    const newDateStr = orderFields.expectedDeliveryDate ? String(orderFields.expectedDeliveryDate).split('T')[0] : '';
+    if (newDateStr && newDateStr !== oldDateStr) {
+      changes.push({ field: 'Expected Delivery Date', oldValue: oldDateStr || 'None', newValue: newDateStr });
+    }
+
+    if (orderFields.notes !== undefined && orderFields.notes !== order.notes) {
+      changes.push({ field: 'Notes', oldValue: order.notes || 'None', newValue: orderFields.notes || 'None' });
+    }
+
     const updated = await orderRepository.updateById(id, {
-      ...data,
-      status: 'pending',
+      ...orderFields,
+      salesAdditionalNotes,
+      status: 'resubmitted',
       rejectionReason: undefined,
-    });
+      $push: {
+        communicationLogs: {
+          senderRole: 'salesman',
+          senderId: salespersonId as unknown as mongoose.Types.ObjectId,
+          content: salesAdditionalNotes,
+          timestamp: new Date(),
+        },
+        resubmissionLog: {
+          resubmittedAt: new Date(),
+          note: salesAdditionalNotes,
+          changes
+        }
+      },
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -187,8 +244,8 @@ export const orderService = {
     if (!order) throw new Error('Order not found');
 
     // Handle populated or raw salespersonId
-    const orderSalespersonId = (order.salespersonId as any)?._id?.toString() || (order.salespersonId as any)?.toString();
-    
+    const orderSalespersonId = String((order.salespersonId as { _id?: mongoose.Types.ObjectId })?._id || order.salespersonId);
+
     if (orderSalespersonId !== salespersonId) {
       throw new Error('Not authorized');
     }
@@ -198,12 +255,12 @@ export const orderService = {
       $push: {
         communicationLogs: {
           senderRole: 'salesman',
-          senderId: salespersonId as any,
+          senderId: salespersonId as unknown as mongoose.Types.ObjectId,
           content: note,
           timestamp: new Date()
         }
       }
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -212,7 +269,7 @@ export const orderService = {
     const order = await orderRepository.findById(id);
     if (!order) throw new Error('Order not found');
 
-    const orderCrafterId = (order.crafterId as any)?._id?.toString() || (order.crafterId as any)?.toString();
+    const orderCrafterId = String((order.crafterId as { _id?: mongoose.Types.ObjectId })?._id || order.crafterId);
     if (orderCrafterId !== crafterId) throw new Error('Not authorized');
 
     const updated = await orderRepository.updateById(id, {
@@ -220,12 +277,12 @@ export const orderService = {
       $push: {
         communicationLogs: {
           senderRole: 'crafter',
-          senderId: crafterId as any,
+          senderId: crafterId as unknown as mongoose.Types.ObjectId,
           content: note,
           timestamp: new Date()
         }
       }
-    } as any);
+    } as Partial<IOrder>);
     if (!updated) throw new Error('Order not found');
     return updated;
   },
@@ -233,6 +290,7 @@ export const orderService = {
   async getPaginated(opts: {
     salespersonId?: string;
     crafterId?: string;
+    customerId?: string;
     status?: string;
     sortBy?: string;
     sortOrder?: string;
@@ -244,6 +302,7 @@ export const orderService = {
     const { data, total } = await orderRepository.findPaginated({
       salespersonId: opts.salespersonId,
       crafterId: opts.crafterId,
+      customerId: opts.customerId,
       status: opts.status,
       sortBy: opts.sortBy,
       sortOrder: opts.sortOrder as 'asc' | 'desc',

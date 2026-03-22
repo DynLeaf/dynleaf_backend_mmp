@@ -1,17 +1,5 @@
-import { Followup, IFollowup, FollowupStatus } from '../models/Followup.js';
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Convert followupDate (Date) + followupTime (string "HH:MM") into a real
- * UTC Date so we can compare against new Date() accurately.
- */
-function buildFollowupDateTime(date: Date, time: string): Date {
-  const [hours, minutes] = time.split(':').map(Number);
-  const dt = new Date(date);
-  dt.setHours(hours, minutes, 0, 0);
-  return dt;
-}
+import { Followup, IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
+import { buildFollowupDateTime } from '../utils/dateUtils.js';
 
 // ─── Repository ───────────────────────────────────────────────────────────────
 
@@ -19,7 +7,14 @@ export const followupRepository = {
   async findById(id: string): Promise<IFollowup | null> {
     return Followup.findById(id)
       .populate('customerId', 'name instagramId mobile')
+      .populate('customerId', 'name instagramId mobile')
       .populate('salespersonId', 'name email')
+      .lean();
+  },
+
+  async findLatestPending(customerId: string, salespersonId: string): Promise<IFollowup | null> {
+    return Followup.findOne({ customerId, salespersonId, status: 'pending' })
+      .sort({ updatedAt: -1 })
       .lean();
   },
 
@@ -28,7 +23,7 @@ export const followupRepository = {
   },
 
   async findBySalesperson(salespersonId: string, status?: FollowupStatus): Promise<IFollowup[]> {
-    const filter: any = { salespersonId };
+    const filter: Record<string, unknown> = { salespersonId };
     if (status) filter.status = status;
     return Followup.find(filter)
       .populate('customerId', 'name instagramId mobile')
@@ -155,7 +150,7 @@ export const followupRepository = {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    const baseFilter: any = { salespersonId };
+    const baseFilter: Record<string, unknown> = { salespersonId };
 
     // Apply time-based filter at DB level where possible
     if (filter === 'today') {
@@ -178,7 +173,7 @@ export const followupRepository = {
     // For large datasets, a $lookup aggregation would be preferred.
     const allowed = ['followupDate', 'createdAt', 'updatedAt'];
     const field = allowed.includes(sortBy) ? sortBy : 'followupDate';
-    const sort: any = { [field]: sortOrder === 'asc' ? 1 : -1 };
+    const sort: Record<string, 1 | -1> = { [field]: sortOrder === 'asc' ? 1 : -1 };
 
     if (filter === 'missed' || filter === 'upcoming') {
       const isMissed = filter === 'missed';
@@ -210,13 +205,13 @@ export const followupRepository = {
 
       // Sort the combined results in memory
       combined.sort((a, b) => {
-        let valA = a[field as keyof IFollowup] as any;
-        let valB = b[field as keyof IFollowup] as any;
-        
+        let valA: string | number | Date = a[field as keyof IFollowup] as string | number | Date;
+        let valB: string | number | Date = b[field as keyof IFollowup] as string | number | Date;
+
         // Use exact timestamp for precise chronological sorting
         if (field === 'followupDate') {
-           valA = buildFollowupDateTime(a.followupDate, a.followupTime).getTime();
-           valB = buildFollowupDateTime(b.followupDate, b.followupTime).getTime();
+          valA = buildFollowupDateTime(a.followupDate, a.followupTime).getTime();
+          valB = buildFollowupDateTime(b.followupDate, b.followupTime).getTime();
         }
 
         if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
@@ -228,7 +223,7 @@ export const followupRepository = {
       if (search) {
         const q = search.toLowerCase();
         combined = combined.filter((f) => {
-          const customer = typeof f.customerId === 'object' ? (f.customerId as any) : null;
+          const customer = typeof f.customerId === 'object' ? (f.customerId as { name?: string; mobile?: string; instagramId?: string }) : null;
           if (!customer) return false;
           return (
             customer.name?.toLowerCase().includes(q) ||
@@ -260,7 +255,7 @@ export const followupRepository = {
     const allDocs = await query.lean() as IFollowup[];
     const q = search.toLowerCase();
     const filtered = allDocs.filter((f) => {
-      const customer = typeof f.customerId === 'object' ? (f.customerId as any) : null;
+      const customer = typeof f.customerId === 'object' ? (f.customerId as { name?: string; mobile?: string; instagramId?: string }) : null;
       if (!customer) return false;
       return (
         customer.name?.toLowerCase().includes(q) ||
@@ -313,7 +308,7 @@ export const followupRepository = {
     let sameDayMissed = 0;
     let sameDayUpcoming = 0;
 
-    todayAllPending.forEach((f: any) => {
+    todayAllPending.forEach((f: Pick<IFollowup, 'followupDate' | 'followupTime'>) => {
       if (!f.followupTime) return;
       if (buildFollowupDateTime(f.followupDate, f.followupTime) < now) {
         sameDayMissed++;
@@ -329,7 +324,7 @@ export const followupRepository = {
     };
   },
 
-  async create(data: Record<string, any>): Promise<IFollowup> {
+  async create(data: Partial<IFollowup>): Promise<IFollowup> {
     const followup = new Followup(data);
     return followup.save();
   },
@@ -358,7 +353,7 @@ export const followupRepository = {
         .lean(),
     ]);
 
-    const sameDayMissed = todayDocs.filter((f: any) => {
+    const sameDayMissed = todayDocs.filter((f: Pick<IFollowup, 'followupDate' | 'followupTime'>) => {
       if (!f.followupTime) return false;
       return buildFollowupDateTime(f.followupDate, f.followupTime) < now;
     }).length;
@@ -375,11 +370,11 @@ export const followupRepository = {
     limit: number;
   }): Promise<{ data: IFollowup[]; total: number }> {
     const { salespersonId, status, sortBy = 'followupDate', sortOrder = 'desc', page, limit } = opts;
-    const filter: any = { salespersonId };
+    const filter: Record<string, unknown> = { salespersonId };
     if (status) filter.status = status;
     const allowed = ['followupDate', 'createdAt', 'updatedAt'];
     const field = allowed.includes(sortBy) ? sortBy : 'followupDate';
-    const sort: any = { [field]: sortOrder === 'asc' ? 1 : -1 };
+    const sort: Record<string, 1 | -1> = { [field]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       Followup.find(filter)
@@ -388,5 +383,24 @@ export const followupRepository = {
       Followup.countDocuments(filter),
     ]);
     return { data: data as IFollowup[], total };
+  },
+
+  async markPendingAsDone(customerId: string, message?: string): Promise<void> {
+    const historyEntry: IFollowupEvent = {
+      message: message || 'Marked done automatically',
+      status: 'done',
+      followupDate: new Date(),
+      followupTime: '00:00',
+      recordedAt: new Date(),
+    };
+
+    // We update all pending followups, appending history and changing status.
+    await Followup.updateMany(
+      { customerId, status: 'pending' },
+      {
+        $set: { status: 'done' },
+        $push: { history: historyEntry }
+      }
+    );
   },
 };

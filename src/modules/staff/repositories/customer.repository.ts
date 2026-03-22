@@ -1,5 +1,6 @@
 import { Customer, ICustomer, CustomerStatus } from '../models/Customer.js';
 import mongoose, { Types } from 'mongoose';
+import { Order } from '../models/Order.js';
 
 export const customerRepository = {
   async findById(id: string): Promise<ICustomer | null> {
@@ -14,13 +15,17 @@ export const customerRepository = {
     return Customer.find().populate('createdBy', 'name email').sort({ createdAt: -1 }).lean();
   },
 
+  async findByStatus(status: CustomerStatus): Promise<ICustomer[]> {
+    return Customer.find({ status }).lean();
+  },
+
   async findWithFollowupToday(salespersonId?: string): Promise<ICustomer[]> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date();
     end.setHours(23, 59, 59, 999);
 
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       followupDate: { $gte: start, $lte: end },
     };
@@ -31,7 +36,7 @@ export const customerRepository = {
 
   async findMissedFollowups(salespersonId?: string): Promise<ICustomer[]> {
     const now = new Date();
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       status: 'active',
       followupDate: { $lt: now },
@@ -42,7 +47,7 @@ export const customerRepository = {
 
   async findUpcomingFollowups(salespersonId?: string): Promise<ICustomer[]> {
     const now = new Date();
-    const filter: any = {
+    const filter: Record<string, unknown> = {
       followupRequired: true,
       status: 'active',
       followupDate: { $gt: now },
@@ -51,7 +56,7 @@ export const customerRepository = {
     return Customer.find(filter).sort({ followupDate: 1 }).lean();
   },
 
-  async create(data: Record<string, any>): Promise<ICustomer> {
+  async create(data: Partial<ICustomer>): Promise<ICustomer> {
     const customer = new Customer(data);
     const saved = await customer.save();
     return Customer.findById(saved._id).lean() as Promise<ICustomer>;
@@ -76,18 +81,19 @@ export const customerRepository = {
   async findPaginated(opts: {
     salespersonId?: string;
     search?: string;
-    tab?: 'all' | 'followup' | 'missed' | 'converted' | 'cancelled';
+    tab?: 'all' | 'followup' | 'missed' | 'converted' | 'cancelled' | 'active';
     sortBy?: string;
     sortOrder?: 'asc' | 'desc';
     page: number;
     limit: number;
   }): Promise<{ data: ICustomer[]; total: number }> {
     const { salespersonId, search, tab, sortBy = 'createdAt', sortOrder = 'desc', page, limit } = opts;
-    const filter: any = {};
+    const filter: Record<string, unknown> = {};
     if (salespersonId) filter.createdBy = new mongoose.Types.ObjectId(salespersonId);
 
     if (tab === 'converted') filter.status = 'converted';
     else if (tab === 'cancelled') filter.status = 'cancelled';
+    else if (tab === 'active') filter.status = 'active';
     else if (tab === 'followup') {
       filter.status = 'active';
       filter.followupRequired = true;
@@ -103,17 +109,31 @@ export const customerRepository = {
     }
     const allowed = ['createdAt', 'name', 'followupDate', 'updatedAt'];
     const field = allowed.includes(sortBy) ? sortBy : 'createdAt';
-    const sort: any = { [field]: sortOrder === 'asc' ? 1 : -1 };
+    const sort: Record<string, 1 | -1> = { [field]: sortOrder === 'asc' ? 1 : -1 };
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       Customer.find(filter).populate('createdBy', 'name email').sort(sort).skip(skip).limit(limit).lean(),
       Customer.countDocuments(filter),
     ]);
-    return { data: data as ICustomer[], total };
+
+    const customerIds = data.map(c => c._id);
+    const orders = await Order.find({ customerId: { $in: customerIds } }).select('customerId').lean();
+    const customersWithOrders = new Set(orders.map(o => o.customerId.toString()));
+
+    const enrichedData = data.map(c => ({
+      ...c,
+      hasOrders: customersWithOrders.has(c._id.toString())
+    }));
+
+    return { data: enrichedData as unknown as ICustomer[], total };
   },
 
   async findPriorityBySalesperson(salespersonId: string): Promise<ICustomer[]> {
-    return Customer.find({ createdBy: salespersonId, isPriority: true }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();
+    return Customer.find({
+      createdBy: salespersonId,
+      isPriority: true,
+      priorityMessages: { $elemMatch: { senderRole: 'admin', seenAt: null } }
+    }).sort({ priorityLastMessageAt: -1, updatedAt: -1 }).lean();
   },
 
   async findPriorityPaginatedBySalesperson(salespersonId: string, page: number, limit: number): Promise<{ data: ICustomer[]; total: number }> {

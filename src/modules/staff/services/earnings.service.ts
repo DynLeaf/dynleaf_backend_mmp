@@ -2,13 +2,14 @@ import { crafterEarningRepository } from '../repositories/crafterEarning.reposit
 import { crafterPayoutRepository } from '../repositories/crafterPayout.repository.js';
 import { ICrafterEarning } from '../models/CrafterEarning.js';
 import { ICrafterPayout } from '../models/CrafterPayout.js';
+import mongoose from 'mongoose';
 
 export const earningsService = {
   async getEarningsByCrafter(crafterId: string): Promise<ICrafterEarning[]> {
     return crafterEarningRepository.findByCrafter(crafterId);
   },
 
-  async getAllEarnings(filter: any = {}): Promise<ICrafterEarning[]> {
+  async getAllEarnings(filter: Record<string, unknown> = {}): Promise<ICrafterEarning[]> {
     return crafterEarningRepository.findAll(filter);
   },
 
@@ -87,10 +88,10 @@ export const earningsService = {
     if (!data.totalAmount || data.totalAmount <= 0) throw new Error('Total amount must be positive');
 
     return crafterPayoutRepository.create({
-      crafterId: data.crafterId as any,
+      crafterId: data.crafterId as unknown as mongoose.Types.ObjectId,
       totalAmount: data.totalAmount,
-      ordersIncluded: data.ordersIncluded as any[],
-      earningsIncluded: data.earningsIncluded as any[],
+      ordersIncluded: data.ordersIncluded as unknown as mongoose.Types.ObjectId[],
+      earningsIncluded: data.earningsIncluded as unknown as mongoose.Types.ObjectId[],
       status: 'pending',
     });
   },

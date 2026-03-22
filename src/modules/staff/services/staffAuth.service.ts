@@ -27,8 +27,7 @@ export const staffAuthService = {
     }
 
     // comparePassword needs the full document (not lean)
-    const { StaffUser } = await import('../models/StaffUser.js');
-    const fullUser = await StaffUser.findById(user._id).select('+password');
+    const fullUser = await staffUserRepository.findDocumentByIdWithPassword(String(user._id));
     if (!fullUser) throw new Error('Invalid credentials');
 
     const isMatch = await fullUser.comparePassword(password);
@@ -37,15 +36,15 @@ export const staffAuthService = {
     }
 
     const payload: StaffTokenPayload = {
-      id: (user._id as any).toString(),
+      id: String(user._id),
       role: user.role,
       name: user.name,
     };
 
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
-    const { password: _pw, ...safeUser } = user as any;
-    return { token, user: safeUser };
+    const { password: _pw, ...safeUser } = user as IStaffUser & { password?: string };
+    return { token, user: safeUser as Omit<IStaffUser, 'password'> };
   },
 
   verifyToken(token: string): StaffTokenPayload {
