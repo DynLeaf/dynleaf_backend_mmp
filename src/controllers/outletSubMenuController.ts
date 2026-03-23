@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Outlet } from '../models/Outlet.js';
 import { OutletSubMenu } from '../models/OutletSubMenu.js';
 import { Category } from '../models/Category.js';
+import { Combo } from '../models/Combo.js';
 import { Subscription } from '../models/Subscription.js';
 import { normalizePlanToTier } from '../config/subscriptionPlans.js';
 
@@ -111,7 +112,7 @@ export const createSubMenu = async (req: Request, res: Response) => {
     try {
         const { outletId } = req.params;
         const userId = (req as any).user?.id;
-        const { name, description, category_ids = [] } = req.body;
+        const { name, description, category_ids = [], combo_ids = [] } = req.body;
 
         if (!name || !name.trim()) {
             return res.status(400).json({ status: false, message: 'Sub-menu name is required' });
@@ -157,6 +158,16 @@ export const createSubMenu = async (req: Request, res: Response) => {
             validCategoryIds = cats.map((c: any) => c._id);
         }
 
+        // Validate combo_ids belong to this outlet
+        let validComboIds: mongoose.Types.ObjectId[] = [];
+        if (combo_ids && combo_ids.length > 0) {
+            const combos = await Combo.find({
+                _id: { $in: combo_ids },
+                outlet_id: outletId
+            }).select('_id').lean();
+            validComboIds = combos.map((c: any) => c._id);
+        }
+
         const subMenu = await OutletSubMenu.create({
             outlet_id: new mongoose.Types.ObjectId(outletId),
             name: name.trim(),
@@ -164,7 +175,8 @@ export const createSubMenu = async (req: Request, res: Response) => {
             description: description?.trim(),
             display_order: count,
             is_active: true,
-            category_ids: validCategoryIds
+            category_ids: validCategoryIds,
+            combo_ids: validComboIds
         });
 
         // Update denormalized flag on outlet
@@ -270,14 +282,14 @@ export const deleteSubMenu = async (req: Request, res: Response) => {
 
 /**
  * PUT /api/v1/outlets/:outletId/sub-menus/:subMenuId/categories
- * Assign/replace category_ids for a sub-menu.
- * Body: { category_ids: string[] }
+ * Assign/replace category_ids + combo_ids for a sub-menu.
+ * Body: { category_ids?: string[], combo_ids?: string[] }
  */
 export const updateSubMenuCategories = async (req: Request, res: Response) => {
     try {
         const { outletId, subMenuId } = req.params;
         const userId = (req as any).user?.id;
-        const { category_ids = [] } = req.body;
+        const { category_ids = [], combo_ids = [] } = req.body;
 
         const outlet = await verifyOutletAccess(outletId, userId);
         if (!outlet) {
@@ -306,16 +318,24 @@ export const updateSubMenuCategories = async (req: Request, res: Response) => {
             ]
         }).select('_id name slug').lean();
 
+        // Validate combos belong to this outlet
+        const validCombos = await Combo.find({
+            _id: { $in: combo_ids },
+            outlet_id: outletId
+        }).select('_id name').lean();
+
         subMenu.category_ids = validCats.map((c: any) => c._id);
+        subMenu.combo_ids = validCombos.map((c: any) => c._id);
         await subMenu.save();
 
         return res.json({
             status: true,
             data: {
                 sub_menu_id: subMenuId,
-                assigned_categories: validCats
+                assigned_categories: validCats,
+                assigned_combos: validCombos
             },
-            message: 'Categories assigned successfully'
+            message: 'Sub-menu categories and combos assigned successfully'
         });
     } catch (error: any) {
         console.error('[SubMenu] updateSubMenuCategories error:', error);

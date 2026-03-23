@@ -21,7 +21,7 @@ const router = express.Router();
  *   PUT    /api/v1/outlets/:outletId/sub-menus/reorder
  *   PUT    /api/v1/outlets/:outletId/sub-menus/:subMenuId
  *   DELETE /api/v1/outlets/:outletId/sub-menus/:subMenuId
- *   PUT    /api/v1/outlets/:outletId/sub-menus/:subMenuId/categories
+ *   PUT    /api/v1/outlets/:outletId/sub-menus/:subMenuId/categories (categories + combos assignment)
  *   PUT    /api/v1/outlets/:outletId/multi-menu-settings
  */
 

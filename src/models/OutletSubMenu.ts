@@ -8,6 +8,7 @@ export interface IOutletSubMenu extends Document {
     display_order: number;      // position in switcher bar
     is_active: boolean;
     category_ids: mongoose.Types.ObjectId[];  // which categories belong to this sub-menu
+    combo_ids: mongoose.Types.ObjectId[];     // which combos belong to this sub-menu
     created_at?: Date;
     updated_at?: Date;
 }
@@ -49,6 +50,12 @@ const outletSubMenuSchema = new Schema<IOutletSubMenu>(
             {
                 type: Schema.Types.ObjectId,
                 ref: 'Category'
+            }
+        ],
+        combo_ids: [
+            {
+                type: Schema.Types.ObjectId,
+                ref: 'Combo'
             }
         ]
     },
