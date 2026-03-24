@@ -12,5 +12,6 @@ router.post('/', requireRole('salesman'), customerController.create);
 router.put('/:id', requireRole('salesman', 'admin'), customerController.update);
 router.patch('/:id/convert', requireRole('salesman'), customerController.markConverted);
 router.patch('/:id/cancel', requireRole('salesman', 'admin'), customerController.markCancelled);
+router.patch('/:id/active', requireRole('salesman', 'admin'), customerController.markActive);
 
 export default router;

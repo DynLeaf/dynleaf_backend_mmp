@@ -394,13 +394,23 @@ export const followupRepository = {
       recordedAt: new Date(),
     };
 
-    // We update all pending followups, appending history and changing status.
-    await Followup.updateMany(
-      { customerId, status: 'pending' },
-      {
-        $set: { status: 'done' },
-        $push: { history: historyEntry }
-      }
-    );
+    const pendingDocs = await Followup.find({ customerId, status: 'pending' }).select('_id followupDate followupTime').lean() as Pick<IFollowup, '_id' | 'followupDate' | 'followupTime'>[];
+    const now = new Date();
+    
+    const missedIds = pendingDocs.filter(f => {
+      if (!f.followupTime) return true;
+      const fTime = buildFollowupDateTime(f.followupDate, f.followupTime);
+      return fTime < now;
+    }).map(f => f._id);
+
+    if (missedIds.length > 0) {
+      await Followup.updateMany(
+        { _id: { $in: missedIds } },
+        {
+          $set: { status: 'done' },
+          $push: { history: historyEntry }
+        }
+      );
+    }
   },
 };
