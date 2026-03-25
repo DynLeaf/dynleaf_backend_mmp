@@ -5,6 +5,7 @@ import { staffAuthenticate } from '../middleware/staffAuth.middleware.js';
 const router = Router();
 
 router.post('/login', staffAuthController.login);
+router.post('/refresh', staffAuthController.refresh);
 router.get('/me', staffAuthenticate, staffAuthController.me);
 
 export default router;
