@@ -8,12 +8,20 @@ export interface StaffRequest extends Request {
 
 export const staffAuthenticate = async (req: StaffRequest, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Read access token from httpOnly cookie first, fall back to Authorization header
+    let token = req.cookies?.staff_access_token as string | undefined;
+
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.split(' ')[1];
+      }
+    }
+
+    if (!token) {
       return res.status(401).json({ status: false, error: 'No token provided' });
     }
 
-    const token = authHeader.split(' ')[1];
     const payload = staffAuthService.verifyToken(token);
 
     // Verify user still exists and is active
