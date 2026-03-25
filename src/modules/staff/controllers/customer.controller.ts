@@ -72,4 +72,13 @@ export const customerController = {
       return res.status(400).json({ status: false, error: (err as Error).message });
     }
   },
+
+  async markActive(req: StaffRequest, res: Response) {
+    try {
+      const customer = await customerService.markActive(req.params.id);
+      return res.status(200).json({ status: true, data: customer, message: 'Customer marked as active' });
+    } catch (err: unknown) {
+      return res.status(400).json({ status: false, error: (err as Error).message });
+    }
+  },
 };

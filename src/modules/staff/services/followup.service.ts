@@ -1,6 +1,5 @@
 import { followupRepository } from '../repositories/followup.repository.js';
 import { IFollowup, FollowupStatus, IFollowupEvent } from '../models/Followup.js';
-import mongoose from 'mongoose';
 
 export type FollowupFilter = 'today' | 'missed' | 'upcoming' | 'all';
 
@@ -39,7 +38,7 @@ export const followupService = {
     message?: string;
   }): Promise<IFollowup> {
     if (!data.customerId) throw new Error('Customer ID is required');
-    if (!data.followupDate) throw new Error('Followup date is required');
+    if (!data.followupDate || isNaN(new Date(data.followupDate).getTime())) throw new Error('Valid followup date is required');
     if (!data.followupTime) throw new Error('Followup time is required');
 
     const initialHistory: IFollowupEvent = {
@@ -52,18 +51,19 @@ export const followupService = {
 
     return followupRepository.create({
       ...data,
-      customerId: data.customerId as unknown as mongoose.Types.ObjectId,
-      salespersonId: data.salespersonId as unknown as mongoose.Types.ObjectId,
       followupDate: new Date(data.followupDate),
       history: [initialHistory],
       status: 'pending',
-    });
+    } as unknown as Partial<IFollowup>);
   },
 
   async reschedule(
     id: string,
     data: { followupDate: Date; followupTime: string; message?: string }
   ): Promise<IFollowup> {
+    if (!data.followupDate || isNaN(new Date(data.followupDate).getTime())) throw new Error('Valid followup date is required');
+    if (!data.followupTime) throw new Error('Followup time is required');
+
     const existing = await followupRepository.findById(id);
     if (!existing) throw new Error('Followup not found');
 

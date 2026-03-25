@@ -2,7 +2,6 @@ import { customerRepository } from '../repositories/customer.repository.js';
 import { followupRepository } from '../repositories/followup.repository.js';
 import { ICustomer, CustomerStatus } from '../models/Customer.js';
 import { IFollowup, IFollowupEvent } from '../models/Followup.js';
-import mongoose from 'mongoose';
 
 export const customerService = {
   async getAll(): Promise<ICustomer[]> {
@@ -42,8 +41,8 @@ export const customerService = {
 
     const customer = await customerRepository.create({
       ...data,
-      createdBy: data.createdBy as unknown as mongoose.Types.ObjectId,
-    });
+      createdBy: data.createdBy,
+    } as unknown as Partial<ICustomer>);
 
     // ─── Auto-create a StaffFollowup document when followup is scheduled ───────
     if (data.followupRequired && data.followupDate && data.followupTime) {
@@ -55,14 +54,14 @@ export const customerService = {
         recordedAt: new Date(),
       };
       await followupRepository.create({
-        customerId: String(customer._id) as unknown as mongoose.Types.ObjectId,
-        salespersonId: data.createdBy as unknown as mongoose.Types.ObjectId,
+        customerId: String(customer._id),
+        salespersonId: data.createdBy,
         followupDate: new Date(data.followupDate),
         followupTime: data.followupTime,
         message: 'Followup created with customer',
         status: 'pending',
         history: [initialHistory],
-      });
+      } as unknown as Partial<IFollowup>);
     }
 
     return customer;
@@ -84,7 +83,7 @@ export const customerService = {
 
     // Extract createdBy (used only for followup sync — NOT for database update)
     const { createdBy: syncedSpId, ...updateData } = data;
-    const salespersonId = syncedSpId || String((existing.createdBy as { _id?: mongoose.Types.ObjectId })?._id || existing.createdBy);
+    const salespersonId = syncedSpId || String((existing.createdBy as { _id?: unknown })?._id || existing.createdBy);
 
     const customer = await customerRepository.updateById(id, updateData);
     if (!customer) throw new Error('Customer not found');
@@ -128,7 +127,7 @@ export const customerService = {
         followupTime: newTime,
         recordedAt: new Date(),
       };
-      await followupRepository.updateById(String((existing as { _id?: mongoose.Types.ObjectId })._id), {
+      await followupRepository.updateById(String((existing as { _id?: unknown })._id), {
         followupDate: newDate,
         followupTime: newTime,
         message,
@@ -145,14 +144,14 @@ export const customerService = {
         recordedAt: new Date(),
       };
       await followupRepository.create({
-        customerId: customerId as unknown as mongoose.Types.ObjectId,
-        salespersonId: salespersonId as unknown as mongoose.Types.ObjectId,
+        customerId,
+        salespersonId,
         followupDate: newDate,
         followupTime: newTime,
         message,
         status: 'pending',
         history: [initialHistory],
-      });
+      } as unknown as Partial<IFollowup>);
     }
   },
 
@@ -167,6 +166,12 @@ export const customerService = {
     const customer = await customerRepository.updateStatus(id, 'cancelled');
     if (!customer) throw new Error('Customer not found');
     await followupRepository.markPendingAsDone(id, 'Customer marked as cancelled');
+    return customer;
+  },
+
+  async markActive(id: string): Promise<ICustomer> {
+    const customer = await customerRepository.updateStatus(id, 'active');
+    if (!customer) throw new Error('Customer not found');
     return customer;
   },
 
