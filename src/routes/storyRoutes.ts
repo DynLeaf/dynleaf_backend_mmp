@@ -1,30 +1,23 @@
-import express from 'express';
-import { protect, requireOutletAccess } from '../middleware/authMiddleware.js';
-import {
-    createStory,
-    getStoryFeed,
-    getOutletStories,
-    updateStoryStatus,
-    deleteStory,
-    recordView,
-    getStoryAnalytics,
-    getSeenStatus,
-    getAdminOutletStories
-} from '../controllers/storyController.js';
+import { Router } from 'express';
+import * as storyController from '../controllers/story/storyController.js';
+import * as storyMetricsController from '../controllers/story/storyMetricsController.js';
+import { authenticate } from '../middleware/authMiddleware.js';
 
-const router = express.Router();
+const router = Router();
 
-// Public routes
-router.get('/feed', getStoryFeed);
-router.get('/outlet/:outletId', getOutletStories);
-router.get('/seen-status', getSeenStatus);
-router.post('/:storyId/view', recordView);
+// Public feed
+router.get('/feed', storyController.getStoryFeed);
+router.get('/outlet/:outletId', storyController.getOutletStories);
+router.get('/seen-status', storyMetricsController.getSeenStatus);
 
-// Protected routes (Restaurant/Admin)
-router.get('/admin/outlet/:outletId', protect, getAdminOutletStories);
-router.post('/', protect, createStory); // Body must contain outletId, internal check performs auth
-router.patch('/:storyId/status', protect, updateStoryStatus);
-router.delete('/:storyId', protect, deleteStory);
-router.get('/outlet/:outletId/analytics', protect, getStoryAnalytics); // Internal check performs auth
+// Authenticated viewing
+router.post('/:storyId/view', storyMetricsController.recordView);
+
+// Management
+router.post('/', authenticate as any, storyController.createStory);
+router.get('/admin/outlet/:outletId', authenticate as any, storyController.getAdminOutletStories);
+router.patch('/:storyId/status', authenticate as any, storyController.updateStoryStatus);
+router.delete('/:storyId', authenticate as any, storyController.deleteStory);
+router.get('/outlet/:outletId/analytics', authenticate as any, storyMetricsController.getStoryAnalytics);
 
 export default router;

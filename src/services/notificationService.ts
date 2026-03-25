@@ -1,272 +1,153 @@
-import { Notification } from '../models/Notification.js';
-import { PushNotification, DeliveryStatus, TargetAudienceType } from '../models/PushNotification.js';
-import { Follow } from '../models/Follow.js';
-import { Offer } from '../models/Offer.js';
-import { Outlet } from '../models/Outlet.js';
-import { User } from '../models/User.js';
-import { sendPushNotificationToUsers } from './pushNotificationService.js';
-import { Brand } from '../models/Brand.js';
+import * as notifRepo from '../repositories/notificationRepository.js';
+import * as pushNotifRepo from '../repositories/pushNotificationRepository.js';
+import * as offerRepo from '../repositories/offerRepository.js';
+import * as deviceTokenRepo from '../repositories/deviceTokenRepository.js';
+import * as pushNotifService from './pushNotificationService.js';
 
 export const notifyFollowersOfNewOffer = async (offerId: string, outletId: string) => {
     try {
-        const [offer, outlet] = await Promise.all([
-            Offer.findById(offerId),
-            Outlet.findById(outletId),
+        // Import follow and outlet repos lazily to avoid circular deps
+        const followRepo = await import('../repositories/followRepository.js');
+        const outletService = await import('./outletService.js');
+
+        const [offerList, outlet] = await Promise.all([
+            offerRepo.findByIds([offerId]),
+            outletService.getOutletById(outletId),
         ]);
 
+        const offer = offerList[0];
         if (!offer || !outlet) return;
 
-        const brand = outlet.brand_id
-            ? await Brand.findById(outlet.brand_id)
-            : null;
+        const outletObj = outlet as unknown as Record<string, unknown>;
+        const offerObj = offer as Record<string, unknown>;
 
-        // Find all followers
-        const followers = await Follow.find({ outlet: outletId }).select('user');
+        let brandName = '';
+        try {
+            const brandService = await import('./brandService.js');
+            const brand = outletObj.brand_id ? await brandService.getBrandById(String(outletObj.brand_id)) : null;
+            brandName = brand ? String((brand as unknown as Record<string, unknown>).name || '') : '';
+        } catch { /* brand lookup optional */ }
 
-        if (followers.length === 0) return;
+        const followers = await followRepo.findByOutlet(outletId);
+        if (!followers || followers.length === 0) return;
 
-        const notifications = followers.map(f => ({
-            user: f.user,
-            title: `New Offer from ${outlet.name}`,
-            message: `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`,
-            type: 'OFFER',
-            reference_id: offer._id,
-            reference_model: 'Offer',
-            link: `/restaurant/${outletId}/menu`, // Link to outlet menu page
-            image: offer.banner_image_url || offer.background_image_url // Offer image
-        }));
+        const notifications = followers.map((f) => {
+            const fObj = f as unknown as Record<string, unknown>;
+            return {
+                user: fObj.user,
+                title: `New Offer from ${outletObj.name}`,
+                message: `${offerObj.title}: ${offerObj.subtitle || 'Check out our new offer!'}`,
+                type: 'OFFER',
+                reference_id: offerObj._id,
+                reference_model: 'Offer',
+                link: `/restaurant/${outletId}/menu`,
+                image: offerObj.banner_image_url || offerObj.background_image_url,
+            };
+        });
 
-        // Bulk insert for efficiency
-        await Notification.insertMany(notifications);
+        await notifRepo.insertMany(notifications);
 
+        const userIds = followers.map((f) => String((f as unknown as Record<string, unknown>).user));
+        const notificationTitle = `New Offer from ${outletObj.name}`;
+        const notificationBody = `${offerObj.title}: ${offerObj.subtitle || 'Check out our new offer!'}`;
+        const offerImage = (offerObj.banner_image_url || offerObj.background_image_url || undefined) as string | undefined;
+        const link = (process.env.FRONTEND_URL || 'https://www.dynleaf.com').toString();
 
-        // Trigger Push Notifications
-        const userIds = followers.map(f => f.user.toString());
-        const notificationTitle = `New Offer from ${outlet.name}`;
-        const notificationBody = `${offer.title}: ${offer.subtitle || 'Check out our new offer!'}`;
-        const offerImage = offer.banner_image_url || offer.background_image_url || undefined;
-        const link = (process.env.FRONTEND_URL || "https://www.dynleaf.com").toString();
-        const restaurantBrandLogo = brand?.logo_url ? brand.logo_url.toString() : undefined;
-
-        await sendPushNotificationToUsers(
-            userIds,
-            notificationTitle,
-            notificationBody,
-            link,
-            offerImage ? offerImage.toString() : undefined,
-            offerId.toString(),
-            restaurantBrandLogo
-        );
-
+        await pushNotifService.sendToUsers(userIds, notificationTitle, notificationBody, link, offerImage, String(offerId));
     } catch (error) {
         console.error('Error notifying followers:', error);
     }
 };
 
-/**
- * Check if a user matches a PushNotification's target audience
- */
-const isUserInTargetAudience = async (userId: string, pushNotification: any): Promise<boolean> => {
-    const { target_audience } = pushNotification;
-
-    // Check if notification is sent (only show sent push notifications)
-    if (pushNotification.status !== DeliveryStatus.SENT) {
-        return false;
-    }
-
-    switch (target_audience.type) {
-        case TargetAudienceType.ALL_USERS:
-            return true;
-
-        case TargetAudienceType.SELECTED_USERS:
-            // Check if user is in the selected users list
-            return (target_audience.user_ids || []).some((id: any) => id.toString() === userId);
-
-        case TargetAudienceType.USER_ROLE:
-            // Check if user's role matches
-            if (!target_audience.roles || target_audience.roles.length === 0) {
-                return false;
-            }
-            const user = await User.findById(userId).select('role').lean();
-            return user ? target_audience.roles.includes((user as any).role) : false;
-
-        case TargetAudienceType.SEGMENTED:
-            // For segmented, check if user matches filters
-            const user_seg = await User.findById(userId).lean();
-            if (!user_seg) return false;
-
-            const filters = target_audience.filters || {};
-
-            // Check location filter
-            if (filters.location) {
-                const userLocation = (user_seg as any).location || '';
-                if (userLocation !== filters.location) return false;
-            }
-
-            // Check user type filter
-            if (filters.user_type) {
-                const userType = (user_seg as any).user_type || '';
-                if (userType !== filters.user_type) return false;
-            }
-
-            // Check engagement level filter (if stored in user)
-            if (filters.engagement_level) {
-                const userEngagement = (user_seg as any).engagement_level || 'low';
-                if (userEngagement !== filters.engagement_level) return false;
-            }
-
-            // Check signup date range
-            if (filters.signup_date_range) {
-                const userSignupDate = (user_seg as any).createdAt;
-                if (userSignupDate) {
-                    const fromDate = new Date(filters.signup_date_range.from);
-                    const toDate = new Date(filters.signup_date_range.to);
-                    if (userSignupDate < fromDate || userSignupDate > toDate) {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-
-        default:
-            return false;
-    }
-};
-
-/**
- * Transform PushNotification to Notification format
- */
-const transformPushNotificationToNotification = (pushNotif: any) => {
-    return {
-        _id: pushNotif._id,
-        user: pushNotif.user,
-        title: pushNotif.content.title,
-        message: pushNotif.content.description,
-        type: 'PROMOTION', // Map push notification to PROMOTION type
-        reference_id: pushNotif._id,
-        reference_model: 'PushNotification',
-        link: pushNotif.content.action_url || pushNotif.content.deep_link,
-        image: pushNotif.content.image_url,
-        is_read: false, // Push notifications are always unread initially
-        created_at: pushNotif.sent_at || pushNotif.created_at,
-        is_push_notification: true, // Flag to differentiate in frontend if needed
-    };
-};
-
-/**
- * Create content hash for deduplication
- */
-const createContentHash = (title: string, message: string): string => {
-    return `${title}::${message}`.toLowerCase();
-};
-
 export const getUserNotifications = async (userId: string, page = 1, limit = 20) => {
     const skip = (page - 1) * limit;
 
+    const regularNotifications = await notifRepo.findByUser(userId);
 
-    // Fetch regular notifications
-    const [regularNotifications, regularTotal] = await Promise.all([
-        Notification.find({ user: userId })
-            .sort({ created_at: -1 })
-            .lean(),
-        Notification.countDocuments({ user: userId })
-    ]);
+    const pushNotifications = await pushNotifRepo.findSentOrPartiallySent();
+    const userPushNotifications: Record<string, unknown>[] = [];
 
+    for (const pn of pushNotifications) {
+        const pnObj = pn as unknown as Record<string, unknown>;
+        const audience = pnObj.target_audience as Record<string, unknown>;
+        const status = pnObj.status as string;
+        if (status !== 'sent' && status !== 'partially_sent') continue;
 
-    // Fetch all sent/partially sent push notifications (we'll filter by target audience)
-    const pushNotifications = await PushNotification.find({
-        status: { $in: [DeliveryStatus.SENT, DeliveryStatus.PARTIALLY_SENT] }
-    })
-        .sort({ sent_at: -1 })
-        .lean();
+        let isInAudience = false;
+        if (audience.type === 'all_users') {
+            isInAudience = true;
+        } else if (audience.type === 'selected_users') {
+            isInAudience = ((audience.user_ids as string[]) || []).some(id => String(id) === userId);
+        } else if (audience.type === 'user_role') {
+            const user = await deviceTokenRepo.findUserById(userId);
+            isInAudience = user ? ((audience.roles as string[]) || []).includes(String((user as unknown as Record<string, unknown>).role)) : false;
+        }
 
-
-    // Filter push notifications for this specific user
-    const userPushNotifications = [];
-    for (const pushNotif of pushNotifications) {
-        const isInAudience = await isUserInTargetAudience(userId, pushNotif);
         if (isInAudience) {
-            userPushNotifications.push(transformPushNotificationToNotification(pushNotif));
+            const content = pnObj.content as Record<string, unknown>;
+            userPushNotifications.push({
+                _id: pnObj._id,
+                title: content.title, message: content.description,
+                type: 'PROMOTION', reference_id: pnObj._id,
+                reference_model: 'PushNotification',
+                link: content.action_url || content.deep_link,
+                image: content.image_url, is_read: false,
+                created_at: pnObj.sent_at || pnObj.created_at,
+                is_push_notification: true,
+            });
         }
     }
 
-
-    // Merge notifications
     const allNotifications = [...regularNotifications, ...userPushNotifications];
 
-
-    // Deduplicate by content (title + message)
-    const contentHashes = new Set<string>();
-    const deduplicatedNotifications = allNotifications.filter(notif => {
-        const hash = createContentHash(notif.title, notif.message);
-        if (contentHashes.has(hash)) {
-            return false; // Skip duplicate
-        }
-        contentHashes.add(hash);
+    // Deduplicate by content
+    const hashes = new Set<string>();
+    const deduped = allNotifications.filter(n => {
+        const nObj = n as unknown as Record<string, unknown>;
+        const hash = `${nObj.title}::${nObj.message}`.toLowerCase();
+        if (hashes.has(hash)) return false;
+        hashes.add(hash);
         return true;
     });
 
+    deduped.sort((a, b) => new Date(String((b as unknown as Record<string, unknown>).created_at)).getTime() - new Date(String((a as unknown as Record<string, unknown>).created_at)).getTime());
+    const paginated = deduped.slice(skip, skip + limit);
 
-    // Sort by date descending and apply pagination
-    const sortedNotifications = deduplicatedNotifications.sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-
-    const paginatedNotifications = sortedNotifications.slice(skip, skip + limit);
-
-    // Transform notifications to ensure they have proper links
-    const transformedNotifications = await Promise.all(paginatedNotifications.map(async (n: any) => {
-        // If notification already has a link, use it
-        if (n.link) return n;
-
-        // For OFFER type notifications without a link, generate one from the offer
-        if (n.type === 'OFFER' && n.reference_id && n.reference_model === 'Offer') {
+    // Enrich offer notifications with links
+    const enriched = await Promise.all(paginated.map(async (n) => {
+        const nObj = n as unknown as Record<string, unknown>;
+        if (nObj.link) return nObj;
+        if (nObj.type === 'OFFER' && nObj.reference_id && nObj.reference_model === 'Offer') {
             try {
-                const offer = await Offer.findById(n.reference_id).select('outlet_ids banner_image_url background_image_url').lean();
-                if (offer && offer.outlet_ids && offer.outlet_ids.length > 0) {
-                    // Use the first outlet ID to generate the link
-                    n.link = `/restaurant/${offer.outlet_ids[0]}/menu`;
-                    // Also add image if not present
-                    if (!n.image) {
-                        n.image = offer.banner_image_url || offer.background_image_url;
-                    }
+                const offers = await offerRepo.findByIds([String(nObj.reference_id)]);
+                const offer = offers[0] as Record<string, unknown> | undefined;
+                if (offer?.outlet_ids && (offer.outlet_ids as string[]).length > 0) {
+                    nObj.link = `/restaurant/${(offer.outlet_ids as string[])[0]}/menu`;
+                    if (!nObj.image) nObj.image = offer.banner_image_url;
                 }
-            } catch (error) {
-                console.error('Error generating link for notification:', error);
-            }
+            } catch { /* optional enrichment */ }
         }
-
-        return n;
+        return nObj;
     }));
 
-    // Count unread notifications
-    const unreadRegular = regularNotifications.filter(n => !n.is_read).length;
+    const unreadRegular = regularNotifications.filter(n => !(n as unknown as Record<string, unknown>).is_read).length;
     const unreadPush = userPushNotifications.filter(n => !n.is_read).length;
 
-
     return {
-        notifications: transformedNotifications,
-        pagination: {
-            total: sortedNotifications.length, // Total after deduplication
-            page,
-            limit,
-            pages: Math.ceil(sortedNotifications.length / limit)
-        },
-        unreadCount: unreadRegular + unreadPush
+        notifications: enriched,
+        pagination: { total: deduped.length, page, limit, pages: Math.ceil(deduped.length / limit) },
+        unreadCount: unreadRegular + unreadPush,
     };
 };
 
 export const markAsRead = async (userId: string, notificationId?: string) => {
     if (notificationId) {
-        await Notification.findOneAndUpdate({ _id: notificationId, user: userId }, { is_read: true });
+        await notifRepo.markOneRead(userId, notificationId);
     } else {
-        await Notification.updateMany({ user: userId, is_read: false }, { is_read: true });
+        await notifRepo.markAllRead(userId);
     }
 };
 
 export const registerPushToken = async (userId: string, fcmToken: string) => {
-    await User.findByIdAndUpdate(userId, {
-        $addToSet: { fcm_tokens: fcmToken }
-    });
+    await deviceTokenRepo.addFcmToken(userId, fcmToken);
 };

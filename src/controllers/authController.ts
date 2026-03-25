@@ -1,850 +1,157 @@
-import { Request, Response } from "express";
-import { User } from "../models/User.js";
-import { Brand } from "../models/Brand.js";
-import { Outlet } from "../models/Outlet.js";
-import { Session } from "../models/Session.js";
-import { Follow } from "../models/Follow.js";
-import * as otpService from "../services/otpService.js";
-import * as tokenService from "../services/tokenService.js";
-import * as sessionService from "../services/sessionService.js";
-import * as outletService from "../services/outletService.js";
-import { sendSuccess, sendError } from "../utils/response.js";
-import { Admin } from "../models/Admin.js";
-import jwt from "jsonwebtoken";
-import { createAdminNotification } from "../services/adminNotificationService.js";
-import axios from "axios";
+import { Request, Response } from 'express';
+import { AuthRequest } from '../types/express.js';
+import * as authService from '../services/auth/authService.js';
+import * as authExtendedService from '../services/auth/authExtendedService.js';
+import { sendSuccess, sendError } from '../utils/response.js';
+import { AppError } from '../errors/AppError.js';
 
-interface AuthRequest extends Request {
-  user?: any;
-}
-
-// Cookie configuration constants
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
 };
 
-const ACCESS_TOKEN_OPTIONS = {
-  ...COOKIE_OPTIONS,
-  maxAge: 15 * 60 * 1000, // 15 mins
+const ACCESS_TOKEN_OPTIONS = { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 };
+const PUBLIC_COOKIE_OPTIONS = { ...COOKIE_OPTIONS, httpOnly: false };
+
+const setAuthCookies = (res: Response, accessToken: string, refreshToken: string): void => {
+  res.cookie('accessToken', accessToken, ACCESS_TOKEN_OPTIONS);
+  res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
+  res.cookie('isLoggedIn', 'true', PUBLIC_COOKIE_OPTIONS);
 };
 
-const PUBLIC_COOKIE_OPTIONS = {
-  ...COOKIE_OPTIONS,
-  httpOnly: false,
+const clearAuthCookies = (res: Response): void => {
+  res.clearCookie('accessToken');
+  res.clearCookie('refreshToken');
+  res.clearCookie('isLoggedIn');
 };
 
-const MAX_ACCESS_TOKEN_COOKIE_BYTES = Number(process.env.MAX_ACCESS_TOKEN_COOKIE_BYTES || 3800);
+const getClientIp = (req: Request): string =>
+  req.ip || req.socket.remoteAddress || 'unknown';
 
-const PHONE_REGEX = /^\+?[1-9]\d{1,14}$/;
-const ACCOUNT_LOCK_DURATION = 30 * 60 * 1000; // 30 minutes
-const MAX_FAILED_ATTEMPTS = 5;
-
-// Helper functions
-const validatePhoneNumber = (phone: string): boolean => {
-  return PHONE_REGEX.test(phone);
-};
-
-const validateAccessTokenCookieSize = (accessToken: string) => {
-  const accessTokenSize = Buffer.byteLength(accessToken, 'utf8');
-  if (accessTokenSize > MAX_ACCESS_TOKEN_COOKIE_BYTES) {
-    throw new Error(`ACCESS_TOKEN_TOO_LARGE:${accessTokenSize}`);
+const handleError = (res: Response, error: unknown): Response => {
+  if (error instanceof AppError) {
+    return sendError(res, error.message, error.errorCode, error.statusCode);
   }
+  const message = error instanceof Error ? error.message : 'An unexpected error occurred';
+  return sendError(res, message);
 };
 
-const logAuthCookieMetrics = (params: {
-  source: string;
-  userId?: string;
-  roleCount?: number;
-  accessToken: string;
-  refreshToken: string;
-}) => {
-  const accessTokenBytes = Buffer.byteLength(params.accessToken, 'utf8');
-  const refreshTokenBytes = Buffer.byteLength(params.refreshToken, 'utf8');
-
-  console.info(
-    `[AuthCookieMetrics] source=${params.source} userId=${params.userId || 'unknown'} roleCount=${params.roleCount ?? -1} accessTokenBytes=${accessTokenBytes} refreshTokenBytes=${refreshTokenBytes} accessTokenLimit=${MAX_ACCESS_TOKEN_COOKIE_BYTES}`
-  );
-};
-
-const setAuthCookies = (
-  res: Response,
-  accessToken: string,
-  refreshToken: string,
-  metadata?: { source: string; userId?: string; roleCount?: number }
-) => {
-  if (metadata) {
-    logAuthCookieMetrics({
-      source: metadata.source,
-      userId: metadata.userId,
-      roleCount: metadata.roleCount,
-      accessToken,
-      refreshToken,
-    });
-  }
-
-  validateAccessTokenCookieSize(accessToken);
-  res.cookie("accessToken", accessToken, ACCESS_TOKEN_OPTIONS);
-  res.cookie("refreshToken", refreshToken, COOKIE_OPTIONS);
-  res.cookie("isLoggedIn", "true", PUBLIC_COOKIE_OPTIONS);
-};
-
-const clearAuthCookies = (res: Response) => {
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
-  res.clearCookie("isLoggedIn");
-};
-
-const mapBrandToResponse = (brand: any) => ({
-  id: brand._id,
-  name: brand.name,
-  slug: brand.slug,
-  logo_url: brand.logo_url,
-});
-
-const mapOutletToResponse = (outlet: any) => ({
-  id: outlet._id,
-  name: outlet.name,
-  brandId: outlet.brand_id?._id || outlet.brand_id,
-  status: outlet.status,
-});
-
-const checkAccountLock = (lockUntil?: Date) => {
-  if (lockUntil && lockUntil > new Date()) {
-    return {
-      isLocked: true,
-      locked_until: lockUntil,
-    };
-  }
-  return { isLocked: false };
-};
-
-const buildEngagementSummary = (user: any) => {
-  const savedItems = user.saved_items || [];
-  const sharedItems = user.shared_items || [];
-
-  const recentActivity = [
-    ...savedItems.map((item: any) => ({
-      entity_type: item.entity_type,
-      entity_id: item.entity_id,
-      outlet_id: item.outlet_id,
-      action: 'saved',
-      action_at: item.saved_at,
-    })),
-    ...sharedItems.map((item: any) => ({
-      entity_type: item.entity_type,
-      entity_id: item.entity_id,
-      outlet_id: item.outlet_id,
-      action: 'shared',
-      action_at: item.shared_at,
-    })),
-  ]
-    .sort((a: any, b: any) => new Date(b.action_at).getTime() - new Date(a.action_at).getTime())
-    .slice(0, 20);
-
-  return {
-    saved_total: savedItems.length,
-    shared_total: sharedItems.length,
-    saved_food_items: savedItems.filter((item: any) => item.entity_type === 'food_item').length,
-    saved_combos: savedItems.filter((item: any) => item.entity_type === 'combo').length,
-    saved_offers: savedItems.filter((item: any) => item.entity_type === 'offer').length,
-    shared_food_items: sharedItems.filter((item: any) => item.entity_type === 'food_item').length,
-    shared_combos: sharedItems.filter((item: any) => item.entity_type === 'combo').length,
-    shared_offers: sharedItems.filter((item: any) => item.entity_type === 'offer').length,
-    recent_activity: recentActivity,
-  };
-};
-
-const ensureRestaurantOwnerRole = async (user: any, outlets: any[]) => {
-  if (outlets.length > 0 && !user.roles.some((r: any) => r.role === "restaurant_owner")) {
-    user.roles.push({
-      scope: "platform",
-      role: "restaurant_owner",
-      assignedAt: new Date(),
-    });
-  }
-};
-
-const updateLoginMetadata = (user: any, req: Request, deviceInfo?: any) => {
-  user.last_login_at = new Date();
-  user.last_login_ip = req.ip || req.socket.remoteAddress;
-  if (deviceInfo?.deviceName) {
-    user.last_login_device = deviceInfo.deviceName;
-  } else if (req.headers['user-agent']) {
-    user.last_login_device = req.headers['user-agent'];
-  }
-  user.failed_login_attempts = 0;
-  user.locked_until = undefined;
-};
-
-export const sendOtp = async (req: Request, res: Response) => {
+export const sendOtp = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { phone } = req.body;
-
-    if (!phone) {
-      return sendError(res, "Phone number is required", null, 400);
-    }
-
-    if (!validatePhoneNumber(phone)) {
-      return sendError(res, "Invalid phone number format", null, 400);
-    }
-
-    const rateLimit = await otpService.checkRateLimit(phone);
-    if (!rateLimit.allowed) {
-      return sendError(res, "Too many OTP requests", { retryAfter: rateLimit.retryAfter }, 429);
-    }
-
-    const result = await otpService.sendOTP(phone);
-
-    return sendSuccess(res, { expiresIn: result.expiresIn }, "OTP sent successfully");
-  } catch (error: any) {
-    console.error("Send OTP error:", error);
-    return sendError(res, error.message);
+    const result = await authService.sendOtp(req.body.phone);
+    return sendSuccess(res, { expiresIn: result.expiresIn }, 'OTP sent successfully');
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const verifyOtp = async (req: Request, res: Response) => {
+export const verifyOtp = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { phone, otp, deviceInfo } = req.body;
-
-    if (!phone || !otp) {
-      return sendError(res, "Phone and OTP are required", null, 400);
-    }
-
-    if (!deviceInfo || !deviceInfo.deviceId) {
-      return sendError(res, "Device information is required", null, 400);
-    }
-
-    const isValid = await otpService.verifyOTP(phone, otp);
-
-    if (!isValid) {
-      return sendError(res, "Invalid OTP", null, 401);
-    }
-
-    let user = await User.findOne({ phone });
-
-    if (!user) {
-      user = await User.create({
-        phone,
-        roles: [
-          {
-            scope: "platform",
-            role: "customer",
-            assignedAt: new Date(),
-          },
-        ],
-        is_verified: true,
-        is_active: true,
-        currentStep: "BRAND",
-      });
-
-      // Fire admin notification for new user (non-blocking)
-      createAdminNotification({
-        title: 'New User Joined',
-        message: `A new user has registered with phone ${phone}.`,
-        type: 'user',
-        referenceId: user._id.toString(),
-      });
-    }
-
-    if (user.is_suspended) {
-      return sendError(res, "Account suspended", { reason: user.suspension_reason }, 403);
-    }
-
-    const lockCheck = checkAccountLock(user.locked_until);
-    if (lockCheck.isLocked) {
-      return sendError(res, "Account temporarily locked", { locked_until: lockCheck.locked_until }, 403);
-    }
-
-    const accessToken = tokenService.generateAccessToken(user, "", undefined);
-    const refreshToken = tokenService.generateRefreshToken(
-      user._id.toString(),
-      "",
-      1
-    );
-
-    const session = await sessionService.createSession(
-      user._id.toString(),
-      refreshToken,
-      {
-        device_id: deviceInfo.deviceId,
-        device_name: deviceInfo.deviceName,
-        device_type: deviceInfo.deviceType,
-        os: deviceInfo.os,
-        browser: deviceInfo.browser,
-        ip_address: req.ip || req.socket.remoteAddress || "unknown",
-      }
-    );
-
-    const newAccessToken = tokenService.generateAccessToken(
-      user,
-      session._id.toString(),
-      undefined
-    );
-    const newRefreshToken = tokenService.generateRefreshToken(
-      user._id.toString(),
-      session._id.toString(),
-      1
-    );
-
-    await sessionService.rotateRefreshToken(
-      session._id.toString(),
-      newRefreshToken
-    );
-
-    updateLoginMetadata(user, req, deviceInfo);
-    await user.save();
-
-    const brands = await Brand.find({ admin_user_id: user._id });
-    const outlets = await outletService.getUserOutletsList(user._id.toString());
-
-    await ensureRestaurantOwnerRole(user, outlets);
-
-    const hasCompletedOnboarding =
-      user.roles.some((r) => r.role === "restaurant_owner") &&
-      brands.length > 0 &&
-      user.currentStep === "DONE";
-
-    setAuthCookies(res, newAccessToken, newRefreshToken, {
-      source: 'verifyOtp',
-      userId: user._id.toString(),
-      roleCount: user.roles?.length || 0,
-    });
-
-    return sendSuccess(res, {
-      user: {
-        id: user._id,
-        phone: user.phone,
-        email: user.email,
-        username: user.username,
-        avatar_url: user.avatar_url,
-        saved_items: user.saved_items || [],
-        shared_items: user.shared_items || [],
-        engagement_summary: buildEngagementSummary(user),
-        roles: user.roles,
-        currentStep: user.currentStep,
-        hasCompletedOnboarding,
-        brands: brands.map(mapBrandToResponse),
-        outlets: outlets.map(mapOutletToResponse),
-        is_verified: user.is_verified,
-        is_active: user.is_active,
-      },
-    });
-  } catch (error: any) {
-    console.error("Verify OTP error:", error);
-    if (typeof error?.message === 'string' && error.message.startsWith('ACCESS_TOKEN_TOO_LARGE:')) {
-      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
-    }
-    return sendError(res, error.message);
+    const result = await authService.verifyOtp(phone, otp, deviceInfo, getClientIp(req));
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+    return sendSuccess(res, { user: result.user });
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const refreshToken = async (req: Request, res: Response) => {
+export const refreshToken = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const refreshToken = req.cookies.refreshToken;
-
-    if (!refreshToken) {
-      return sendError(res, "Refresh token is required", null, 401);
-    }
-
-    const decoded = tokenService.verifyRefreshToken(refreshToken);
-
-    const isValidSession = await sessionService.validateSession(
-      decoded.sessionId
-    );
-    if (!isValidSession) {
-      return sendError(res, "Invalid or expired session", null, 401);
-    }
-
-    const isValidToken = await sessionService.verifyRefreshToken(
-      decoded.sessionId,
-      refreshToken
-    );
-    if (!isValidToken) {
-      return sendError(res, "Invalid refresh token", null, 401);
-    }
-
-    const user = await User.findById(decoded.id);
-    if (!user || !user.is_active || user.is_suspended) {
-      return sendError(res, "User not found or inactive", null, 401);
-    }
-
-    const newAccessToken = tokenService.generateAccessToken(
-      user,
-      decoded.sessionId,
-      undefined
-    );
-    const newRefreshToken = tokenService.generateRefreshToken(
-      user._id.toString(),
-      decoded.sessionId,
-      decoded.tokenVersion + 1
-    );
-
-    await sessionService.rotateRefreshToken(decoded.sessionId, newRefreshToken);
-
-    setAuthCookies(res, newAccessToken, newRefreshToken, {
-      source: 'refreshToken',
-      userId: user._id.toString(),
-      roleCount: user.roles?.length || 0,
-    });
-
+    const result = await authService.refreshTokens(req.cookies.refreshToken);
+    setAuthCookies(res, result.accessToken, result.refreshToken);
     return sendSuccess(res, null);
-  } catch (error: any) {
-    console.error("Refresh token error:", error);
-    if (typeof error?.message === 'string' && error.message.startsWith('ACCESS_TOKEN_TOO_LARGE:')) {
-      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
-    }
-    return sendError(res, "Invalid or expired refresh token", null, 401);
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const logout = async (req: AuthRequest, res: Response) => {
+export const logout = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const { deviceId, allDevices } = req.body;
-    const userId = req.user.id;
-
-    if (allDevices) {
-      await sessionService.revokeAllSessions(userId);
-    } else if (deviceId) {
-      await sessionService.revokeSessionByDevice(userId, deviceId);
-    } else {
-      await sessionService.revokeSession(req.user.sessionId);
-    }
-
+    if (!req.user) return sendError(res, 'Not authenticated', null, 401);
+    await authService.logout(req.user.id, req.user.sessionId, req.body.deviceId, req.body.allDevices);
     clearAuthCookies(res);
-    return sendSuccess(res, null, "Logged out successfully");
-  } catch (error: any) {
-    console.error("Logout error:", error);
-    return sendError(res, error.message);
+    return sendSuccess(res, null, 'Logged out successfully');
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const getCurrentUser = async (req: AuthRequest, res: Response) => {
+export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
-    const user = await User.findById(req.user.id);
-
-    if (!user) {
-      return sendError(res, "User not found", null, 404);
-    }
-
-    const brands = await Brand.find({ admin_user_id: user._id });
-    const outlets = await outletService.getUserOutletsList(user._id.toString());
-
-    await ensureRestaurantOwnerRole(user, outlets);
-
-    const hasCompletedOnboarding =
-      user.roles.some((r) => r.role === "restaurant_owner") &&
-      brands.length > 0 &&
-      user.currentStep === "DONE";
-
-    // Determine onboarding status
-    let onboardingStatus: 'pending_details' | 'pending_approval' | 'approved' | 'rejected' = 'pending_details';
-    if (hasCompletedOnboarding) {
-      // Check if there's an onboarding request
-      const OnboardingRequest = (await import('../models/OnboardingRequest.js')).OnboardingRequest;
-      const onboardingRequest = await OnboardingRequest.findOne({ user_id: user._id }).sort({ created_at: -1 });
-      if (onboardingRequest) {
-        onboardingStatus = onboardingRequest.status;
-      } else if (user.currentStep === 'DONE') {
-        onboardingStatus = 'pending_approval';
-      }
-    }
-
-    // Get following count
-    const followingCount = await Follow.countDocuments({ user: user._id });
-
-    return sendSuccess(res, {
-      user: {
-        id: user._id,
-        phone: user.phone,
-        email: user.email,
-        username: user.username,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url,
-        bio: user.bio,
-        saved_items: user.saved_items || [],
-        shared_items: user.shared_items || [],
-        engagement_summary: buildEngagementSummary(user),
-        roles: user.roles,
-        activeRole: req.user.activeRole,
-        currentStep: user.currentStep,
-        hasCompletedOnboarding,
-        onboardingStatus,
-        brands: brands.map(mapBrandToResponse),
-        outlets: outlets.map(mapOutletToResponse),
-        permissions: req.user.permissions,
-        is_verified: user.is_verified,
-        is_active: user.is_active,
-        last_login_at: user.last_login_at,
-        following_count: followingCount,
-      },
-    });
-  } catch (error: any) {
-    console.error("Get current user error:", error);
-    return sendError(res, error.message);
+    if (!req.user) return sendError(res, 'Not authenticated', null, 401);
+    const result = await authService.getCurrentUser(req.user.id, req.user.activeRole as Record<string, unknown> | null, req.user.permissions);
+    return sendSuccess(res, result);
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const switchRole = async (req: AuthRequest, res: Response) => {
+export const switchRole = async (req: AuthRequest, res: Response): Promise<Response> => {
   try {
+    if (!req.user) return sendError(res, 'Not authenticated', null, 401);
     const { scope, role, brandId, outletId } = req.body;
-    const userId = req.user.id;
+    const result = await authService.switchRole(req.user.id, req.user.sessionId, scope, role, brandId, outletId);
+    res.cookie('accessToken', result.accessToken, ACCESS_TOKEN_OPTIONS);
+    return sendSuccess(res, { user: { id: result.userId, activeRole: result.activeRole } });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return sendError(res, "User not found", null, 404);
-    }
+export const getSessions = async (req: AuthRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user) return sendError(res, 'Not authenticated', null, 401);
+    const sessions = await authExtendedService.getSessions(req.user.id, req.user.sessionId);
+    return sendSuccess(res, { sessions });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
 
-    const hasRole = user.roles.some((r) => {
-      if (r.scope !== scope || r.role !== role) return false;
-      if (brandId && r.brandId?.toString() !== brandId) return false;
-      if (outletId && r.outletId?.toString() !== outletId) return false;
-      return true;
-    });
+export const deleteSession = async (req: AuthRequest, res: Response): Promise<Response> => {
+  try {
+    if (!req.user) return sendError(res, 'Not authenticated', null, 401);
+    await authExtendedService.deleteSession(req.params.sessionId, req.user.id);
+    return sendSuccess(res, null, 'Session deleted successfully');
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
 
-    if (!hasRole) {
-      return sendError(res, "You do not have this role", null, 403);
-    }
-
-    const activeRole = {
-      scope,
-      role,
-      brandId,
-      outletId,
-    };
-
-    const newAccessToken = tokenService.generateAccessToken(
-      user,
-      req.user.sessionId,
-      activeRole
+export const adminLogin = async (req: Request, res: Response): Promise<Response> => {
+  try {
+    const result = await authExtendedService.adminLogin(
+      req.body.email,
+      req.body.password,
+      getClientIp(req),
+      req.headers['user-agent']
     );
-
-    user.preferred_role = role;
-    await user.save();
-
-    res.cookie("accessToken", newAccessToken, ACCESS_TOKEN_OPTIONS);
-
-    return sendSuccess(res, {
-      user: {
-        id: user._id,
-        activeRole,
-      },
-    });
-  } catch (error: any) {
-    console.error("Switch role error:", error);
-    return sendError(res, error.message);
+    res.cookie('admin_token', result.token, COOKIE_OPTIONS);
+    return sendSuccess(res, { user: result.user }, 'Login successful');
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const getSessions = async (req: AuthRequest, res: Response) => {
+export const adminLogout = async (_req: Request, res: Response): Promise<Response> => {
   try {
-    const sessions = await sessionService.getUserSessions(req.user.id);
-
-    const sessionsWithCurrent = sessions.map((session) => ({
-      ...session,
-      isCurrent: session.id.toString() === req.user.sessionId,
-    }));
-
-    return sendSuccess(res, { sessions: sessionsWithCurrent });
-  } catch (error: any) {
-    console.error("Get sessions error:", error);
-    return sendError(res, error.message);
+    res.clearCookie('admin_token');
+    return sendSuccess(res, null, 'Logout successful');
+  } catch (error) {
+    return handleError(res, error);
   }
 };
 
-export const deleteSession = async (req: AuthRequest, res: Response) => {
+export const exchangeGoogleCode = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { sessionId } = req.params;
-
-    const session = await Session.findById(sessionId);
-    if (!session) {
-      return sendError(res, "Session not found", null, 404);
-    }
-
-    if (session.user_id.toString() !== req.user.id) {
-      return sendError(res, "Unauthorized", null, 403);
-    }
-
-    await sessionService.revokeSession(sessionId);
-
-    return sendSuccess(res, null, "Session deleted successfully");
-  } catch (error: any) {
-    console.error("Delete session error:", error);
-    return sendError(res, error.message);
-  }
-};
-
-export const adminLogin = async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return sendError(res, "Email and password are required", null, 400);
-    }
-
-    console.log('[AdminLogin] Attempting login for:', email);
-
-    // Find admin by email
-    const admin = await Admin.findOne({ email: email.toLowerCase().trim() });
-
-    console.log('[AdminLogin] Admin found:', !!admin);
-
-    if (!admin) {
-      return sendError(res, "Invalid credentials", null, 401);
-    }
-
-    const lockCheck = checkAccountLock(admin.locked_until);
-    if (lockCheck.isLocked) {
-      const minutesLeft = Math.ceil((lockCheck.locked_until!.getTime() - Date.now()) / 60000);
-      return sendError(
-        res,
-        `Account temporarily locked. Try again in ${minutesLeft} minutes`,
-        { locked_until: lockCheck.locked_until },
-        403
-      );
-    }
-
-    // Check if account is active
-    if (!admin.is_active) {
-      return sendError(res, "Account is deactivated", null, 403);
-    }
-
-    // Verify password
-    const isPasswordValid = await admin.comparePassword(password);
-
-    if (!isPasswordValid) {
-      admin.failed_login_attempts += 1;
-
-      if (admin.failed_login_attempts >= MAX_FAILED_ATTEMPTS) {
-        admin.locked_until = new Date(Date.now() + ACCOUNT_LOCK_DURATION);
-        await admin.save();
-        return sendError(
-          res,
-          "Too many failed login attempts. Account locked for 30 minutes",
-          null,
-          403
-        );
-      }
-
-      await admin.save();
-      return sendError(res, "Invalid credentials", null, 401);
-    }
-
-    updateLoginMetadata(admin, req);
-    await admin.save();
-
-    // Create admin user object
-    const adminUser = {
-      id: admin._id.toString(),
-      email: admin.email,
-      name: admin.full_name,
-      role: admin.role,
-      permissions: admin.permissions,
-    };
-
-    // Generate JWT token for admin
-    const token = jwt.sign(
-      {
-        userId: admin._id.toString(),
-        email: admin.email,
-        role: admin.role,
-        permissions: admin.permissions
-      },
-      process.env.JWT_SECRET || (() => { throw new Error('JWT_SECRET is required'); })(),
-      { expiresIn: "7d" }
-    );
-
-    res.cookie("admin_token", token, COOKIE_OPTIONS);
-
-    return sendSuccess(res, { user: adminUser }, "Login successful");
-  } catch (error: any) {
-    console.error("Admin login error:", error);
-    return sendError(res, error.message);
-  }
-};
-
-/**
- * Pure Google OAuth 2.0 — Authorization Code Exchange
- * Frontend sends the `code` it received from Google's redirect.
- * Backend exchanges it for tokens, fetches the user profile, and issues a session.
- */
-export const exchangeGoogleCode = async (req: Request, res: Response) => {
-  try {
-    const { code, redirect_uri } = req.body;
-
-    if (!code || typeof code !== "string") {
-      return sendError(res, "Authorization code is required", null, 400);
-    }
-
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
-      console.error("[GoogleOAuth] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured");
-      return sendError(res, "Google OAuth is not configured on the server", null, 500);
-    }
-
-    // 1. Exchange authorization code for access token
-
-    const effectiveRedirectUri = redirect_uri || process.env.GOOGLE_REDIRECT_URI || "";
-    console.log("[GoogleOAuth] Exchanging code. redirect_uri being sent:", effectiveRedirectUri);
-    let accessTokenData: any;
-    try {
-      const tokenResponse = await axios.post(
-        "https://oauth2.googleapis.com/token",
-        new URLSearchParams({
-          code,
-          client_id: clientId,
-          client_secret: clientSecret,
-          redirect_uri: effectiveRedirectUri,
-          grant_type: "authorization_code",
-        }),
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-      );
-      accessTokenData = tokenResponse.data;
-    } catch (tokenError: any) {
-      const googleErr = tokenError.response?.data;
-      console.error("[GoogleOAuth] Token exchange failed:", googleErr || tokenError.message);
-      const detail = googleErr?.error_description || googleErr?.error || tokenError.message || "unknown";
-      return sendError(res, `Failed to exchange Google authorization code: ${detail}`, null, 401);
-    }
-
-    // 2. Fetch user profile using the access token
-    let googleProfile: { sub: string; email?: string; name?: string; picture?: string };
-    try {
-      const profileResponse = await axios.get("https://www.googleapis.com/oauth2/v3/userinfo", {
-        headers: { Authorization: `Bearer ${accessTokenData.access_token}` },
-      });
-      googleProfile = profileResponse.data;
-    } catch (profileError: any) {
-      console.error("[GoogleOAuth] Userinfo fetch failed:", profileError.message);
-      return sendError(res, "Failed to fetch Google user profile", null, 401);
-    }
-
-    const googleId = googleProfile.sub; // Google's stable user ID
-
-    // 3. Find or create user — google_id first, fallback to email for account linking
-    let user = await User.findOne({ google_id: googleId });
-    let isNewUser = false;
-
-    if (!user && googleProfile.email) {
-      user = await User.findOne({ email: googleProfile.email });
-      if (user) {
-        // Link this Google account to the existing phone/OTP user
-        user.google_id = googleId;
-        if (!user.avatar_url && googleProfile.picture) user.avatar_url = googleProfile.picture;
-        if (!user.full_name && googleProfile.name) user.full_name = googleProfile.name;
-        await user.save();
-        console.info(`[GoogleOAuth] Linked google_id to existing user ${user._id}`);
-      }
-    }
-
-    if (!user) {
-      isNewUser = true;
-      user = await User.create({
-        google_id: googleId,
-        email: googleProfile.email,
-        full_name: googleProfile.name,
-        avatar_url: googleProfile.picture,
-        roles: [{ scope: "platform", role: "customer", assignedAt: new Date() }],
-        is_verified: true,
-        is_active: true,
-        currentStep: "BRAND",
-      });
-
-      createAdminNotification({
-        title: "New User Joined",
-        message: `A new user registered via Google${googleProfile.email ? ` (${googleProfile.email})` : ""}.`,
-        type: "user",
-        referenceId: user._id.toString(),
-      });
-    }
-
-    // 4. Gate checks
-    if (user.is_suspended) {
-      return sendError(res, "Account suspended", { reason: user.suspension_reason }, 403);
-    }
-    const lockCheck = checkAccountLock(user.locked_until);
-    if (lockCheck.isLocked) {
-      return sendError(res, "Account temporarily locked", { locked_until: lockCheck.locked_until }, 403);
-    }
-
-    // 5. Create session — same pipeline as OTP login
-    const deviceInfo = (req.body.deviceInfo as any) || {};
-    const initialRefreshToken = tokenService.generateRefreshToken(user._id.toString(), "", 1);
-
-    const session = await sessionService.createSession(user._id.toString(), initialRefreshToken, {
-      device_id: deviceInfo.deviceId || `google-oauth-${Date.now()}`,
-      device_name: deviceInfo.deviceName || "Google Sign-In",
-      device_type: deviceInfo.deviceType || "web",
-      os: deviceInfo.os || "unknown",
-      browser: deviceInfo.browser || "unknown",
-      ip_address: req.ip || req.socket.remoteAddress || "unknown",
-    });
-
-    const newAccessToken = tokenService.generateAccessToken(user, session._id.toString(), undefined);
-    const newRefreshToken = tokenService.generateRefreshToken(user._id.toString(), session._id.toString(), 1);
-
-    await sessionService.rotateRefreshToken(session._id.toString(), newRefreshToken);
-
-    updateLoginMetadata(user, req, deviceInfo);
-    await user.save();
-
-    // 6. Business role enrichment
-    const brands = await Brand.find({ admin_user_id: user._id });
-    const outlets = await outletService.getUserOutletsList(user._id.toString());
-    await ensureRestaurantOwnerRole(user, outlets);
-
-    const hasCompletedOnboarding =
-      user.roles.some((r) => r.role === "restaurant_owner") &&
-      brands.length > 0 &&
-      user.currentStep === "DONE";
-
-    // 7. Set auth cookies — identical to OTP flow
-    setAuthCookies(res, newAccessToken, newRefreshToken, {
-      source: "googleOAuth",
-      userId: user._id.toString(),
-      roleCount: user.roles?.length || 0,
-    });
-
-    return sendSuccess(res, {
-      user: {
-        id: user._id,
-        phone: user.phone,
-        email: user.email,
-        username: user.username,
-        avatar_url: user.avatar_url,
-        full_name: user.full_name,
-        saved_items: user.saved_items || [],
-        shared_items: user.shared_items || [],
-        engagement_summary: buildEngagementSummary(user),
-        roles: user.roles,
-        currentStep: user.currentStep,
-        hasCompletedOnboarding,
-        brands: brands.map(mapBrandToResponse),
-        outlets: outlets.map(mapOutletToResponse),
-        is_verified: user.is_verified,
-        is_active: user.is_active,
-        isNewUser,
-      },
-    });
-  } catch (error: any) {
-    console.error("[GoogleOAuth] Error:", error);
-    if (typeof error?.message === "string" && error.message.startsWith("ACCESS_TOKEN_TOO_LARGE:")) {
-      return sendError(res, "Authentication cookie exceeded safe size. Please contact support.", null, 500);
-    }
-    return sendError(res, error.message || "Google login failed");
-  }
-};
-
-export const adminLogout = async (req: Request, res: Response) => {
-  try {
-    res.clearCookie("admin_token");
-    return sendSuccess(res, null, "Logout successful");
-  } catch (error: any) {
-    console.error("Admin logout error:", error);
-    return sendError(res, error.message);
+    const { code, redirect_uri, deviceInfo } = req.body;
+    const result = await authExtendedService.exchangeGoogleCode(code, redirect_uri, deviceInfo, getClientIp(req));
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+    return sendSuccess(res, { user: result.user });
+  } catch (error) {
+    return handleError(res, error);
   }
 };

@@ -1,229 +1,115 @@
-import { Brand, IBrand } from '../models/Brand.js';
-import { User } from '../models/User.js';
-import { BrandUpdateRequest } from '../models/BrandUpdateRequest.js';
-import mongoose from 'mongoose';
+import * as brandRepo from '../repositories/brandRepository.js';
+import * as brandUpdateRepo from '../repositories/brandUpdateRepository.js';
+import * as userRepo from '../repositories/userRepository.js';
+import { AppError, ErrorCode } from '../errors/AppError.js';
 
-/**
- * Get all brands for a user
- */
-export const getUserBrands = async (userId: string): Promise<IBrand[]> => {
-    return await Brand.find({ admin_user_id: userId });
+export const getUserBrands = async (userId: string) => {
+  const brands = await brandRepo.findByAdminUserId(userId);
+  const brandIds = brands.map((b: any) => String(b._id));
+  const pendingRequests = await brandUpdateRepo.findPendingRequestsByBrandIds(brandIds);
+  const pendingSet = new Set(pendingRequests.map((r: any) => String(r.brand_id)));
+
+  return brands.map((b: any) => ({
+    ...b,
+    has_pending_update: pendingSet.has(String(b._id))
+  }));
 };
 
-/**
- * Get brand by ID
- */
-export const getBrandById = async (brandId: string): Promise<IBrand | null> => {
-    return await Brand.findById(brandId);
+export const getBrandById = async (brandId: string) => {
+  return await brandRepo.findById(brandId);
 };
 
-/**
- * Create a new brand
- */
-export const createBrand = async (userId: string, brandData: {
-    name: string;
-    description?: string;
-    logo_url?: string;
-    cuisines: string[];
-    operating_modes: {
-        corporate: boolean;
-        franchise: boolean;
-    };
-    social_media?: {
-        instagram?: string;
-        website?: string;
-    };
-}): Promise<IBrand> => {
-    // Check if brand with same name already exists globally (across all users)
-    const existingBrandByName = await Brand.findOne({
-        name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
-        verification_status: 'approved'
-    });
-
-    if (existingBrandByName) {
-        throw new Error(`A brand named "${brandData.name}" already exists. Please choose a different name.`);
-    }
-
-    // Check if user already has a pending brand with the same name
-    const existingPendingBrand = await Brand.findOne({
-        name: { $regex: new RegExp(`^${brandData.name}$`, 'i') },
-        admin_user_id: userId,
-        verification_status: 'pending'
-    });
-
-    if (existingPendingBrand) {
-        throw new Error(`You already have a pending brand named "${brandData.name}". Please wait for approval or use the existing one.`);
-    }
-
-    // Generate slug from name
-    let slug = brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-
-    // Check if slug already exists and make it unique
-    let existingBrandBySlug = await Brand.findOne({ slug });
-    let counter = 1;
-    while (existingBrandBySlug) {
-        slug = `${brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${counter}`;
-        existingBrandBySlug = await Brand.findOne({ slug });
-        counter++;
-    }
-
-    const brand = new Brand({
-        ...brandData,
-        slug,
-        admin_user_id: userId,
-        created_by: userId,
-        verification_status: 'pending',
-        is_featured: false
-    });
-
-    await brand.save();
-
-    // Assign brand-level restaurant_owner role to the user
-    const user = await User.findById(userId);
-    if (user) {
-        const hasBrandRole = user.roles.some(r =>
-            r.scope === 'brand' &&
-            r.role === 'restaurant_owner' &&
-            r.brandId?.toString() === brand._id.toString()
-        );
-
-        if (!hasBrandRole) {
-            user.roles.push({
-                scope: 'brand',
-                role: 'restaurant_owner',
-                brandId: brand._id as mongoose.Types.ObjectId,
-                permissions: [],
-                assignedAt: new Date(),
-                assignedBy: userId as unknown as mongoose.Types.ObjectId
-            } as any);
-            await user.save();
-        }
-    }
-
-    return brand;
+const generateUniqueSlug = async (name: string): Promise<string> => {
+  let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  let existing = await brandRepo.findBySlug(slug);
+  let counter = 1;
+  while (existing) {
+    slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${counter}`;
+    existing = await brandRepo.findBySlug(slug);
+    counter++;
+  }
+  return slug;
 };
 
-/**
- * Update brand
- */
-export const updateBrand = async (
-    brandId: string,
-    userId: string,
-    updateData: Partial<IBrand>
-): Promise<IBrand | null> => {
-    const brand = await Brand.findOne({ _id: brandId, admin_user_id: userId });
+export const createBrand = async (userId: string, brandData: any) => {
+  const existingGlobal = await brandRepo.findByNameAndStatus(new RegExp(`^${brandData.name}$`, 'i'), 'approved');
+  if (existingGlobal) throw new AppError(`A brand named "${brandData.name}" already exists.`, 400, ErrorCode.VALIDATION_ERROR);
 
-    if (!brand) {
-        throw new Error('Brand not found or unauthorized');
-    }
+  const existingPending = await brandRepo.findAdminBrandByNameAndStatus(new RegExp(`^${brandData.name}$`, 'i'), userId, 'pending');
+  if (existingPending) throw new AppError(`You already have a pending brand named "${brandData.name}".`, 400, ErrorCode.VALIDATION_ERROR);
 
-    // Check if new name already exists globally (excluding current brand)
-    if (updateData.name && updateData.name !== brand.name) {
-        const existingBrandByName = await Brand.findOne({
-            name: { $regex: new RegExp(`^${updateData.name}$`, 'i') },
-            _id: { $ne: brandId },
-            verification_status: 'approved'
-        });
+  const slug = await generateUniqueSlug(brandData.name);
 
-        if (existingBrandByName) {
-            throw new Error(`A brand named "${updateData.name}" already exists. Please choose a different name.`);
-        }
-    }
+  const brand = await brandRepo.create({
+    ...brandData,
+    slug,
+    admin_user_id: userId,
+    created_by: userId,
+    verification_status: 'pending',
+    is_featured: false
+  });
 
-    // Update allowed fields
-    const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media', 'verification_status', 'verified_by', 'verified_at'];
-    allowedFields.forEach(field => {
-        if (updateData[field as keyof IBrand] !== undefined) {
-            (brand as any)[field] = updateData[field as keyof IBrand];
-        }
-    });
+  await userRepo.addRole(userId, {
+    scope: 'brand',
+    role: 'restaurant_owner',
+    brandId: brand._id,
+    permissions: [],
+    assignedAt: new Date() as any,
+    assignedBy: userId
+  } as any);
 
-    // Update slug if name changed
-    if (updateData.name) {
-        brand.slug = updateData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
-    }
-
-    await brand.save();
-    return brand;
+  return brand;
 };
 
-/**
- * Get sample/public brands for selection
- */
-export const getPublicBrands = async (userId?: string): Promise<IBrand[]> => {
-    let query: any;
+export const updateBrand = async (brandId: string, userId: string, updateData: any) => {
+  const brand = await brandRepo.findAdminBrand(brandId, userId);
+  if (!brand) throw new AppError('Brand not found or unauthorized', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
-    // Include user's own brands (pending or approved) and approved brands from others
-    if (userId) {
-        query = {
-            $or: [
-                { created_by: userId },
-                { admin_user_id: userId },
-                { verification_status: 'approved' }
-            ]
-        };
-    } else {
-        query = {
-            verification_status: 'approved'
-        };
-    }
+  if (updateData.name && updateData.name !== brand.name) {
+    const existing = await brandRepo.findByNameAndStatus(new RegExp(`^${updateData.name}$`, 'i'), 'approved', brandId);
+    if (existing) throw new AppError(`A brand named "${updateData.name}" already exists.`, 400, ErrorCode.VALIDATION_ERROR);
+  }
 
+  const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media', 'verification_status', 'verified_by', 'verified_at', 'brand_theme', 'primary_color', 'secondary_color'];
+  allowedFields.forEach(field => {
+    if (updateData[field] !== undefined) brand[field] = updateData[field];
+  });
 
-    const brands = await Brand.find(query).limit(50).lean();
+  if (updateData.name) {
+    brand.slug = updateData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
 
-    // Check for pending update requests
-    const enrichedBrands = await Promise.all(brands.map(async (brand: any) => {
-        const pendingUpdate = await BrandUpdateRequest.findOne({
-            brand_id: brand._id,
-            status: 'pending'
-        });
-        return {
-            ...brand,
-            has_pending_update: !!pendingUpdate
-        };
-    }));
-
-    return enrichedBrands as unknown as IBrand[];
+  await brand.save(); // Assuming mongoose model returned
+  return brand;
 };
 
-/**
- * Search brands by name
- */
-export const searchBrands = async (query: string, userId?: string): Promise<IBrand[]> => {
-    let searchQuery: any;
+const enrichBrandsWithPending = async (brands: any[]) => {
+  return await Promise.all(brands.map(async (brand: any) => {
+    const pending = await brandUpdateRepo.findPendingRequestByBrandId(brand._id);
+    return { ...brand, has_pending_update: !!pending };
+  }));
+};
 
-    // Include user's own brands (any status) and approved public brands
-    if (userId) {
-        searchQuery = {
-            name: { $regex: query, $options: 'i' },
-            is_active: true,
-            $or: [
-                { created_by: userId },
-                { admin_user_id: userId },
-                { verification_status: 'approved' }
-            ]
-        };
-    } else {
-        searchQuery = {
-            name: { $regex: query, $options: 'i' },
-            is_active: true,
-            verification_status: 'approved'
-        };
-    }
+export const getPublicBrands = async (userId?: string) => {
+  const query = userId ? {
+    $or: [{ created_by: userId }, { admin_user_id: userId }, { verification_status: 'approved' }]
+  } : { verification_status: 'approved' };
+  
+  const brands = await brandRepo.searchPublicBrands(query, 50);
+  return await enrichBrandsWithPending(brands);
+};
 
-    const brands = await Brand.find(searchQuery).limit(20).lean();
+export const searchBrands = async (query: string, userId?: string) => {
+  const searchQuery = userId ? {
+    name: { $regex: query, $options: 'i' },
+    is_active: true,
+    $or: [{ created_by: userId }, { admin_user_id: userId }, { verification_status: 'approved' }]
+  } : {
+    name: { $regex: query, $options: 'i' },
+    is_active: true,
+    verification_status: 'approved'
+  };
 
-    // Check for pending update requests
-    const enrichedBrands = await Promise.all(brands.map(async (brand: any) => {
-        const pendingUpdate = await BrandUpdateRequest.findOne({
-            brand_id: brand._id,
-            status: 'pending'
-        });
-        return {
-            ...brand,
-            has_pending_update: !!pendingUpdate
-        };
-    }));
-
-    return enrichedBrands as unknown as IBrand[];
+  const brands = await brandRepo.searchPublicBrands(searchQuery, 20);
+  return await enrichBrandsWithPending(brands);
 };

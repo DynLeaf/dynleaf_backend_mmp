@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Outlet } from '../models/Outlet.js';
+import * as autoOnboardingService from '../services/autoOnboardingService.js';
 
 const KERALA_CITIES = [
     'Thiruvananthapuram', 'Kollam', 'Pathanamthitta', 'Alappuzha',
@@ -18,25 +18,7 @@ interface AuthRequest extends Request {
 export const getOnboardedPlaceIds = async (req: AuthRequest, res: Response) => {
     try {
         const { city } = req.query;
-
-        const query: any = {
-            'address.city': city || { $in: KERALA_CITIES }
-        };
-
-        // Get all outlets and extract any Google Place IDs if stored
-        // For now, we'll use name + address as identifier
-        const outlets = await Outlet.find(query)
-            .select('name address.full address.city location')
-            .lean();
-
-        // Return list of onboarded restaurants with their identifiers
-        const onboarded = outlets.map(outlet => ({
-            _id: outlet._id,
-            name: outlet.name,
-            address: outlet.address?.full,
-            city: outlet.address?.city,
-            location: outlet.location
-        }));
+        const onboarded = await autoOnboardingService.getOnboardedOutlets(city as string);
 
         res.json({
             onboarded,
@@ -60,49 +42,8 @@ export const checkIfOnboarded = async (req: AuthRequest, res: Response) => {
             return res.status(400).json({ error: 'Restaurant name is required' });
         }
 
-        // Check by name (case-insensitive)
-        const nameMatch = await Outlet.findOne({
-            name: { $regex: new RegExp(`^${name}$`, 'i') }
-        });
-
-        if (nameMatch) {
-            return res.json({
-                isOnboarded: true,
-                outlet: {
-                    _id: nameMatch._id,
-                    name: nameMatch.name,
-                    address: nameMatch.address
-                }
-            });
-        }
-
-        // Check by location if provided (within ~100m radius)
-        if (latitude && longitude) {
-            const nearbyOutlet = await Outlet.findOne({
-                location: {
-                    $near: {
-                        $geometry: {
-                            type: 'Point',
-                            coordinates: [parseFloat(longitude), parseFloat(latitude)]
-                        },
-                        $maxDistance: 100 // 100 meters
-                    }
-                }
-            });
-
-            if (nearbyOutlet) {
-                return res.json({
-                    isOnboarded: true,
-                    outlet: {
-                        _id: nearbyOutlet._id,
-                        name: nearbyOutlet.name,
-                        address: nearbyOutlet.address
-                    }
-                });
-            }
-        }
-
-        res.json({ isOnboarded: false });
+        const result = await autoOnboardingService.checkIsOnboarded(name, latitude, longitude);
+        res.json(result);
     } catch (error: any) {
         console.error('Error checking onboarding status:', error);
         res.status(500).json({ error: 'Failed to check onboarding status' });

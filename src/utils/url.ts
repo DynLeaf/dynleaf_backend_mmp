@@ -1,4 +1,4 @@
-import { AppError } from './AppError.js';
+import { AppError } from '../errors/AppError.js';
 
 export const isValidHttpUrl = (value: unknown): boolean => {
   if (typeof value !== 'string') return false;

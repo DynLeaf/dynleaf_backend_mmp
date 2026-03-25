@@ -1,6 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { Session } from '../models/Session.js';
-import mongoose from 'mongoose';
+import * as sessionRepo from '../repositories/session/sessionRepository.js';
 
 interface DeviceInfo {
     device_id: string;
@@ -11,88 +10,54 @@ interface DeviceInfo {
     ip_address: string;
 }
 
+interface SessionDto {
+    id: unknown;
+    deviceInfo: unknown;
+    lastUsedAt: Date;
+    createdAt: Date;
+}
+
 export const createSession = async (
     userId: string,
     refreshToken: string,
     deviceInfo: DeviceInfo
-): Promise<any> => {
-    const activeSessions = await Session.countDocuments({
-        user_id: userId,
-        is_active: true
-    });
+): Promise<unknown> => {
+    const activeSessions = await sessionRepo.countActiveSessions(userId);
 
     if (activeSessions >= 5) {
-        const oldestSession = await Session.findOne({
-            user_id: userId,
-            is_active: true
-        }).sort({ last_used_at: 1 });
-
-        if (oldestSession) {
-            oldestSession.is_active = false;
-            await oldestSession.save();
+        const oldest = await sessionRepo.findOldestActiveSession(userId);
+        if (oldest) {
+            await sessionRepo.deactivateSession(oldest._id);
         }
     }
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    const session = await Session.create({
-        user_id: userId,
-        refresh_token_hash: refreshTokenHash,
-        device_info: deviceInfo,
-        is_active: true,
-        expires_at: expiresAt,
-        last_used_at: new Date()
-    });
-
-    return session;
+    return sessionRepo.createSession({ user_id: userId, refresh_token_hash: refreshTokenHash, device_info: deviceInfo, expires_at: expiresAt });
 };
 
 export const validateSession = async (sessionId: string): Promise<boolean> => {
-    const session = await Session.findById(sessionId);
-    
-    if (!session) return false;
-    if (!session.is_active) return false;
+    const session = await sessionRepo.findSessionById(sessionId);
+    if (!session || !session.is_active) return false;
     if (session.expires_at < new Date()) return false;
-
     return true;
 };
 
-export const updateSessionActivity = async (sessionId: string): Promise<void> => {
-    await Session.findByIdAndUpdate(sessionId, {
-        last_used_at: new Date()
-    });
-};
+export const updateSessionActivity = (sessionId: string): Promise<unknown> =>
+    sessionRepo.touchSession(sessionId);
 
-export const revokeSession = async (sessionId: string): Promise<void> => {
-    await Session.findByIdAndUpdate(sessionId, {
-        is_active: false
-    });
-};
+export const revokeSession = (sessionId: string): Promise<unknown> =>
+    sessionRepo.deactivateSessionById(sessionId);
 
-export const revokeAllSessions = async (userId: string): Promise<void> => {
-    await Session.updateMany(
-        { user_id: userId },
-        { is_active: false }
-    );
-};
+export const revokeAllSessions = (userId: string): Promise<unknown> =>
+    sessionRepo.deactivateAllUserSessions(userId);
 
-export const revokeSessionByDevice = async (userId: string, deviceId: string): Promise<void> => {
-    await Session.updateMany(
-        { 
-            user_id: userId,
-            'device_info.device_id': deviceId
-        },
-        { is_active: false }
-    );
-};
+export const revokeSessionByDevice = (userId: string, deviceId: string): Promise<unknown> =>
+    sessionRepo.deactivateSessionsByDevice(userId, deviceId);
 
-export const getUserSessions = async (userId: string): Promise<any[]> => {
-    const sessions = await Session.find({
-        user_id: userId,
-        is_active: true
-    }).sort({ last_used_at: -1 });
-
+export const getUserSessions = async (userId: string): Promise<SessionDto[]> => {
+    const sessions = await sessionRepo.findActiveUserSessions(userId);
     return sessions.map(session => ({
         id: session._id,
         deviceInfo: session.device_info,
@@ -102,33 +67,18 @@ export const getUserSessions = async (userId: string): Promise<any[]> => {
 };
 
 export const cleanupExpiredSessions = async (): Promise<number> => {
-    const result = await Session.deleteMany({
-        expires_at: { $lt: new Date() }
-    });
-
+    const result = await sessionRepo.deleteExpiredSessions();
     return result.deletedCount || 0;
 };
 
-export const verifyRefreshToken = async (
-    sessionId: string,
-    refreshToken: string
-): Promise<boolean> => {
-    const session = await Session.findById(sessionId);
-    
+export const verifyRefreshToken = async (sessionId: string, refreshToken: string): Promise<boolean> => {
+    const session = await sessionRepo.findSessionById(sessionId);
     if (!session || !session.is_active) return false;
     if (session.expires_at < new Date()) return false;
-
-    return await bcrypt.compare(refreshToken, session.refresh_token_hash);
+    return bcrypt.compare(refreshToken, session.refresh_token_hash);
 };
 
-export const rotateRefreshToken = async (
-    sessionId: string,
-    newRefreshToken: string
-): Promise<void> => {
-    const refreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
-    
-    await Session.findByIdAndUpdate(sessionId, {
-        refresh_token_hash: refreshTokenHash,
-        last_used_at: new Date()
-    });
+export const rotateRefreshToken = async (sessionId: string, newRefreshToken: string): Promise<void> => {
+    const hash = await bcrypt.hash(newRefreshToken, 10);
+    await sessionRepo.rotateSessionToken(sessionId, hash);
 };

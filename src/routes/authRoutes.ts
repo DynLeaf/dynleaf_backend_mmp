@@ -1,16 +1,16 @@
 import express from 'express';
-import { 
-    sendOtp, 
-    verifyOtp, 
-    refreshToken, 
-    logout, 
-    getCurrentUser, 
-    switchRole,
-    getSessions,
-    deleteSession,
-    adminLogin,
-    adminLogout,
-    exchangeGoogleCode
+import {
+  sendOtp,
+  verifyOtp,
+  refreshToken,
+  logout,
+  getCurrentUser,
+  switchRole,
+  getSessions,
+  deleteSession,
+  adminLogin,
+  adminLogout,
+  exchangeGoogleCode,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { otpSendLimiter, otpVerifyLimiter } from '../middleware/rateLimiter.js';

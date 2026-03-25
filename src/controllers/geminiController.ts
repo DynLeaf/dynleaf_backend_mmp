@@ -4,7 +4,7 @@
  */
 
 import { Request, Response } from 'express';
-import { geminiService } from '../services/geminiService.js';
+import { geminiService } from '../services/gemini/index.js';
 
 // ============================================================================
 // Request Validation

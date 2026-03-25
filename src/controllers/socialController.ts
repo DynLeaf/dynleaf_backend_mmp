@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Outlet } from '../models/Outlet.js';
+import * as outletRepo from '../repositories/outletRepository.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { validateOptionalHttpUrl } from '../utils/url.js';
 import * as outletService from '../services/outletService.js';
@@ -17,7 +17,7 @@ export const updateSocialLinks = async (req: Request, res: Response) => {
         // Validate optional review link if present
         validateOptionalHttpUrl('Google review link', socialMap.google_review);
 
-        await Outlet.findByIdAndUpdate(outletId, { social_media: socialMap });
+        await outletRepo.updateById(outletId, { social_media: socialMap });
         return sendSuccess(res, null, 'Social links updated');
     } catch (error: any) {
         const statusCode = typeof error?.statusCode === 'number' ? error.statusCode : 500;

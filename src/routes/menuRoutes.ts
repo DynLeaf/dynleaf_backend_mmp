@@ -3,7 +3,9 @@ import {
     createCategory,
     listCategories,
     updateCategory,
-    deleteCategory,
+    deleteCategory
+} from '../controllers/menu/categoryController.js';
+import {
     createFoodItem,
     listFoodItems,
     updateFoodItem,
@@ -12,20 +14,24 @@ import {
     bulkUpdateFoodItems,
     bulkDeleteFoodItems,
     uploadFoodItemImage,
+    getFoodItemById,
     createVariant,
-    updateVariant,
+    updateVariant
+} from '../controllers/menu/foodItemController.js';
+import {
     createAddOn,
     listAddOns,
     updateAddOn,
-    deleteAddOn,
+    deleteAddOn
+} from '../controllers/menu/addOnController.js';
+import {
     createCombo,
     listCombos,
     updateCombo,
     deleteCombo,
-    getComboById,
-    getTrendingDishes,
-    getFoodItemById
-} from '../controllers/menuController.js';
+    getComboById
+} from '../controllers/menu/comboController.js';
+import { getTrendingDishes } from '../controllers/foodSearchController.js';
 import { toggleVote, getUserVote, getVoteAnalytics, submitVoteReview } from '../controllers/voteController.js';
 import { protect, optionalAuth } from '../middleware/authMiddleware.js';
 import { voteRateLimiter } from '../middleware/rateLimiter.js';
@@ -80,4 +86,3 @@ router.patch('/combos/:comboId', protect, updateCombo);
 router.delete('/combos/:comboId', protect, deleteCombo);
 
 export default router;
-// trigger restart

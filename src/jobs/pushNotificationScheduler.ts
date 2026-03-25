@@ -9,7 +9,7 @@
  */
 
 import cron from 'node-cron';
-import { processScheduledNotifications, retryFailedNotifications } from '../services/pushNotificationService.js';
+import { processScheduled, retryFailed } from '../services/notificationCampaignService.js';
 
 let schedulerInitialized = false;
 
@@ -28,8 +28,8 @@ export const initializePushNotificationScheduler = () => {
     // Process scheduled notifications every minute
     cron.schedule('*/1 * * * *', async () => {
       try {
-        const result = await processScheduledNotifications();
-      } catch (error: any) {
+        const result = await processScheduled();
+      } catch (error: unknown) {
         console.error('[Push Notification Scheduler] Error processing scheduled notifications:', error);
       }
     });
@@ -37,11 +37,11 @@ export const initializePushNotificationScheduler = () => {
     // Retry failed notifications every 5 minutes
     cron.schedule('*/5 * * * *', async () => {
       try {
-        const result = await retryFailedNotifications();
+        const result = await retryFailed();
         if (result.retried > 0) {
 
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('[Push Notification Scheduler] Error retrying failed notifications:', error);
       }
     });
@@ -49,7 +49,7 @@ export const initializePushNotificationScheduler = () => {
 
 
     schedulerInitialized = true;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Push Notification Scheduler] Failed to initialize:', error);
     throw error;
   }

@@ -1,5 +1,5 @@
 import express from 'express';
-import { getNearbyFood, getTrendingDishesNew } from '../controllers/foodSearchController.js';
+import { getNearbyFood, getTrendingDishes } from '../controllers/foodSearchController.js';
 
 const router = express.Router();
 
@@ -12,6 +12,6 @@ const router = express.Router();
 router.get('/nearby', getNearbyFood);
 
 // Get trending dishes near user
-router.get('/trending', getTrendingDishesNew);
+router.get('/trending', getTrendingDishes);
 
 export default router;

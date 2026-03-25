@@ -4,6 +4,9 @@ import {
     listCategoriesForOutlet,
     updateCategoryForOutlet,
     deleteCategoryForOutlet,
+    bulkUpdateCategoryItemTypeForOutlet
+} from '../controllers/menu/categoryController.js';
+import {
     createFoodItemForOutlet,
     listFoodItemsForOutlet,
     updateFoodItemForOutlet,
@@ -11,23 +14,28 @@ import {
     duplicateFoodItemForOutlet,
     bulkUpdateFoodItemsForOutlet,
     bulkDeleteFoodItemsForOutlet,
-    uploadFoodItemImageForOutlet,
+    uploadFoodItemImageForOutlet
+} from '../controllers/menu/foodItemController.js';
+import {
     createAddOnForOutlet,
     listAddOnsForOutlet,
     updateAddOnForOutlet,
-    deleteAddOnForOutlet,
+    deleteAddOnForOutlet
+} from '../controllers/menu/addOnController.js';
+import {
     createComboForOutlet,
     listCombosForOutlet,
     updateComboForOutlet,
-    deleteComboForOutlet,
+    deleteComboForOutlet
+} from '../controllers/menu/comboController.js';
+import {
     importMenuForOutlet,
     exportMenuForOutlet,
     getMenuSyncStatusForOutlet,
     previewMenuSyncForOutlet,
     syncMenuToOutlets,
-    getMenuSyncHistoryForOutlet,
-    bulkUpdateCategoryItemTypeForOutlet
-} from '../controllers/outletMenuManagementController.js';
+    getMenuSyncHistoryForOutlet
+} from '../controllers/menu/menuSyncController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import { checkBrandSyncPermission } from '../middleware/brandPermissionMiddleware.js';
 

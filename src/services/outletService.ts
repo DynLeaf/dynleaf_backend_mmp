@@ -1,11 +1,19 @@
-import { Outlet, IOutlet } from '../models/Outlet.js';
-import { OperatingHours } from '../models/OperatingHours.js';
-import { Compliance } from '../models/Compliance.js';
-import { User } from '../models/User.js';
 import mongoose from 'mongoose';
+import * as outletRepo from '../repositories/outletRepository.js';
+import * as userRepository from '../repositories/userRepository.js';
+import type { IOutlet } from '../models/Outlet.js';
 import { ensureSubscriptionForOutlet } from '../utils/subscriptionUtils.js';
-import { Subscription } from '../models/Subscription.js';
 import { normalizePlanToTier } from '../config/subscriptionPlans.js';
+
+interface OutletRole {
+    scope: string;
+    role: string;
+    outletId?: mongoose.Types.ObjectId;
+    brandId?: mongoose.Types.ObjectId;
+    permissions?: string[];
+    assignedAt?: Date;
+    assignedBy?: mongoose.Types.ObjectId;
+}
 
 const toObjectId = (value: unknown): mongoose.Types.ObjectId | null => {
     if (!value) return null;
@@ -14,25 +22,22 @@ const toObjectId = (value: unknown): mongoose.Types.ObjectId | null => {
     return null;
 };
 
-const getAccessibleOutletQueryForUser = async (userId: string) => {
-    const user = await User.findById(userId).select('roles').lean();
-    if (!user) {
-        return { created_by_user_id: userId };
-    }
+const getAccessibleOutletQuery = async (userId: string): Promise<object> => {
+    const user = await outletRepo.findUserRoles(userId) as { roles?: OutletRole[] } | null;
+    if (!user) return { created_by_user_id: userId };
 
-    const isAdmin = (user as any).roles?.some((r: any) => r?.role === 'admin');
-    if (isAdmin) {
-        return {};
-    }
+    const roles: OutletRole[] = (user as { roles?: OutletRole[] }).roles ?? [];
+    const isAdmin = roles.some(r => r?.role === 'admin');
+    if (isAdmin) return {};
 
-    const outletIds = ((user as any).roles || [])
-        .filter((r: any) => r?.scope === 'outlet' && r?.outletId)
-        .map((r: any) => toObjectId(r.outletId))
+    const outletIds = roles
+        .filter(r => r?.scope === 'outlet' && r?.outletId)
+        .map(r => toObjectId(r.outletId))
         .filter(Boolean) as mongoose.Types.ObjectId[];
 
-    const brandIds = ((user as any).roles || [])
-        .filter((r: any) => r?.scope === 'brand' && r?.brandId)
-        .map((r: any) => toObjectId(r.brandId))
+    const brandIds = roles
+        .filter(r => r?.scope === 'brand' && r?.brandId)
+        .map(r => toObjectId(r.brandId))
         .filter(Boolean) as mongoose.Types.ObjectId[];
 
     return {
@@ -44,105 +49,54 @@ const getAccessibleOutletQueryForUser = async (userId: string) => {
     };
 };
 
-/**
- * Get all outlets for a user (full details)
- */
 export const getUserOutlets = async (userId: string): Promise<IOutlet[]> => {
-    const query = await getAccessibleOutletQueryForUser(userId);
-    return await Outlet.find(query)
-        .populate('brand_id')
-        .sort({ created_at: -1 });
+    const query = await getAccessibleOutletQuery(userId);
+    return outletRepo.findWithQuery(query) as unknown as IOutlet[];
 };
 
-/**
- * Get outlet list for dropdown (lightweight - only essential fields)
- */
 export const getUserOutletsList = async (userId: string) => {
-    const query = await getAccessibleOutletQueryForUser(userId);
-    const outlets = await Outlet.find(query)
-        .select('_id name slug brand_id status approval_status media.cover_image_url address.city')
-        .populate('brand_id', 'name')
-        .sort({ created_at: -1 })
-        .lean();
+    const query = await getAccessibleOutletQuery(userId);
+    const outlets = await outletRepo.findWithQuerySelect(query) as Array<IOutlet & { _id: mongoose.Types.ObjectId }>;
 
-    // Fetch subscription tier for each outlet to help frontend defaulting
-    const outletsWithTier = await Promise.all(outlets.map(async (outlet) => {
-        const sub = await Subscription.findOne({ outlet_id: outlet._id })
-            .select('plan status')
-            .lean();
-
+    const outletsWithTier = await Promise.all(outlets.map(async outlet => {
+        const sub = await outletRepo.findSubscriptionByOutletId(outlet._id) as { plan?: string; status?: string } | null;
         return {
             ...outlet,
-            subscription_tier: sub ? normalizePlanToTier(sub.plan) : 'free'
+            subscription_tier: sub ? normalizePlanToTier(sub.plan ?? 'free') : 'free'
         };
     }));
 
     return outletsWithTier;
 };
 
-/**
- * Get outlet by ID or Slug
- */
-export const getOutletById = async (idOrSlug: string): Promise<IOutlet | null> => {
-    if (mongoose.Types.ObjectId.isValid(idOrSlug)) {
-        return await Outlet.findById(idOrSlug).populate('brand_id');
-    }
-    const outlet = await Outlet.findOne({ slug: idOrSlug }).populate('brand_id');
-    return outlet;
-};
+export const getOutletById = async (idOrSlug: string): Promise<IOutlet | null> =>
+    outletRepo.findByIdWithPopulate(idOrSlug) as unknown as IOutlet | null;
 
-/**
- * Create a new outlet
- */
 export const createOutlet = async (userId: string, brandId: string, outletData: {
     name: string;
-    contact?: {
-        phone?: string;
-        email?: string;
-    };
-    address?: {
-        full?: string;
-        city?: string;
-        state?: string;
-        country?: string;
-        pincode?: string;
-    };
-    location?: {
-        type?: string;
-        coordinates: number[];
-    };
-    media?: {
-        cover_image_url?: string;
-    };
+    contact?: { phone?: string; email?: string };
+    address?: { full?: string; city?: string; state?: string; country?: string; pincode?: string };
+    location?: { type?: string; coordinates: number[] };
+    media?: { cover_image_url?: string };
     restaurant_type?: string;
     vendor_types?: string[];
     seating_capacity?: number;
     table_count?: number;
-    social_media?: {
-        instagram?: string;
-        facebook?: string;
-        twitter?: string;
-    };
+    social_media?: { instagram?: string; facebook?: string; twitter?: string };
     referral_code?: string;
 }): Promise<IOutlet> => {
-    // Generate slug from name
     const slug = outletData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-    // Log location data for debugging
-
-    const outlet = new Outlet({
-        brand_id: brandId,
-        created_by_user_id: userId,
+    const outlet = await outletRepo.create({
+        brand_id: new mongoose.Types.ObjectId(brandId),
+        created_by_user_id: new mongoose.Types.ObjectId(userId),
         name: outletData.name,
         slug,
         status: 'DRAFT',
         approval_status: 'PENDING',
         contact: outletData.contact,
         address: outletData.address,
-        location: outletData.location ? {
-            type: 'Point',
-            coordinates: outletData.location.coordinates
-        } : undefined,
+        location: outletData.location ? { type: 'Point', coordinates: outletData.location.coordinates as [number, number] } : undefined,
         media: outletData.media,
         restaurant_type: outletData.restaurant_type,
         vendor_types: outletData.vendor_types,
@@ -150,41 +104,36 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
         table_count: outletData.table_count,
         social_media: outletData.social_media,
         referral_code: outletData.referral_code,
-        flags: {
-            is_featured: false,
-            is_trending: false
-        }
-    });
-
-    await outlet.save();
+        flags: { is_featured: false, is_trending: false, accepts_online_orders: true, is_open_now: true }
+    }) as unknown as IOutlet;
 
     // Assign outlet-level restaurant_owner role to the user
-    const User = (await import('../models/User.js')).User;
-    const user = await User.findById(userId);
+    const user = await outletRepo.findUserByIdForRole(userId) as {
+        roles: OutletRole[];
+        save: () => Promise<void>;
+    } | null;
     if (user) {
+        const outletId = (outlet as unknown as { _id: mongoose.Types.ObjectId })._id;
         const hasOutletRole = user.roles.some(r =>
             r.scope === 'outlet' &&
             r.role === 'restaurant_owner' &&
-            r.outletId?.toString() === outlet._id.toString()
+            r.outletId?.toString() === outletId.toString()
         );
-
         if (!hasOutletRole) {
-            user.roles.push({
+            await userRepository.addOutletRole(userId, {
                 scope: 'outlet',
                 role: 'restaurant_owner',
-                outletId: outlet._id as mongoose.Types.ObjectId,
-                brandId: brandId as unknown as mongoose.Types.ObjectId,
+                outletId,
+                brandId: new mongoose.Types.ObjectId(brandId),
                 permissions: [],
                 assignedAt: new Date(),
-                assignedBy: userId as unknown as mongoose.Types.ObjectId
-            } as any);
-            await user.save();
-            console.log('✅ Assigned outlet-level role to user:', userId, 'for outlet:', outlet._id);
+                assignedBy: new mongoose.Types.ObjectId(userId)
+            });
         }
     }
 
-    // Ensure the outlet has a default subscription (free + active)
-    await ensureSubscriptionForOutlet(outlet._id.toString(), {
+    const outletId = (outlet as unknown as { _id: { toString(): string } })._id;
+    await ensureSubscriptionForOutlet(outletId.toString(), {
         plan: 'free',
         status: 'active',
         assigned_by: userId,
@@ -194,72 +143,17 @@ export const createOutlet = async (userId: string, brandId: string, outletData: 
     return outlet;
 };
 
-/**
- * Update outlet
- */
-export const updateOutlet = async (
-    outletId: string,
-    userId: string,
-    updateData: Partial<IOutlet>
-): Promise<IOutlet | null> => {
-    const accessQuery = await getAccessibleOutletQueryForUser(userId);
-    const outlet = await Outlet.findOne({
-        $and: [
-            { _id: outletId },
-            accessQuery
-        ]
-    });
-
-    if (!outlet) {
-        throw new Error('Outlet not found or unauthorized');
-    }
-
-    // Update allowed fields
-    Object.keys(updateData).forEach(key => {
-        const value = updateData[key as keyof IOutlet];
-        if (value === undefined) return;
-
-        // Merge nested media updates to avoid overwriting other media fields
-        if (key === 'media' && value && typeof value === 'object') {
-            (outlet as any).media = { ...((outlet as any).media || {}), ...(value as any) };
-            return;
-        }
-
-        (outlet as any)[key] = value;
-    });
-
-    await outlet.save();
-    return outlet;
+export const updateOutlet = async (outletId: string, userId: string, updateData: Partial<IOutlet>): Promise<IOutlet | null> => {
+    const accessQuery = await getAccessibleOutletQuery(userId);
+    return outletRepo.findAndUpdateOutlet({ $and: [{ _id: outletId }, accessQuery] }, updateData);
 };
 
-/**
- * Submit outlet for approval
- */
 export const submitOutletForApproval = async (outletId: string, userId: string): Promise<IOutlet | null> => {
-    const accessQuery = await getAccessibleOutletQueryForUser(userId);
-    const outlet = await Outlet.findOne({
-        $and: [
-            { _id: outletId },
-            accessQuery
-        ]
-    });
-
-    if (!outlet) {
-        throw new Error('Outlet not found or unauthorized');
-    }
-
-    outlet.approval_status = 'PENDING';
-    outlet.approval = {
-        submitted_at: new Date()
-    };
-
-    await outlet.save();
-    return outlet;
+    const accessQuery = await getAccessibleOutletQuery(userId);
+    return outletRepo.findAndUpdateOutlet({ $and: [{ _id: outletId }, accessQuery] }, {
+        approval_status: 'PENDING',
+        approval: { submitted_at: new Date() }
+    } as Partial<IOutlet>);
 };
 
-/**
- * Get outlets by brand
- */
-export const getOutletsByBrand = async (brandId: string): Promise<IOutlet[]> => {
-    return await Outlet.find({ brand_id: brandId, status: { $ne: 'ARCHIVED' } });
-};
+export const getOutletsByBrand = (brandId: string) => outletRepo.findByBrandIdAll(brandId);

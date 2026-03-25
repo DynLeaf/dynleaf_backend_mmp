@@ -3,7 +3,7 @@
  * Handles operations on OperatingHours collection
  */
 
-import { OperatingHours } from '../models/OperatingHours.js';
+import * as operatingHoursRepository from '../repositories/operatingHoursRepository.js';
 import {
     convertOnboardingToOperatingHours,
     convertOperatingHoursToSchedule,
@@ -19,10 +19,8 @@ export const saveOperatingHoursFromOnboarding = async (
     outletId: string,
     operatingHours: OperatingHourInput[]
 ): Promise<void> => {
-    // Delete old hours and insert new
-    await OperatingHours.deleteMany({ outlet_id: outletId });
     const docs = convertOnboardingToOperatingHours(outletId, operatingHours);
-    await OperatingHours.insertMany(docs);
+    await operatingHoursRepository.saveOperatingHours(outletId, docs);
 };
 
 /**
@@ -39,23 +37,21 @@ export const updateOperatingHoursFromEndpoint = async (
         isClosed: boolean;
     }>
 ): Promise<void> => {
-    // Delete old hours and insert new
-    await OperatingHours.deleteMany({ outlet_id: outletId });
-    const hours = days.map((day: any) => ({
+    const hours = days.map((day: { dayOfWeek: number, open: string, close: string, isClosed: boolean }) => ({
         outlet_id: outletId,
         day_of_week: day.dayOfWeek,
         open_time: day.open,
         close_time: day.close,
         is_closed: day.isClosed
     }));
-    await OperatingHours.insertMany(hours);
+    await operatingHoursRepository.saveOperatingHours(outletId, hours);
 };
 
 /**
  * Get operating hours in DaySchedule format from OperatingHours collection
  */
 export const getOperatingHours = async (outletId: string): Promise<DaySchedule[] | null> => {
-    const operatingHours = await OperatingHours.find({ outlet_id: outletId }).sort({ day_of_week: 1 });
+    const operatingHours = await operatingHoursRepository.getOperatingHoursByOutletId(outletId);
     
     if (operatingHours.length > 0) {
         return convertOperatingHoursToSchedule(operatingHours);

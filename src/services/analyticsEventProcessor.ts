@@ -1,23 +1,11 @@
-/**
- * Fail-Proof Analytics Event Processor
- * Guarantees NO EVENT IS LOST - uses multiple fallback paths
- */
-
-import mongoose from 'mongoose';
 import { ParsedEvent } from './analyticsSchemaParser.js';
 import { fallbackStorage } from './analyticsFallbackStorage.js';
-import { FoodItemAnalyticsEvent } from '../models/FoodItemAnalyticsEvent.js';
-import { OutletAnalyticsEvent } from '../models/OutletAnalyticsEvent.js';
-import { PromotionEvent } from '../models/PromotionEvent.js';
-import { OfferEvent } from '../models/OfferEvent.js';
-import { SessionAnalytics } from '../models/SessionAnalytics.js';
-import { NavigationEvent } from '../models/NavigationEvent.js';
-import { FeaturedPromotion } from '../models/FeaturedPromotion.js';
-import { Offer } from '../models/Offer.js';
-
-// ============================================================================
-// EVENT PROCESSOR
-// ============================================================================
+import { FoodItemProcessor } from './analytics/processor/FoodItemProcessor.js';
+import { OutletProcessor } from './analytics/processor/OutletProcessor.js';
+import { PromotionProcessor } from './analytics/processor/PromotionProcessor.js';
+import { OfferProcessor } from './analytics/processor/OfferProcessor.js';
+import { SessionProcessor } from './analytics/processor/SessionProcessor.js';
+import { EventCategorizer } from './analytics/processor/EventCategorizer.js';
 
 export class AnalyticsEventProcessor {
     private processedHashes: Set<string> = new Set();
@@ -40,13 +28,11 @@ export class AnalyticsEventProcessor {
 
         for (const event of events) {
             try {
-                // Check for duplicates using event hash
                 if (this.isDuplicate(event.event_hash)) {
                     duplicateCount++;
                     continue;
                 }
 
-                // Try to process event
                 const success = await this.processEvent(event);
 
                 if (success) {
@@ -70,394 +56,41 @@ export class AnalyticsEventProcessor {
 
     /**
      * Process single event with multiple fallback paths
-     * Path 1: Primary DB
-     * Path 2: Fallback storage
-     * Path 3: Emergency write
      */
     private async processEvent(event: ParsedEvent): Promise<boolean> {
         try {
-            // Categorize and route event to appropriate storage
-            const category = this.categorizeEvent(event.type);
+            const category = EventCategorizer.categorize(event.type);
 
             switch (category) {
                 case 'food_item':
-                    return await this.processFoodItemEvent(event);
-
+                    return await FoodItemProcessor.process(event);
                 case 'outlet':
-                    return await this.processOutletEvent(event);
-
+                    return await OutletProcessor.process(event);
                 case 'promotion':
-                    return await this.processPromotionEvent(event);
-
+                    return await PromotionProcessor.process(event);
                 case 'offer':
-                    return await this.processOfferEvent(event);
-
+                    return await OfferProcessor.process(event);
                 case 'session_lifecycle':
-                    return await this.processSessionEvent(event);
-
+                    return await SessionProcessor.process(event);
                 default:
-                    // Unknown event types go to a generic log
                     console.log('[EventProcessor] Unknown event type:', event.type);
-                    return true; // Don't fail on unknown types
+                    return true;
             }
         } catch (error: any) {
             console.error('[EventProcessor] Failed to process event:', error);
-
-            // FALLBACK PATH: Write to file storage
             await fallbackStorage.writeEvent(event, `db_error: ${error.message}`);
-
-            // Return true because we saved it to fallback
             return true;
         }
     }
 
-    /**
-     * Process food item event with fail-safe
-     */
-    private async processFoodItemEvent(event: ParsedEvent): Promise<boolean> {
-        try {
-            const { payload } = event;
-
-            const foodItemObjectId = mongoose.Types.ObjectId.isValid(payload.food_item_id)
-                ? new mongoose.Types.ObjectId(payload.food_item_id)
-                : undefined;
-
-            const outletObjectId = mongoose.Types.ObjectId.isValid(payload.outlet_id)
-                ? new mongoose.Types.ObjectId(payload.outlet_id)
-                : undefined;
-
-            if (!foodItemObjectId || !outletObjectId) {
-                console.warn('[EventProcessor] Invalid IDs for food item event:', {
-                    food_item_id: payload.food_item_id,
-                    outlet_id: payload.outlet_id,
-                    food_item_valid: mongoose.Types.ObjectId.isValid(payload.food_item_id),
-                    outlet_valid: mongoose.Types.ObjectId.isValid(payload.outlet_id),
-                    eventType: event.type
-                });
-                return true; // Don't fail, just skip
-            }
-
-            await FoodItemAnalyticsEvent.create({
-                session_id: event.session_id,
-                device_type: event.device_type,
-                user_agent: payload.user_agent || 'unknown',
-                ip_address: event.ip_address,
-                timestamp: event.timestamp,
-                source: payload.source || 'other',
-                source_context: payload.source_context,
-                outlet_id: outletObjectId,
-                food_item_id: foodItemObjectId,
-                event_type: event.type,
-            });
-
-            return true;
-        } catch (error: any) {
-            // If DB write fails, save to fallback
-            await fallbackStorage.writeEvent(event, `food_item_db_error: ${error.message}`);
-            return true; // We saved it to fallback, so it's not lost
-        }
-    }
-
-    /**
-     * Process outlet event with fail-safe
-     */
-    private async processOutletEvent(event: ParsedEvent): Promise<boolean> {
-        try {
-            const { payload } = event;
-
-            const outletObjectId = mongoose.Types.ObjectId.isValid(payload.outlet_id)
-                ? new mongoose.Types.ObjectId(payload.outlet_id)
-                : undefined;
-
-            if (event.type === 'qr_scan') {
-                console.log(`🔍 [EventProcessor] QR Scan Detected:`, {
-                    outlet_id: payload.outlet_id,
-                    mall_key: payload.mall_key,
-                    method: payload.method,
-                    type: payload.type,
-                    is_valid: payload.is_valid,
-                    scanned_url: payload.scanned_url
-                });
-            }
-
-            const isMallQrScan = event.type === 'qr_scan' && payload.type === 'mall' && !!payload.mall_key;
-
-            if (!outletObjectId && !isMallQrScan) {
-                console.warn('[EventProcessor] Invalid outlet ID:', {
-                    received: payload.outlet_id,
-                    type: typeof payload.outlet_id,
-                    isValid: mongoose.Types.ObjectId.isValid(payload.outlet_id),
-                    eventType: event.type
-                });
-                return true;
-            }
-
-            const promotionObjectId = payload.promotion_id && mongoose.Types.ObjectId.isValid(payload.promotion_id)
-                ? new mongoose.Types.ObjectId(payload.promotion_id)
-                : undefined;
-
-            const eventDoc: any = {
-                session_id: event.session_id,
-                device_type: event.device_type,
-                user_agent: payload.user_agent || 'unknown',
-                ip_address: event.ip_address,
-                timestamp: event.timestamp,
-                source: payload.source || 'other',
-                source_context: payload.source_context,
-                event_type: event.type,
-                entry_page: payload.entry_page,
-                prev_path: payload.prev_path,
-                promotion_id: promotionObjectId,
-                mall_key: payload.mall_key,
-                qr_scan_type: payload.type,
-            };
-
-            if (outletObjectId) {
-                eventDoc.outlet_id = outletObjectId;
-            }
-
-            await OutletAnalyticsEvent.create(eventDoc);
-
-            return true;
-        } catch (error: any) {
-            await fallbackStorage.writeEvent(event, `outlet_db_error: ${error.message}`);
-            return true;
-        }
-    }
-
-    /**
-     * Process promotion event with fail-safe
-     */
-    private async processPromotionEvent(event: ParsedEvent): Promise<boolean> {
-        try {
-            const { payload } = event;
-
-            const promoObjectId = mongoose.Types.ObjectId.isValid(payload.promoId)
-                ? new mongoose.Types.ObjectId(payload.promoId)
-                : undefined;
-
-            if (!promoObjectId) {
-                console.warn('[EventProcessor] Invalid promo ID');
-                return true;
-            }
-
-            const outletObjectId = payload.outletId && mongoose.Types.ObjectId.isValid(payload.outletId)
-                ? new mongoose.Types.ObjectId(payload.outletId)
-                : undefined;
-
-            // Save event
-            await PromotionEvent.create({
-                session_id: event.session_id,
-                device_type: event.device_type,
-                user_agent: payload.user_agent || 'unknown',
-                ip_address: event.ip_address,
-                timestamp: event.timestamp,
-                promotion_id: promoObjectId,
-                outlet_id: outletObjectId,
-                event_type: event.type.replace('promo_', ''),
-            });
-
-            // Update counters (non-blocking)
-            this.updatePromotionCounters(promoObjectId, event.type).catch(err => {
-                console.error('[EventProcessor] Failed to update promo counters:', err);
-            });
-
-            return true;
-        } catch (error: any) {
-            await fallbackStorage.writeEvent(event, `promo_db_error: ${error.message}`);
-            return true;
-        }
-    }
-
-    /**
-     * Process offer event with fail-safe
-     */
-    private async processOfferEvent(event: ParsedEvent): Promise<boolean> {
-        try {
-            const { payload } = event;
-
-            const offerObjectId = mongoose.Types.ObjectId.isValid(payload.offerId)
-                ? new mongoose.Types.ObjectId(payload.offerId)
-                : undefined;
-
-            if (!offerObjectId) {
-                console.warn(`[EventProcessor] Invalid offer ID: "${payload.offerId}" for event type ${event.type}`);
-                return true;
-            }
-
-            const outletObjectId = payload.outletId && mongoose.Types.ObjectId.isValid(payload.outletId)
-                ? new mongoose.Types.ObjectId(payload.outletId)
-                : undefined;
-
-            // Save event
-            await OfferEvent.create({
-                session_id: event.session_id,
-                device_type: event.device_type,
-                user_agent: payload.user_agent || 'unknown',
-                ip_address: event.ip_address,
-                timestamp: event.timestamp,
-                offer_id: offerObjectId,
-                outlet_id: outletObjectId,
-                event_type: event.type.replace('offer_', ''),
-                source: payload.source,
-                source_context: payload.source_context,
-            });
-
-            // Update counters (non-blocking)
-            this.updateOfferCounters(offerObjectId, event.type).catch(err => {
-                console.error('[EventProcessor] Failed to update offer counters:', err);
-            });
-
-            return true;
-        } catch (error: any) {
-            await fallbackStorage.writeEvent(event, `offer_db_error: ${error.message}`);
-            return true;
-        }
-    }
-
-    /**
-     * Process session event (session_start, session_end) with fail-safe
-     */
-    private async processSessionEvent(event: ParsedEvent): Promise<boolean> {
-        try {
-            const { payload } = event;
-            const userObjectId = payload.user_id && mongoose.Types.ObjectId.isValid(payload.user_id)
-                ? new mongoose.Types.ObjectId(payload.user_id)
-                : undefined;
-
-            // Handle session_end
-            if (event.type === 'session_end') {
-                await SessionAnalytics.create({
-                    session_id: event.session_id,
-                    user_id: userObjectId,
-                    session_duration: payload.session_duration || 0,
-                    page_time_spent: payload.page_time_spent || 0,
-                    interaction_count: payload.interaction_count || 0,
-                    device_type: event.device_type,
-                    user_agent: payload.user_agent || 'unknown',
-                    ip_address: event.ip_address,
-                    timestamp: event.timestamp,
-                });
-                return true;
-            }
-
-            // Handle navigation
-            if (event.type === 'navigation') {
-                await NavigationEvent.create({
-                    session_id: event.session_id,
-                    user_id: userObjectId,
-                    from: payload.from || '',
-                    to: payload.to || '',
-                    method: payload.method || 'direct',
-                    device_type: event.device_type,
-                    user_agent: payload.user_agent || 'unknown',
-                    ip_address: event.ip_address,
-                    timestamp: event.timestamp,
-                });
-                return true;
-            }
-
-            // session_start and heartbeats are currently just acknowledged
-            return true;
-        } catch (error: any) {
-            await fallbackStorage.writeEvent(event, `session_db_error: ${error.message}`);
-            return true;
-        }
-    }
-
-
-    /**
-     * Update promotion counters (non-blocking, best-effort)
-     */
-    private async updatePromotionCounters(promoId: mongoose.Types.ObjectId, eventType: string): Promise<void> {
-        try {
-            const update: any = {};
-
-            if (eventType === 'promo_impression') {
-                update['analytics.impressions'] = 1;
-            } else if (eventType === 'promo_click') {
-                update['analytics.clicks'] = 1;
-            }
-
-            if (Object.keys(update).length > 0) {
-                await FeaturedPromotion.updateOne(
-                    { _id: promoId },
-                    { $inc: update }
-                );
-            }
-        } catch (error) {
-            // Don't throw - this is best-effort
-            console.error('[EventProcessor] Counter update failed:', error);
-        }
-    }
-
-    /**
-     * Update offer counters (non-blocking, best-effort)
-     */
-    private async updateOfferCounters(offerId: mongoose.Types.ObjectId, eventType: string): Promise<void> {
-        try {
-            const update: any = {};
-
-            if (eventType === 'offer_impression' || eventType === 'offer_view') {
-                update.view_count = 1;
-            } else if (eventType === 'offer_click') {
-                update.click_count = 1;
-            }
-
-            if (Object.keys(update).length > 0) {
-                await Offer.updateOne(
-                    { _id: offerId } as any,
-                    { $inc: update }
-                );
-            }
-        } catch (error) {
-            console.error('[EventProcessor] Counter update failed:', error);
-        }
-    }
-
-    /**
-     * Categorize event type
-     */
-    private categorizeEvent(type: string): string {
-        if (type.startsWith('item_') || type === 'add_to_cart' || type === 'order_created') {
-            return 'food_item';
-        }
-
-        if (type === 'outlet_visit' || type === 'profile_view' || type === 'menu_view' || type === 'outlet_search' || type === 'qr_scan') {
-            return 'outlet';
-        }
-
-        if (type.startsWith('promo_')) {
-            return 'promotion';
-        }
-
-        if (type.startsWith('offer_')) {
-            return 'offer';
-        }
-
-        if (type === 'session_start' || type === 'session_end' || type === 'heartbeat' || type === 'navigation') {
-            return 'session_lifecycle';
-        }
-
-        return 'unknown';
-    }
-
-    /**
-     * Check if event is duplicate
-     */
     private isDuplicate(eventHash: string): boolean {
         return this.processedHashes.has(eventHash);
     }
 
-    /**
-     * Mark event as processed
-     */
     private markProcessed(eventHash: string): void {
         this.processedHashes.add(eventHash);
 
-        // Prevent memory leak by limiting cache size
         if (this.processedHashes.size > this.MAX_HASH_CACHE) {
-            // Remove oldest 20%
             const toRemove = Math.floor(this.MAX_HASH_CACHE * 0.2);
             const iterator = this.processedHashes.values();
 
@@ -468,16 +101,9 @@ export class AnalyticsEventProcessor {
         }
     }
 
-    /**
-     * Clear duplicate cache (for testing)
-     */
     public clearCache(): void {
         this.processedHashes.clear();
     }
 }
-
-// ============================================================================
-// SINGLETON INSTANCE
-// ============================================================================
 
 export const eventProcessor = new AnalyticsEventProcessor();
