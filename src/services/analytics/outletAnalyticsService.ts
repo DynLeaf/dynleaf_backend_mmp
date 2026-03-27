@@ -16,14 +16,15 @@ export const getBusinessDashboard = async (
     endExclusive: Date,
     days: number
 ): Promise<OutletDashboardResponseDto> => {
-    const outlet = await outletRepo.findById(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
     if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
-    const outletObjectId = new mongoose.Types.ObjectId(outletId);
-    let subscription = await outletRepo.findSubscriptionByOutletId(outletId);
+    const resolvedId = String(outlet._id);
+    const outletObjectId = new mongoose.Types.ObjectId(resolvedId);
+    let subscription = await outletRepo.findSubscriptionByOutletId(resolvedId);
 
     if (!subscription) {
-        subscription = await subscriptionUtils.ensureSubscriptionForOutlet(outletId, {
+        subscription = await subscriptionUtils.ensureSubscriptionForOutlet(resolvedId, {
             plan: 'free',
             status: 'active',
             assigned_by: reqUser?.id,
@@ -32,7 +33,7 @@ export const getBusinessDashboard = async (
     }
 
     if (!outlet.subscription_id || outlet.subscription_id.toString() !== (subscription as any)._id.toString()) {
-        await outletRepo.updateById(outletId, { subscription_id: (subscription as any)._id });
+        await outletRepo.updateById(resolvedId, { subscription_id: (subscription as any)._id });
     }
 
     const tier = normalizePlanToTier((subscription as any).plan);
@@ -44,10 +45,10 @@ export const getBusinessDashboard = async (
     const prevStart = shiftDays(start, -days);
 
     const [currentCounts, prevCounts, dailyAgg, sessions] = await Promise.all([
-        outletAnalyticsRepo.getOutletEventCounts(outletId, start, endExclusive),
-        outletAnalyticsRepo.getOutletEventCounts(outletId, prevStart, start),
-        outletAnalyticsRepo.getOutletDailySeries(outletId, start, endExclusive),
-        outletAnalyticsRepo.getOutletSessionFunnel(outletId, start, endExclusive),
+        outletAnalyticsRepo.getOutletEventCounts(resolvedId, start, endExclusive),
+        outletAnalyticsRepo.getOutletEventCounts(resolvedId, prevStart, start),
+        outletAnalyticsRepo.getOutletDailySeries(resolvedId, start, endExclusive),
+        outletAnalyticsRepo.getOutletSessionFunnel(resolvedId, start, endExclusive),
     ]);
 
     const dailyMap = new Map<string, any>();

@@ -16,7 +16,7 @@ export const getOutletMenu = async (outletId: string, queryParams: Record<string
         sortBy?: string; 
     };
 
-    const outlet = await outletRepo.findById(outletId) as { _id: mongoose.Types.ObjectId };
+    const outlet = await outletRepo.findBySlugOrId(outletId) as { _id: mongoose.Types.ObjectId };
     if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
     const actualOutletId = outlet._id;

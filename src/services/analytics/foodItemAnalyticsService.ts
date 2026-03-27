@@ -92,12 +92,17 @@ export const trackEvent = async (eventData: Record<string, unknown>, options?: {
 };
 
 export const getAnalyticsByOutlet = async (outletId: string, options: { rangeStart: Date; rangeEndExclusive: Date; source?: string; limit?: number; sortBy?: string }) => {
+    const outlet = await outletRepo.findBySlugOrId(outletId);
+    if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
+    const resolvedId = String(outlet._id);
+    const outletObjectId = new mongoose.Types.ObjectId(resolvedId);
+
     const { rangeStart, rangeEndExclusive, source, limit = 20, sortBy = 'views' } = options;
     const todayStartUtc = startOfUtcDay(new Date());
 
     if (source) {
         const items = await aggregateFromEvents({
-            outlet_id: new mongoose.Types.ObjectId(outletId),
+            outlet_id: outletObjectId,
             source,
             timestamp: { $gte: rangeStart, $lt: rangeEndExclusive },
         });
@@ -124,7 +129,7 @@ export const getAnalyticsByOutlet = async (outletId: string, options: { rangeSta
 
     if (rangeEndExclusive.getTime() > todayStartUtc.getTime()) {
         const live = await aggregateFromEvents({
-            outlet_id: new mongoose.Types.ObjectId(outletId),
+            outlet_id: outletObjectId,
             timestamp: { $gte: todayStartUtc, $lt: rangeEndExclusive },
         });
         for (const li of live) {
@@ -204,8 +209,13 @@ export const getAnalyticsByCategory = async (categoryId: string, options: { outl
         category_id: new mongoose.Types.ObjectId(categoryId),
         timestamp: { $gte: rangeStart, $lt: rangeEndExclusive }
     };
-    if (outletId) match.outlet_id = new mongoose.Types.ObjectId(outletId);
+    if (outletId) {
+        const outlet = await outletRepo.findBySlugOrId(outletId);
+        if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
+        match.outlet_id = new mongoose.Types.ObjectId(String(outlet._id));
+    }
     if (source) match.source = source;
+
 
     const items = await aggregateFromEvents(match);
     return { items: sortItems(items, sortBy).slice(0, limit) };

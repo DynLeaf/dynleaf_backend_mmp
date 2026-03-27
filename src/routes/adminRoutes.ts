@@ -2,7 +2,8 @@ import express from "express";
 import { adminAuth } from "../middleware/adminMiddleware.js";
 
 // Modular Admin Routers
-import adminDashboardRoutes from "./admin/adminDashboardRoutes.js";
+import * as adminDashboardController from "../controllers/admin/adminDashboardController.js";
+
 import adminOnboardingRoutes from "./admin/adminOnboardingRoutes.js";
 import adminBrandRoutes from "./admin/adminBrandRoutes.js";
 import adminOutletRoutes from "./admin/adminOutletRoutes.js";
@@ -17,6 +18,8 @@ import adminQRRoutes from "./admin/adminQRRoutes.js";
 import * as promotionController from "../controllers/promotionController.js";
 import * as outletAnalyticsController from "../controllers/outletAnalyticsController.js";
 import * as adminAnalyticsController from "../controllers/adminAnalyticsController.js";
+import * as adminFoodAnalyticsController from "../controllers/adminFoodAnalyticsController.js";
+import * as adminOutletAnalyticsController from "../controllers/adminOutletAnalyticsController.js";
 import * as pushNotificationController from "../controllers/pushNotificationController.js";
 import * as adminNotificationController from "../controllers/adminNotificationController.js";
 
@@ -25,7 +28,8 @@ const router = express.Router();
 router.get("/public-test", (req, res) => res.send("Admin routes reachable!"));
 
 // --- New Modular Mounts ---
-router.use("/", adminDashboardRoutes); // /me, /dashboard/stats
+router.get("/me", adminAuth, adminDashboardController.getMe);
+router.get("/dashboard/stats", adminAuth, adminDashboardController.getDashboardStats);
 router.use("/onboarding", adminOnboardingRoutes);
 router.use("/brands", adminBrandRoutes);
 router.use("/brand-updates", adminBrandRoutes); // Brand updates handled in brands router for now
@@ -55,8 +59,25 @@ router.get("/outlets/:id/analytics", adminAuth, outletAnalyticsController.getOut
 
 // Complete Admin Analytics from the Analytics Refactor
 router.get('/analytics/overview', adminAuth, adminAnalyticsController.getAdminAnalyticsOverview);
+router.get('/analytics/growth', adminAuth, adminAnalyticsController.getAdminGrowthAnalyticsHandler);
+router.get('/analytics/users', adminAuth, adminAnalyticsController.getAdminUsersAnalyticsHandler);
+router.get('/analytics/engagement', adminAuth, adminAnalyticsController.getAdminEngagementAnalyticsHandler);
+router.get('/analytics/discovery', adminAuth, adminAnalyticsController.getAdminDiscoveryAnalyticsHandler);
+
+// Food Analytics
 router.get('/analytics/food', adminAuth, adminAnalyticsController.getAdminFoodAnalyticsHandler);
+router.get('/analytics/food/overview', adminAuth, adminFoodAnalyticsController.getFoodOverview);
+router.get('/analytics/food/summary', adminAuth, adminFoodAnalyticsController.getFoodSummary);
+router.get('/analytics/food/top-viewed', adminAuth, adminFoodAnalyticsController.getTopViewedFood);
+router.get('/analytics/food/most-voted', adminAuth, adminFoodAnalyticsController.getMostVotedFood);
+
+// Outlet Analytics
 router.get('/analytics/outlets', adminAuth, adminAnalyticsController.getAdminOutletAnalyticsHandler);
+router.get('/analytics/outlets/overview', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsOverview);
+router.get('/analytics/outlets/list', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsList);
+router.get('/analytics/outlets/:id/summary', adminAuth, adminOutletAnalyticsController.getOutletAnalyticsSummary);
+router.get('/analytics/outlets/:id/food-items', adminAuth, adminOutletAnalyticsController.getOutletFoodItemsAnalytics);
+
 router.get('/analytics/promotions', adminAuth, adminAnalyticsController.getAdminPromotionsAnalyticsHandler);
 router.get('/analytics/offers', adminAuth, adminAnalyticsController.getAdminOffersAnalyticsHandler);
 router.get('/analytics/responses', adminAuth, adminAnalyticsController.getAdminSystemAnalytics);

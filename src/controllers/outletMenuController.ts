@@ -87,7 +87,9 @@ export const getOutletMenu = async (req: Request, res: Response) => {
             }));
         }
 
-        const subMenus = await outletSubMenuService.getPublicSubMenus(outletId);
+        // Use the resolved outlet ObjectId, NOT the raw route param (which may be a slug)
+        const resolvedOutletId = String(result.outlet._id);
+        const subMenus = await outletSubMenuService.getPublicSubMenus(resolvedOutletId);
 
         return sendSuccess(res, {
             outlet: {

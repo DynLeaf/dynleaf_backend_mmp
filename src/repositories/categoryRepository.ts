@@ -54,8 +54,12 @@ export const countItemsInCategory = async (outletId: string, categoryId: string)
 };
 
 export const getCategoryItemCounts = async (outletId: string) => {
+  const oid = mongoose.Types.ObjectId.isValid(outletId)
+    ? new mongoose.Types.ObjectId(outletId)
+    : null;
+  if (!oid) return [];
   return await FoodItem.aggregate([
-    { $match: { outlet_id: new mongoose.Types.ObjectId(outletId) } },
+    { $match: { outlet_id: oid } },
     { $group: { _id: '$category_id', count: { $sum: 1 } } }
   ]);
 };

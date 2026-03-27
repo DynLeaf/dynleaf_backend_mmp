@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import * as outletRepo from '../../repositories/outletRepository.js';
 import * as outletInsightsSummaryRepo from '../../repositories/analytics/outletInsightsSummaryRepository.js';
-import { Subscription } from '../../models/Subscription.js';
+import * as subscriptionRepo from '../../repositories/subscriptionRepository.js';
 import { InsightsComputationService } from '../../services/insightsComputationService.js';
 import { ensureSubscriptionForOutlet } from '../../utils/subscriptionUtils.js';
 import { normalizePlanToTier } from '../../config/subscriptionPlans.js';
@@ -12,20 +12,23 @@ import type { IOutletInsightsSummary } from '../../types/analytics.js';
 export const getOutletInsights = async (outletId: string, options: { range?: string; realtime?: boolean | string; start?: string; end?: string }, userId?: string) => {
     const { range = '7d', start: customStart, end: customEnd } = options;
     const realtime = options.realtime === true || options.realtime === 'true';
-    const outletObjectId = new mongoose.Types.ObjectId(outletId);
 
-    const outlet = await outletRepo.findById(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
     if (!outlet) throw new AppError('Outlet not found', 404);
 
-    let subscription = await outletRepo.findSubscriptionByOutletId(outletId);
+    // Use the resolved ObjectId, not the raw slug
+    const resolvedId = String(outlet._id);
+    const outletObjectId = new mongoose.Types.ObjectId(resolvedId);
+
+    let subscription = await outletRepo.findSubscriptionByOutletId(resolvedId);
     if (!subscription) {
-        subscription = await ensureSubscriptionForOutlet(outletId, { plan: 'free', status: 'active', assigned_by: userId }) as any;
+        subscription = await ensureSubscriptionForOutlet(resolvedId, { plan: 'free', status: 'active', assigned_by: userId }) as any;
     }
 
     if (!subscription) throw new AppError('Failed to resolve subscription', 500);
 
     if (!outlet.subscription_id || outlet.subscription_id.toString() !== (subscription as any)._id.toString()) {
-        await outletRepo.updateById(outletId, { subscription_id: (subscription as any)._id });
+        await outletRepo.updateById(resolvedId, { subscription_id: (subscription as any)._id });
     }
 
     const tier = normalizePlanToTier(subscription.plan);
@@ -58,22 +61,27 @@ export const getOutletInsights = async (outletId: string, options: { range?: str
 };
 
 export const triggerComputation = async (outletId: string, range: string, customStart?: string, customEnd?: string) => {
-    const outletObjectId = new mongoose.Types.ObjectId(outletId);
-    const subscription = await outletRepo.findSubscriptionByOutletId(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
+    if (!outlet) throw new AppError('Outlet not found', 404);
+    const resolvedId = String(outlet._id);
+    const outletObjectId = new mongoose.Types.ObjectId(resolvedId);
+    const subscription = await outletRepo.findSubscriptionByOutletId(resolvedId);
     if (!subscription) throw new AppError('No subscription found', 403);
 
     const tier = normalizePlanToTier(subscription.plan);
     const isPremium = tier === 'premium' && ['active', 'trial'].includes(subscription.status);
     if (!isPremium) throw new AppError('Premium subscription required', 403);
 
-    const result = await InsightsComputationService.computeForOutlet(outletId, range as any, customStart, customEnd);
+    const result = await InsightsComputationService.computeForOutlet(resolvedId, range as any, customStart, customEnd);
     if (!result.success) throw new AppError('Computation failed', 400);
 
     return result;
 };
 
 export const getMetadata = async (outletId: string) => {
-    const outletObjectId = new mongoose.Types.ObjectId(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
+    if (!outlet) throw new AppError('Outlet not found', 404);
+    const outletObjectId = new mongoose.Types.ObjectId(String(outlet._id));
     const summaries = await outletInsightsSummaryRepo.find({ outlet_id: outletObjectId });
 
     return (summaries as any[]).map(s => ({

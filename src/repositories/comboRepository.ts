@@ -43,8 +43,12 @@ export const distinctFoodItemIds = async (filter: any) => {
 };
 
 export const findActiveCombosWithItems = async (outletId: string) => {
+  const oid = mongoose.Types.ObjectId.isValid(outletId)
+    ? new mongoose.Types.ObjectId(outletId)
+    : null;
+  if (!oid) return [];
   return await Combo.find({
-    outlet_id: new mongoose.Types.ObjectId(outletId),
+    outlet_id: oid,
     is_active: true
   }).populate('items.food_item_id').sort({ display_order: 1, order_count: -1 }).lean();
 };

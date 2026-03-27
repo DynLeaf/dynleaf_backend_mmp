@@ -2,6 +2,10 @@ import mongoose from 'mongoose';
 import { OutletAnalyticsEvent } from '../../models/OutletAnalyticsEvent.js';
 import { OutletAnalyticsSummary } from '../../models/OutletAnalyticsSummary.js';
 
+// Safe ObjectId converter — returns null for slugs/invalid values
+const toOid = (id: string): mongoose.Types.ObjectId | null =>
+    mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : null;
+
 export const getTopOutletsByViews = async (start: Date, end: Date, limit: number = 10) => {
     return OutletAnalyticsSummary.aggregate([
         { $match: { date: { $gte: start, $lte: end } } },
@@ -19,10 +23,12 @@ export const getTopOutletsByViews = async (start: Date, end: Date, limit: number
 };
 
 export const getOutletEventCounts = async (outletId: string, start: Date, endExclusive: Date) => {
+    const oid = toOid(outletId);
+    if (!oid) return { outlet_visits: 0, profile_views: 0, menu_views: 0 };
     const groups = await OutletAnalyticsEvent.aggregate([
         {
             $match: {
-                outlet_id: new mongoose.Types.ObjectId(outletId),
+                outlet_id: oid,
                 timestamp: { $gte: start, $lt: endExclusive },
             },
         },
@@ -45,10 +51,12 @@ export const getOutletEventCounts = async (outletId: string, start: Date, endExc
 };
 
 export const getOutletDailySeries = async (outletId: string, start: Date, endExclusive: Date) => {
+    const oid = toOid(outletId);
+    if (!oid) return [];
     return OutletAnalyticsEvent.aggregate([
         {
             $match: {
-                outlet_id: new mongoose.Types.ObjectId(outletId),
+                outlet_id: oid,
                 timestamp: { $gte: start, $lt: endExclusive },
             },
         },
@@ -65,10 +73,12 @@ export const getOutletDailySeries = async (outletId: string, start: Date, endExc
 };
 
 export const getOutletSessionFunnel = async (outletId: string, start: Date, endExclusive: Date) => {
+    const oid = toOid(outletId);
+    if (!oid) return [];
     return OutletAnalyticsEvent.aggregate([
         {
             $match: {
-                outlet_id: new mongoose.Types.ObjectId(outletId),
+                outlet_id: oid,
                 timestamp: { $gte: start, $lt: endExclusive },
             },
         },
@@ -88,8 +98,10 @@ export const getOutletSessionFunnel = async (outletId: string, start: Date, endE
 };
 
 export const getPriorSessionCount = async (outletId: string, sessionIds: string[], beforeDate: Date): Promise<number> => {
+    const oid = toOid(outletId);
+    if (!oid) return 0;
     const priorIds = await OutletAnalyticsEvent.distinct('session_id', {
-        outlet_id: new mongoose.Types.ObjectId(outletId),
+        outlet_id: oid,
         session_id: { $in: sessionIds },
         timestamp: { $lt: beforeDate },
     });

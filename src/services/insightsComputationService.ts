@@ -35,14 +35,15 @@ export class InsightsComputationService {
     ): Promise<ComputationResult> {
         const startTime = Date.now();
 
+        let outletObjectId: mongoose.Types.ObjectId | undefined;
         try {
-            const outletObjectId = new mongoose.Types.ObjectId(outletId);
-
-            // Verify outlet exists
-            const outlet = await outletRepo.findById(outletObjectId.toString());
+            // Verify outlet exists and resolve ID
+            const outlet = await outletRepo.findBySlugOrId(outletId);
             if (!outlet) {
                 throw new Error(`Outlet ${outletId} not found`);
             }
+            const resolvedId = String(outlet._id);
+            outletObjectId = new mongoose.Types.ObjectId(resolvedId);
 
             // Calculate time periods
             const { currentPeriod, previousPeriod } = TimeHelper.getTimePeriods(timeRange, customStart, customEnd);
@@ -81,18 +82,21 @@ export class InsightsComputationService {
             console.error(`[Insights] ❌ Failed to compute ${timeRange} for outlet ${outletId}:`, error);
 
             try {
-                await outletInsightsSummaryRepo.findOneAndUpdate(
-                    { outlet_id: new mongoose.Types.ObjectId(outletId), time_range: timeRange },
-                    {
-                        status: 'failed',
-                        error_message: error.message,
-                        computed_at: new Date(),
-                        computation_duration_ms: duration,
-                    },
-                    { upsert: true }
-                );
-            } catch (saveError) {
-                console.error('[Insights] Failed to save error status:', saveError);
+                if (outletObjectId) {
+                    await outletInsightsSummaryRepo.findOneAndUpdate(
+                        { outlet_id: outletObjectId, time_range: timeRange },
+                        {
+                            status: 'failed',
+                            error_message: error.message,
+                            computed_at: new Date(),
+                            computation_duration_ms: duration,
+                        },
+                        { upsert: true, new: true }
+                    );
+                }
+            } catch (updateError) {
+
+                console.error('[Insights] Failed to save error status:', updateError);
             }
 
             return { success: false, outletId, timeRange, duration, error: error.message };

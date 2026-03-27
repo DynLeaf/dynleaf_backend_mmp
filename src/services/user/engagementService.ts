@@ -22,6 +22,12 @@ export const toggleSaveItem = async (
     (item: any) => item.entity_type === entityType && String(item.entity_id) === entityId
   );
 
+  let resolvedOutletObjectId: mongoose.Types.ObjectId | undefined;
+  if (outletId) {
+    const outlet = await outletRepo.findBySlugOrId(outletId);
+    if (outlet) resolvedOutletObjectId = new mongoose.Types.ObjectId(String(outlet._id));
+  }
+
   let saved = false;
   if (existingIndex >= 0) {
     savedItems.splice(existingIndex, 1);
@@ -29,7 +35,7 @@ export const toggleSaveItem = async (
     savedItems.push({
       entity_type: entityType,
       entity_id: new mongoose.Types.ObjectId(entityId),
-      outlet_id: outletId ? new mongoose.Types.ObjectId(outletId) : undefined,
+      outlet_id: resolvedOutletObjectId,
       saved_at: new Date(),
     });
     saved = true;
@@ -59,16 +65,22 @@ export const markSharedItem = async (
     (item: any) => item.entity_type === entityType && String(item.entity_id) === entityId
   );
 
+  let resolvedOutletObjectId: mongoose.Types.ObjectId | undefined;
+  if (outletId) {
+    const outlet = await outletRepo.findBySlugOrId(outletId);
+    if (outlet) resolvedOutletObjectId = new mongoose.Types.ObjectId(String(outlet._id));
+  }
+
   if (existingIndex >= 0) {
     sharedItems[existingIndex].shared_at = new Date();
-    if (outletId) {
-      sharedItems[existingIndex].outlet_id = new mongoose.Types.ObjectId(outletId);
+    if (resolvedOutletObjectId) {
+      sharedItems[existingIndex].outlet_id = resolvedOutletObjectId;
     }
   } else {
     sharedItems.push({
       entity_type: entityType,
       entity_id: new mongoose.Types.ObjectId(entityId),
-      outlet_id: outletId ? new mongoose.Types.ObjectId(outletId) : undefined,
+      outlet_id: resolvedOutletObjectId,
       shared_at: new Date(),
     });
   }

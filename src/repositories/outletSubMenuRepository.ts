@@ -2,7 +2,11 @@ import { OutletSubMenu } from '../models/OutletSubMenu.js';
 import mongoose from 'mongoose';
 
 export const findByOutletId = async (outletId: string, activeOnly: boolean = false) => {
-    const query: any = { outlet_id: new mongoose.Types.ObjectId(outletId) };
+    const oid = mongoose.Types.ObjectId.isValid(outletId)
+        ? new mongoose.Types.ObjectId(outletId)
+        : null;
+    if (!oid) return [];
+    const query: any = { outlet_id: oid };
     if (activeOnly) query.is_active = true;
     return await OutletSubMenu.find(query).sort({ display_order: 1 }).lean();
 };

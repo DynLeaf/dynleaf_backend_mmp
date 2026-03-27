@@ -18,7 +18,7 @@ export const getCompliance = async (outletId: string) => {
 };
 
 export const uploadPhotoGallery = async (outletId: string, category: 'interior' | 'exterior' | 'food', finalUrl: string) => {
-  const outlet = await outletRepo.findById(outletId);
+  const outlet = await outletRepo.findBySlugOrId(outletId);
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (!outlet.photo_gallery) {
@@ -34,7 +34,7 @@ export const uploadPhotoGallery = async (outletId: string, category: 'interior' 
 };
 
 export const deletePhotoGallery = async (outletId: string, category: 'interior' | 'exterior' | 'food', photoUrl: string) => {
-  const outlet = await outletRepo.findById(outletId);
+  const outlet = await outletRepo.findBySlugOrId(outletId);
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (outlet.photo_gallery && outlet.photo_gallery[category]) {
@@ -49,7 +49,7 @@ export const deletePhotoGallery = async (outletId: string, category: 'interior' 
 };
 
 export const addInstagramReel = async (outletId: string, url: string, thumbnailUrl?: string) => {
-  const outlet = await outletRepo.findById(outletId);
+  const outlet = await outletRepo.findBySlugOrId(outletId);
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (!outlet.instagram_reels) {
@@ -65,7 +65,7 @@ export const addInstagramReel = async (outletId: string, url: string, thumbnailU
 };
 
 export const deleteInstagramReel = async (outletId: string, reelId: string) => {
-  const outlet = await outletRepo.findById(outletId);
+  const outlet = await outletRepo.findBySlugOrId(outletId);
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (outlet.instagram_reels) {
@@ -75,7 +75,7 @@ export const deleteInstagramReel = async (outletId: string, reelId: string) => {
 };
 
 export const reorderInstagramReels = async (outletId: string, reelIds: string[]) => {
-  const outlet = await outletRepo.findById(outletId);
+  const outlet = await outletRepo.findBySlugOrId(outletId);
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (outlet.instagram_reels) {
@@ -87,7 +87,7 @@ export const reorderInstagramReels = async (outletId: string, reelIds: string[])
 };
 
 export const toggleFeaturedStatus = async (outletId: string, isFeatured: boolean) => {
-  const outlet = await outletRepo.findById(outletId) as any;
+  const outlet = await outletRepo.findBySlugOrId(outletId) as any;
   if (!outlet) throw new AppError('Outlet not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
   if (!outlet.flags) outlet.flags = { is_featured: false, is_trending: false, accepts_online_orders: true, is_open_now: true };
   outlet.flags.is_featured = isFeatured;

@@ -25,7 +25,7 @@ const hasMultiMenuSubscription = async (outletId: string): Promise<boolean> => {
 };
 
 export const listSubMenus = async (outletId: string, userId: string) => {
-    const outlet = await outletRepo.findById(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
     if (!outlet) throw new AppError('Outlet not found', 404);
     
     // Authorization check
@@ -46,7 +46,7 @@ export const listSubMenus = async (outletId: string, userId: string) => {
 export const createSubMenu = async (outletId: string, userId: string, data: { name: string; description?: string; category_ids?: string[]; combo_ids?: string[] }) => {
     const { name, description, category_ids = [], combo_ids = [] } = data;
     
-    const outlet = await outletRepo.findById(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
     if (!outlet) throw new AppError('Outlet not found', 404);
     
     const isEligible = await hasMultiMenuSubscription(outletId);
@@ -131,7 +131,7 @@ export const updateSubMenuCategories = async (outletId: string, subMenuId: strin
     const subMenu = await subMenuRepo.findById(subMenuId, outletId);
     if (!subMenu) throw new AppError('Sub-menu not found', 404);
 
-    const outlet = await outletRepo.findById(outletId);
+    const outlet = await outletRepo.findBySlugOrId(outletId);
     
     const validCats = await categoryRepo.findCategoriesForOutletOrBrand(category_ids, outletId, (outlet as any)?.brand_id?.toString() || '');
     const validCombos = (await comboRepo.findByIds(combo_ids)).filter(c => c.outlet_id.toString() === outletId);

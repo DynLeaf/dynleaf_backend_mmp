@@ -11,6 +11,7 @@ export const findSubscriptionById = async (id: string, populateOptions?: any[]):
 };
 
 export const findSubscriptionByOutletId = async (outletId: string): Promise<any> => {
+    if (!mongoose.Types.ObjectId.isValid(outletId)) return null;
     return await Subscription.findOne({ outlet_id: outletId }).sort({ updated_at: -1, created_at: -1 }).exec();
 };
 

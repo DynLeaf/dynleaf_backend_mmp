@@ -66,8 +66,11 @@ export const create = (outletData: Partial<IOutlet>) => Outlet.create(outletData
 export const findUserRoles = (userId: string) =>
     User.findById(userId).select('roles').lean();
 
-export const findSubscriptionByOutletId = (outletId: mongoose.Types.ObjectId | string) =>
-    Subscription.findOne({ outlet_id: outletId as string }).select('plan status').lean();
+export const findSubscriptionByOutletId = (outletId: mongoose.Types.ObjectId | string) => {
+    // Guard: if the outletId is not a valid ObjectId (e.g. a slug), return null rather than throw a CastError
+    if (!mongoose.Types.ObjectId.isValid(String(outletId))) return Promise.resolve(null);
+    return Subscription.findOne({ outlet_id: outletId as string }).select('plan status').lean();
+};
 
 export const findAndUpdateOutlet = async (
     filter: object,
@@ -130,8 +133,10 @@ export const findActiveApprovedSelectAddress = () =>
         .select('address brand_id')
         .lean();
 
-export const findSubscriptionByOutletIdStr = (outletId: string) =>
-    Subscription.findOne({ outlet_id: outletId }).lean();
+export const findSubscriptionByOutletIdStr = (outletId: string) => {
+    if (!mongoose.Types.ObjectId.isValid(outletId)) return Promise.resolve(null);
+    return Subscription.findOne({ outlet_id: outletId }).lean();
+};
 
 export const findOutletSubMenusActive = async (outletId: string) => {
     const { OutletSubMenu } = await import('../models/OutletSubMenu.js');

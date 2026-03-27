@@ -7,8 +7,12 @@ export class StoryRepository {
     }
 
     async findActiveByOutlet(outletId: string, now: Date = new Date()): Promise<IStory[]> {
+        const oid = mongoose.Types.ObjectId.isValid(outletId)
+            ? new mongoose.Types.ObjectId(outletId)
+            : null;
+        if (!oid) return [];
         return await Story.find({
-            outletId: new mongoose.Types.ObjectId(outletId),
+            outletId: oid,
             status: 'live',
             visibilityStart: { $lte: now },
             visibilityEnd: { $gt: now }
@@ -18,10 +22,14 @@ export class StoryRepository {
     }
 
     async countTodayStories(outletId: string): Promise<number> {
+        const oid = mongoose.Types.ObjectId.isValid(outletId)
+            ? new mongoose.Types.ObjectId(outletId)
+            : null;
+        if (!oid) return 0;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         return await Story.countDocuments({
-            outletId: new mongoose.Types.ObjectId(outletId),
+            outletId: oid,
             created_at: { $gte: today }
         });
     }

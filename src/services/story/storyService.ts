@@ -79,8 +79,11 @@ export class StoryService {
         return this.mapToDto(story);
     }
 
-    async getOutletStories(outletId: string): Promise<StoryResponseDto[]> {
-        const stories = await storyRepository.findActiveByOutlet(outletId);
+    async getOutletStories(outletIdOrSlug: string): Promise<StoryResponseDto[]> {
+        // Resolve slug to actual ObjectId in case a slug is passed
+        const outlet = await outletService.getOutletById(outletIdOrSlug);
+        if (!outlet) return [];
+        const stories = await storyRepository.findActiveByOutlet(String(outlet._id));
         return stories.map(s => this.mapToDto(s));
     }
 
@@ -149,10 +152,12 @@ export class StoryService {
         });
     }
 
-    async getAdminOutletStories(outletId: string): Promise<StoryResponseDto[]> {
-        // In reality, this would query all stories including inactive ones
+    async getAdminOutletStories(outletIdOrSlug: string): Promise<StoryResponseDto[]> {
+        const outlet = await outletService.getOutletById(outletIdOrSlug);
+        if (!outlet) return [];
+        const oid = new mongoose.Types.ObjectId(String(outlet._id));
         const stories = await storyRepository.aggregate([
-            { $match: { outletId: new mongoose.Types.ObjectId(outletId) } },
+            { $match: { outletId: oid } },
             { $sort: { created_at: -1 } }
         ]);
         return stories.map(s => this.mapToDto(s));
