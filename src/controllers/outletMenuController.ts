@@ -11,31 +11,7 @@ export const getOutletMenu = async (req: Request, res: Response) => {
         const result = await outletMenuService.getOutletMenu(outletId, req.query, userId);
 
         // Format combos
-        const formattedCombos = result.combos.map((combo) => ({
-            _id: combo._id,
-            id: combo._id.toString(),
-            combo_type: combo.combo_type || 'offer',
-            name: combo.name,
-            slug: combo.slug,
-            description: combo.description,
-            image_url: combo.image_url,
-            combo_price: combo.price,
-            is_available: combo.is_active,
-            avg_rating: combo.avg_rating,
-            total_votes: combo.total_votes,
-            order_count: combo.order_count,
-            items: (combo.items || []).map((item) => ({
-                food_item_id: (item.food_item_id as any)?._id,
-                name: (item.food_item_id as any)?.name,
-                image_url: (item.food_item_id as any)?.image_url,
-                food_type: (item.food_item_id as any)?.food_type,
-                quantity: item.quantity,
-                individual_price: (item.food_item_id as any)?.price
-            })),
-            original_price: combo.original_price,
-            discount_percentage: combo.discount_percentage,
-            food_type: combo.food_type
-        }));
+        const formattedCombos = result.combos.map(combo => MenuMapper.toComboResponseDto(combo));
 
         // Flatten or group menu items
         const { sortBy = 'category', search } = req.query;
@@ -58,40 +34,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
                     };
                 }
 
-                acc[categoryId].items.push({
-                    _id: item._id.toString(),
-                    name: item.name,
-                    slug: item.slug,
-                    description: item.description,
-                    image_url: item.image_url,
-                    images: item.images || (item.image_url ? [item.image_url] : []),
-                    price: item.price,
-                    discount_percentage: item.discount_percentage || 0,
-                    is_available: item.is_available,
-                    stock_status: item.stock_status || 'in_stock',
-                    item_type: item.item_type || 'food',
-                    food_type: item.food_type || 'veg',
-                    is_veg: item.is_veg,
-                    allergens: item.allergens || [],
-                    ingredients: item.ingredients || [],
-                    cuisines: item.cuisines || [],
-                    tags: item.tags || [],
-                    avg_rating: item.avg_rating || 0,
-                    total_votes: item.total_votes || 0,
-                    upvote_count: item.upvote_count || 0,
-                    downvote_count: item.downvote_count || 0,
-                    post_count: item.post_count || 0,
-                    order_count: item.order_count || 0,
-                    is_featured: item.is_featured || false,
-                    is_recommended: item.is_recommended || false,
-                    is_bestseller: item.is_bestseller || false,
-                    is_signature: item.is_signature || false,
-                    is_new: item.is_new || false,
-                    addons: item.addons || [],
-                    variants: item.variants || [],
-                    user_vote_type: result.userVotes.get(item._id.toString()) || null,
-                    price_display_type: item.price_display_type || 'fixed'
-                });
+                const userVoteType = result.userVotes.get(item._id.toString()) || null;
+                acc[categoryId].items.push(MenuMapper.toFoodItemResponseDto(item, userVoteType));
 
                 return acc;
             }, {});
@@ -104,31 +48,10 @@ export const getOutletMenu = async (req: Request, res: Response) => {
                 category_name: search ? `Search Results for "${search}"` : 'All Items',
                 category_slug: 'results',
                 display_order: 0,
-                items: result.menuItems.map(item => ({
-                    _id: item._id.toString(),
-                    name: item.name,
-                    slug: item.slug,
-                    description: item.description,
-                    image_url: item.image_url,
-                    images: item.images || (item.image_url ? [item.image_url] : []),
-                    price: item.price,
-                    discount_percentage: item.discount_percentage || 0,
-                    is_available: item.is_available,
-                    stock_status: item.stock_status || 'in_stock',
-                    item_type: item.item_type || 'food',
-                    food_type: item.food_type || 'veg',
-                    is_veg: item.is_veg,
-                    avg_rating: item.avg_rating || 0,
-                    is_featured: item.is_featured || false,
-                    is_recommended: item.is_recommended || false,
-                    is_bestseller: item.is_bestseller || false,
-                    is_signature: item.is_signature || false,
-                    is_new: item.is_new || false,
-                    addons: item.addons || [],
-                    variants: item.variants || [],
-                    user_vote_type: result.userVotes.get(item._id.toString()) || null,
-                    price_display_type: item.price_display_type || 'fixed'
-                }))
+                items: result.menuItems.map(item => {
+                    const userVoteType = result.userVotes.get(item._id.toString()) || null;
+                    return MenuMapper.toFoodItemResponseDto(item, userVoteType);
+                })
             }];
         }
 

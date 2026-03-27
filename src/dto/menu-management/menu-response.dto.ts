@@ -1,4 +1,6 @@
 import { FoodItemResponseDto } from './food-item.dto.js';
+
+export { FoodItemResponseDto };
 import { ComboResponseDto } from './combo.dto.js';
 
 export interface MenuCategoryResponseDto {
