@@ -173,12 +173,27 @@ export const getProfileOverview = async (req: Request, res: Response) => {
   try {
       const outlet = await outletService.getOutletById(req.params.outletId);
       if (!outlet) return sendError(res, 'Outlet not found', 'RESOURCE_NOT_FOUND', 404);
-      const brand: any = outlet.brand_id;
+      const outletObj = (outlet as any).toObject ? (outlet as any).toObject() : outlet;
+      const brand = outletObj.brand_id;
 
       return sendSuccess(res, {
-          outletId: outlet._id, name: outlet.name, slug: outlet.slug, coverImage: outlet.media?.cover_image_url,
-          cuisines: brand?.cuisines || [], openingStatus: 'OPEN', distanceKm: null,
-          brand: { id: brand?._id, name: brand?.name, logo: brand?.logo_url }, socials: []
+          outletId: outletObj._id, 
+          name: outletObj.name, 
+          slug: outletObj.slug, 
+          coverImage: outletObj.media?.cover_image_url,
+          cuisines: brand?.cuisines || [], 
+          openingStatus: 'OPEN', 
+          distanceKm: null,
+          brand: brand ? { 
+            id: brand._id, 
+            name: brand.name, 
+            logo: brand.logo_url,
+            is_branded: brand.is_branded,
+            brand_theme: brand.brand_theme
+          } : null, 
+          socials: [],
+          menu_settings: outletObj.menu_settings,
+          ordering_settings: outletObj.ordering_settings
       });
   } catch (error) { return handleError(res, error); }
 };
@@ -253,13 +268,36 @@ export const getMenuSettings = async (req: AuthRequest, res: Response) => {
   try {
       const outlet = await outletService.getOutletById(req.params.outletId);
       if (!outlet) return sendError(res, 'Outlet not found', 'RESOURCE_NOT_FOUND', 404);
-      return sendSuccess(res, { settings: outlet.flags || {} });
+      
+      const outletObj = outlet.toObject ? outlet.toObject() : outlet;
+      const settings = {
+          ...(outletObj.menu_settings || {}),
+          ordering_settings: outletObj.ordering_settings || {}
+      };
+      return sendSuccess(res, settings);
   } catch (error) { return handleError(res, error); }
 };
 
 export const updateMenuSettings = async (req: AuthRequest, res: Response) => {
   try {
-      const outlet = await outletService.updateOutlet(req.params.outletId, req.user!.id, { flags: req.body });
-      return sendSuccess(res, { settings: outlet!.flags || {} }, 'Settings updated');
+      const payload = req.body;
+      const ordering_settings = payload.ordering_settings;
+      
+      const menu_settings = { ...payload };
+      delete menu_settings.ordering_settings;
+
+      const updateData: any = {};
+      if (Object.keys(menu_settings).length > 0) updateData.menu_settings = menu_settings;
+      if (ordering_settings) updateData.ordering_settings = ordering_settings;
+
+      const outlet = await outletService.updateOutlet(req.params.outletId, req.user!.id, updateData);
+      
+      const outletObj = outlet && (outlet as any).toObject ? (outlet as any).toObject() : outlet;
+      const settings = {
+          ...(outletObj?.menu_settings || {}),
+          ordering_settings: outletObj?.ordering_settings || {}
+      };
+      
+      return sendSuccess(res, settings, 'Settings updated');
   } catch (error) { return handleError(res, error); }
 };

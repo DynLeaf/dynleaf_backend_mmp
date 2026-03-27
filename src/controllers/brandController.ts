@@ -9,6 +9,9 @@ import mongoose from 'mongoose';
 import { sendBrandOnboardingEmail } from '../services/emailService.js';
 import { createAdminNotification } from '../services/adminNotificationService.js';
 import * as userRepository from '../repositories/userRepository.js';
+import { IBrand } from '../models/Brand.js';
+import { BrandMapper } from '../mappers/brandMapper.js';
+import { CreateBrandRequestDto, UpdateBrandRequestDto, UpdateBrandThemeRequestDto } from '../dto/brand/brand.dto.js';
 
 const handleLogoUpload = async (logo: string | undefined, name: string): Promise<string | undefined> => {
   if (!logo) return undefined;
@@ -41,7 +44,7 @@ const handleError = (res: Response, error: unknown): Response => {
 export const createBrand = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return sendAuthError(res, 'INVALID_CREDENTIALS', 'User not authenticated');
-    const { name, logo, description, operationModel, cuisines, website, instagram } = req.body;
+    const { name, logo, description, operationModel, cuisines, website, instagram }: CreateBrandRequestDto = req.body;
 
     const logoUrl = await handleLogoUpload(logo, name);
     const operatingModes = mapOperationModel(operationModel);
@@ -54,7 +57,7 @@ export const createBrand = async (req: AuthRequest, res: Response) => {
     sendBrandOnboardingEmail(brand.name, new Date(), email);
     createAdminNotification({ title: 'New Brand', message: `"${brand.name}" pending approval.`, type: 'brand', referenceId: String(brand._id) });
 
-    return sendSuccess(res, { id: brand._id, name: brand.name, logo_url: brand.logo_url, slug: brand.slug, status: brand.verification_status }, 'Brand created successfully', 201);
+    return sendSuccess(res, BrandMapper.toResponseDto(brand), 'Brand created successfully', 201);
   } catch (error) { return handleError(res, error); }
 };
 
@@ -62,7 +65,7 @@ export const getUserBrands = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return sendAuthError(res, 'INVALID_CREDENTIALS', 'User not authenticated');
     const brands = await brandService.getUserBrands(req.user.id);
-    return sendSuccess(res, { brands });
+    return sendSuccess(res, { brands: brands.map(BrandMapper.toResponseDto) });
   } catch (error) { return handleError(res, error); }
 };
 
@@ -71,10 +74,10 @@ export const searchBrands = async (req: AuthRequest, res: Response) => {
     const { q } = req.query;
     if (!q) {
       const brands = await brandService.getPublicBrands(req.user?.id);
-      return sendSuccess(res, { brands });
+      return sendSuccess(res, { brands: brands.map(BrandMapper.toResponseDto) });
     }
     const brands = await brandService.searchBrands(q as string, req.user?.id);
-    return sendSuccess(res, { brands });
+    return sendSuccess(res, { brands: brands.map(BrandMapper.toResponseDto) });
   } catch (error) { return handleError(res, error); }
 };
 
@@ -82,13 +85,13 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return sendAuthError(res, 'INVALID_CREDENTIALS', 'User not authenticated');
     const { brandId } = req.params;
-    const { name, logo, description, cuisines, website, instagram, operationModel } = req.body;
+    const { name, logo, description, cuisines, website, instagram, operationModel }: UpdateBrandRequestDto = req.body;
 
     const logoUrl = await handleLogoUpload(logo, name || 'brand');
     const operatingModes = operationModel ? mapOperationModel(operationModel) : undefined;
     
     // For simplicity, passing logo updates directly into the service layer
-    const updateData: any = {};
+    const updateData: Record<string, any> = {};
     if (name) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (logoUrl !== undefined) updateData.logo_url = logoUrl;
@@ -97,7 +100,7 @@ export const updateBrand = async (req: AuthRequest, res: Response) => {
     if (operatingModes) updateData.operating_modes = operatingModes;
 
     const brand = await brandService.updateBrand(brandId, req.user.id, updateData);
-    return sendSuccess(res, { id: brand._id, name: brand.name, logo_url: brand.logo_url, status: brand.verification_status }, 'Brand updated successfully');
+    return sendSuccess(res, BrandMapper.toResponseDto(brand), 'Brand updated successfully');
   } catch (error) { return handleError(res, error); }
 };
 
@@ -108,7 +111,7 @@ export const joinBrand = async (req: AuthRequest, res: Response) => {
     if (!brand) return sendError(res, 'Brand not found', 'RESOURCE_NOT_FOUND', 404);
 
     await userRepository.addBrandManagerRole(req.user.id, brand._id);
-    return sendSuccess(res, { id: brand._id, name: brand.name });
+    return sendSuccess(res, BrandMapper.toResponseDto(brand));
   } catch (error) { return handleError(res, error); }
 };
 
@@ -125,8 +128,13 @@ export const getNearbyBrands = async (req: AuthRequest, res: Response) => {
       latitude as string, longitude as string, radius as string,
       parseInt(page as string) || 1, parseInt(limit as string) || 20,
       cuisines as string, priceRange as string, minRating as string,
-      sortBy as any, isVeg as string
+      sortBy as 'distance' | 'rating' | 'popularity', isVeg as string
     );
+
+    // Normalize the brands in the result
+    if (result.brands) {
+      result.brands = result.brands.map(BrandMapper.toResponseDto);
+    }
 
     return sendSuccess(res, result);
   } catch (error) { return handleError(res, error); }
@@ -136,7 +144,7 @@ export const getFeaturedBrands = async (req: AuthRequest, res: Response) => {
   try {
     const { limit } = req.query;
     const brands = await brandDiscoveryService.getFeaturedBrands(parseInt(limit as string) || 10);
-    return sendSuccess(res, { brands });
+    return sendSuccess(res, { brands: brands.map(BrandMapper.toResponseDto) });
   } catch (error) { return handleError(res, error); }
 };
 
@@ -147,15 +155,15 @@ export const getBrandById = async (req: AuthRequest, res: Response) => {
     const brand = await brandService.getBrandById(brandId);
     if (!brand) return sendError(res, 'Brand not found', 'RESOURCE_NOT_FOUND', 404);
     
-    return sendSuccess(res, brand);
+    return sendSuccess(res, BrandMapper.toResponseDto(brand));
   } catch (error) { return handleError(res, error); }
 };
 
 export const updateBrandTheme = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return sendAuthError(res, 'INVALID_CREDENTIALS', 'User not authenticated');
-    const { primary_color, secondary_color } = req.body;
+    const { primary_color, secondary_color }: UpdateBrandThemeRequestDto = req.body;
     const brand = await brandService.updateBrand(req.params.brandId, req.user.id, { primary_color, secondary_color });
-    return sendSuccess(res, { brand_theme: brand.brand_theme }, 'Brand theme updated successfully');
+    return sendSuccess(res, BrandMapper.toResponseDto(brand), 'Brand theme updated successfully');
   } catch (error) { return handleError(res, error); }
 };

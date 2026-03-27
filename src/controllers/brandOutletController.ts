@@ -1,11 +1,10 @@
 import { Request, Response } from 'express';
+import { AuthRequest } from '../types/express.js';
 import * as brandOutletService from '../services/brand/brandOutletService.js';
 import * as outletService from '../services/outletService.js';
 import { sendSuccess, sendError, ErrorCode } from '../utils/response.js';
-
-interface AuthRequest extends Request {
-    user?: { id: string };
-}
+import { OutletMapper } from '../mappers/outletMapper.js';
+import { BrandMapper } from '../mappers/brandMapper.js';
 
 const DEFAULT_FEATURED_LIMIT = 10;
 const DEFAULT_FEATURED_RADIUS = 100000;
@@ -22,7 +21,15 @@ export const getFeaturedBrands = async (req: Request, res: Response) => {
             lat: parseFloat(latitude as string), lng: parseFloat(longitude as string),
             limitNum: parseInt(limit as string), radiusNum: parseInt(radius as string)
         });
-        return sendSuccess(res, { brands, metadata: { total: brands.length, search_radius_km: parseInt(radius as string) / 1000, center: { latitude: parseFloat(latitude as string), longitude: parseFloat(longitude as string) } } });
+        
+        return sendSuccess(res, { 
+            brands: brands.map(BrandMapper.toResponseDto), 
+            metadata: { 
+                total: brands.length, 
+                search_radius_km: parseInt(radius as string) / 1000, 
+                center: { latitude: parseFloat(latitude as string), longitude: parseFloat(longitude as string) } 
+            } 
+        });
     } catch (error: unknown) { return sendError(res, (error as Error).message || 'Failed to fetch featured brands', 500); }
 };
 
@@ -38,7 +45,24 @@ export const getNearbyOutletsNew = async (req: AuthRequest, res: Response) => {
             cuisines: cuisines as string, sortBy: sortBy as string, search: search as string,
             userId: req.user?.id
         });
-        return sendSuccess(res, { outlets, metadata: { total: outlets.length, search_radius_km: radiusNum / 1000, center: { latitude: parseFloat(latitude as string), longitude: parseFloat(longitude as string) }, filters: { isVeg: isVeg || 'all', minRating: minRating || 'none', priceRange: priceRange || 'all', cuisines: cuisines || 'all', sortBy } } });
+
+        const responseOutlets = (outlets as any[]).map((o) => {
+            const mapped = OutletMapper.toResponseDto(o);
+            if (o.brand) {
+                mapped.brand = BrandMapper.toResponseDto(o.brand);
+            }
+            return mapped;
+        });
+
+        return sendSuccess(res, { 
+            outlets: responseOutlets, 
+            metadata: { 
+                total: outlets.length, 
+                search_radius_km: radiusNum / 1000, 
+                center: { latitude: parseFloat(latitude as string), longitude: parseFloat(longitude as string) }, 
+                filters: { isVeg: isVeg || 'all', minRating: minRating || 'none', priceRange: priceRange || 'all', cuisines: cuisines || 'all', sortBy } 
+            } 
+        });
     } catch (error: unknown) { return sendError(res, (error as Error).message || 'Failed to fetch nearby outlets', 500); }
 };
 
@@ -47,9 +71,16 @@ export const getOutletDetail = async (req: AuthRequest, res: Response) => {
         const { outletId } = req.params;
         const outletDoc = await outletService.getOutletById(outletId);
         if (!outletDoc) return sendError(res, 'Outlet not found', 404);
-        const outlet = (outletDoc as unknown as { toObject(): Record<string, unknown> }).toObject();
-        const { operatingHours, itemsCount, categories, followersCount, isFollowing } = await brandOutletService.getOutletDetail(outlet._id, req.user?.id);
-        return sendSuccess(res, { outlet: { ...outlet, available_items_count: itemsCount, followers_count: followersCount, is_following: isFollowing, opening_hours: operatingHours, order_phone: outlet.order_phone, order_link: outlet.order_link, flags: outlet.flags || { is_featured: false, is_trending: false, accepts_online_orders: false, is_open_now: false }, social_media: outlet.social_media || {} }, categories });
+        
+        const details = await brandOutletService.getOutletDetail(outletDoc._id, req.user?.id);
+        
+        const responseData = OutletMapper.toDetailResponseDto(outletDoc, details);
+        
+        if (outletDoc.brand_id) {
+            responseData.brand = BrandMapper.toResponseDto(outletDoc.brand_id as any);
+        }
+
+        return sendSuccess(res, { outlet: responseData, categories: details.categories });
     } catch (error: unknown) { return sendError(res, `Outlet detail error: ${(error as Error).message}`, 500); }
 };
 

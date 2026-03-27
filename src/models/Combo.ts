@@ -25,6 +25,11 @@ export interface ICombo extends Document {
     manual_price_override: boolean;
     display_order?: number;
     is_active: boolean;
+    slug: string;
+    avg_rating?: number;
+    total_votes?: number;
+    order_count?: number;
+    food_type?: string;
 }
 
 const comboItemSchema = new Schema<IComboItem>({
@@ -51,7 +56,12 @@ const comboSchema = new Schema<ICombo>({
     price: { type: Number, default: 0, min: 0 },
     manual_price_override: { type: Boolean, default: false },
     display_order: { type: Number, default: 0 },
-    is_active: { type: Boolean, default: true }
+    is_active: { type: Boolean, default: true },
+    slug: { type: String, unique: true },
+    avg_rating: { type: Number, default: 0 },
+    total_votes: { type: Number, default: 0 },
+    order_count: { type: Number, default: 0 },
+    food_type: { type: String }
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
 export const Combo = mongoose.model<ICombo>('Combo', comboSchema);

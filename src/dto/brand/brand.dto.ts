@@ -24,12 +24,22 @@ export interface UpdateBrandThemeRequestDto {
   secondary_color?: string | null;
 }
 
+export interface BrandThemeDto {
+  primary_color?: string;
+  secondary_color?: string;
+}
+
 export interface BrandResponseDto {
   id: string;
+  _id: string;
   name: string;
   logo_url?: string;
   slug: string;
   status: string;
+  description?: string;
+  cuisines?: string[];
+  is_branded: boolean;
+  brand_theme: BrandThemeDto | null;
 }
 
 export interface NearbyBrandsRequestDto {

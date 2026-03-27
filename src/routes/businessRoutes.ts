@@ -1,5 +1,5 @@
 import express from 'express';
-import { protect, requireOutletAccess } from '../middleware/authMiddleware.js';
+import { protect, requireOutletAccess, requireBrandAccess } from '../middleware/authMiddleware.js';
 import { getOutletDashboardAnalytics } from '../controllers/businessAnalyticsController.js';
 import { getOutletSubscription } from '../controllers/businessSubscriptionController.js';
 import { updateBrandTheme } from '../controllers/brandController.js';
@@ -13,6 +13,6 @@ router.get('/outlets/:outletId/dashboard-analytics', protect, requireOutletAcces
 router.get('/outlets/:outletId/subscription', protect, requireOutletAccess, getOutletSubscription);
 
 // Update brand theme colors (protected; brand owner only)
-router.patch('/brands/:brandId/theme', protect, updateBrandTheme);
+router.patch('/brands/:brandId/theme', protect, requireBrandAccess, updateBrandTheme);
 
 export default router;

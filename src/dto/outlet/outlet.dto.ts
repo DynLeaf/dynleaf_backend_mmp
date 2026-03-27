@@ -93,3 +93,57 @@ export interface InstagramReelDto {
 export interface ReorderReelsDto {
   reelIds: string[];
 }
+
+export interface OutletResponseDto {
+  id: string;
+  _id: string;
+  name: string;
+  slug: string;
+  brand_id: string | any;
+  status: string;
+  approval_status: string;
+  address?: any;
+  contact?: any;
+  media?: {
+    cover_image_url?: string;
+  };
+  price_range?: number;
+  avg_rating?: number;
+  total_reviews?: number;
+  is_pure_veg?: boolean;
+  delivery_time?: number;
+  brand?: any; // Will be populated if requested
+}
+
+export interface OutletDetailResponseDto extends OutletResponseDto {
+  available_items_count: number;
+  followers_count: number;
+  is_following: boolean;
+  opening_hours: any;
+  order_phone?: string;
+  order_link?: string;
+  swiggy_delivery_url?: string;
+  zomato_delivery_url?: string;
+  reservation_phone?: string;
+  reservation_url?: string;
+  seating_capacity?: number;
+  table_count?: number;
+  social_media: any;
+  photo_gallery: any;
+  amenities: string[];
+  flags: {
+    is_featured: boolean;
+    is_trending: boolean;
+    accepts_online_orders: boolean;
+    is_open_now: boolean;
+  };
+  multi_menu_settings?: {
+    has_sub_menus: boolean;
+    ask_submenu_on_scan: boolean;
+  };
+  ordering_settings?: {
+    whatsapp_number?: string;
+    enable_qr_ordering: boolean;
+    enable_link_ordering: boolean;
+  };
+}

@@ -62,7 +62,9 @@ export const createBrand = async (userId: string, brandData: any) => {
 };
 
 export const updateBrand = async (brandId: string, userId: string, updateData: any) => {
-  const brand = await brandRepo.findAdminBrand(brandId, userId);
+  // Authorization is now handled entirely by the requireBrandAccess middleware 
+  // via RBAC User roles, so we don't need to enforce brand.admin_user_id === userId here.
+  const brand = await brandRepo.findById(brandId);
   if (!brand) throw new AppError('Brand not found or unauthorized', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
   if (updateData.name && updateData.name !== brand.name) {
@@ -70,10 +72,19 @@ export const updateBrand = async (brandId: string, userId: string, updateData: a
     if (existing) throw new AppError(`A brand named "${updateData.name}" already exists.`, 400, ErrorCode.VALIDATION_ERROR);
   }
 
-  const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media', 'verification_status', 'verified_by', 'verified_at', 'brand_theme', 'primary_color', 'secondary_color'];
+  const allowedFields = ['name', 'description', 'logo_url', 'cuisines', 'operating_modes', 'social_media', 'verification_status', 'verified_by', 'verified_at', 'brand_theme', 'is_branded'];
   allowedFields.forEach(field => {
     if (updateData[field] !== undefined) brand[field] = updateData[field];
   });
+
+  if (updateData.primary_color !== undefined || updateData.secondary_color !== undefined) {
+    brand.brand_theme = {
+      ...(brand.brand_theme || {}),
+      ...(updateData.primary_color !== undefined ? { primary_color: updateData.primary_color } : {}),
+      ...(updateData.secondary_color !== undefined ? { secondary_color: updateData.secondary_color } : {})
+    };
+  }
+
 
   if (updateData.name) {
     brand.slug = updateData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');

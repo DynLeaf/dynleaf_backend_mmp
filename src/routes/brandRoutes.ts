@@ -19,7 +19,7 @@ import {
     getBrandMemberPermissions,
     updateBrandSettings
 } from '../controllers/brandMemberController.js';
-import { protect, optionalAuth } from '../middleware/authMiddleware.js';
+import { protect, optionalAuth, requireBrandAccess } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -33,22 +33,23 @@ router.get('/', optionalAuth, searchBrands);
 // Protected routes
 router.post('/', protect, createBrand);
 router.get('/my-brands', protect, getUserBrands);
-router.put('/:brandId', protect, updateBrand);
+router.put('/:brandId', protect, requireBrandAccess, updateBrand);
 router.post('/:brandId/join', protect, joinBrand);
 router.post('/:brandId/access-requests', protect, requestAccess);
 
 // Brand member management routes
-router.get('/:brandId/members', protect, getBrandMembers);
-router.post('/:brandId/members', protect, addBrandMember);
-router.patch('/:brandId/members/:userId', protect, updateBrandMemberRole);
-router.delete('/:brandId/members/:userId', protect, removeBrandMember);
-router.get('/:brandId/members/permissions', protect, getBrandMemberPermissions);
+router.get('/:brandId/members', protect, requireBrandAccess, getBrandMembers);
+router.post('/:brandId/members', protect, requireBrandAccess, addBrandMember);
+router.patch('/:brandId/members/:userId', protect, requireBrandAccess, updateBrandMemberRole);
+router.delete('/:brandId/members/:userId', protect, requireBrandAccess, removeBrandMember);
+router.get('/:brandId/members/permissions', protect, requireBrandAccess, getBrandMemberPermissions);
 
 // Brand outlets
-router.get('/:brandId/outlets', protect, getBrandOutlets);
+router.get('/:brandId/outlets', protect, requireBrandAccess, getBrandOutlets);
 
 // Brand settings
-router.patch('/:brandId/settings', protect, updateBrandSettings);
+router.patch('/:brandId/settings', protect, requireBrandAccess, updateBrandSettings);
+
 
 // Public brand profile route (keep after static routes)
 router.get('/:brandId', getBrandById);
