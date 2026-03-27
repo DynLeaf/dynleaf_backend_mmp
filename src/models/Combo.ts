@@ -62,6 +62,10 @@ const comboSchema = new Schema<ICombo>({
     total_votes: { type: Number, default: 0 },
     order_count: { type: Number, default: 0 },
     food_type: { type: String }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+}, { 
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
 export const Combo = mongoose.model<ICombo>('Combo', comboSchema);

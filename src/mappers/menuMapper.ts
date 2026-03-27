@@ -33,12 +33,10 @@ export class MenuMapper {
       },
       menu_settings: menu_settings,
       menu: menu.map(cat => ({
-        id: cat._id?.toString() || cat.id?.toString(),
-        name: cat.name,
-        slug: cat.slug,
-        description: cat.description,
-        imageUrl: cat.imageUrl,
-        sortOrder: cat.sortOrder || 0,
+        category_id: cat._id?.toString() || cat.id?.toString(),
+        category_name: cat.name,
+        category_slug: cat.slug,
+        display_order: cat.sortOrder || 0,
         items: cat.items || []
       })),
       combos: combos,

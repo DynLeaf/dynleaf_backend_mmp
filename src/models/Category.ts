@@ -24,7 +24,11 @@ const categorySchema = new Schema<ICategory>({
     display_order: { type: Number, default: 0 },
     is_active: { type: Boolean, default: true },
     created_by_user_id: { type: Schema.Types.ObjectId, ref: 'User' }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+}, { 
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
 // Indexes
 categorySchema.index({ outlet_id: 1, display_order: 1 });

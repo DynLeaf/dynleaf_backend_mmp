@@ -59,19 +59,38 @@ export const getOutletMenu = async (req: Request, res: Response) => {
                 }
 
                 acc[categoryId].items.push({
-                    _id: item._id,
-                    id: item._id.toString(),
+                    _id: item._id.toString(),
                     name: item.name,
                     slug: item.slug,
                     description: item.description,
                     image_url: item.image_url,
+                    images: item.images || (item.image_url ? [item.image_url] : []),
                     price: item.price,
+                    discount_percentage: item.discount_percentage || 0,
                     is_available: item.is_available,
-                    avg_rating: item.avg_rating,
+                    stock_status: item.stock_status || 'in_stock',
+                    item_type: item.item_type || 'food',
+                    food_type: item.food_type || 'veg',
+                    is_veg: item.is_veg,
+                    allergens: item.allergens || [],
+                    ingredients: item.ingredients || [],
+                    cuisines: item.cuisines || [],
+                    tags: item.tags || [],
+                    avg_rating: item.avg_rating || 0,
+                    total_votes: item.total_votes || 0,
                     upvote_count: item.upvote_count || 0,
-                    user_vote_type: result.userVotes.get(item._id.toString()) || null,
+                    downvote_count: item.downvote_count || 0,
+                    post_count: item.post_count || 0,
+                    order_count: item.order_count || 0,
+                    is_featured: item.is_featured || false,
+                    is_recommended: item.is_recommended || false,
+                    is_bestseller: item.is_bestseller || false,
+                    is_signature: item.is_signature || false,
+                    is_new: item.is_new || false,
                     addons: item.addons || [],
-                    variants: item.variants || []
+                    variants: item.variants || [],
+                    user_vote_type: result.userVotes.get(item._id.toString()) || null,
+                    price_display_type: item.price_display_type || 'fixed'
                 });
 
                 return acc;
@@ -79,17 +98,38 @@ export const getOutletMenu = async (req: Request, res: Response) => {
 
             formattedMenu = Object.values(grouped).sort((a, b) => (a as any).sortOrder - (b as any).sortOrder);
         } else {
-            formattedMenu = result.menuItems.map(item => ({
-                _id: item._id,
-                id: item._id.toString(),
-                name: item.name,
-                slug: item.slug,
-                description: item.description,
-                image_url: item.image_url,
-                price: item.price,
-                is_available: item.is_available,
-                user_vote_type: result.userVotes.get(item._id.toString()) || null
-            }));
+            // For search or other sorts, wrap in a "Results" category to satisfy the mapper
+            formattedMenu = [{
+                category_id: 'results',
+                category_name: search ? `Search Results for "${search}"` : 'All Items',
+                category_slug: 'results',
+                display_order: 0,
+                items: result.menuItems.map(item => ({
+                    _id: item._id.toString(),
+                    name: item.name,
+                    slug: item.slug,
+                    description: item.description,
+                    image_url: item.image_url,
+                    images: item.images || (item.image_url ? [item.image_url] : []),
+                    price: item.price,
+                    discount_percentage: item.discount_percentage || 0,
+                    is_available: item.is_available,
+                    stock_status: item.stock_status || 'in_stock',
+                    item_type: item.item_type || 'food',
+                    food_type: item.food_type || 'veg',
+                    is_veg: item.is_veg,
+                    avg_rating: item.avg_rating || 0,
+                    is_featured: item.is_featured || false,
+                    is_recommended: item.is_recommended || false,
+                    is_bestseller: item.is_bestseller || false,
+                    is_signature: item.is_signature || false,
+                    is_new: item.is_new || false,
+                    addons: item.addons || [],
+                    variants: item.variants || [],
+                    user_vote_type: result.userVotes.get(item._id.toString()) || null,
+                    price_display_type: item.price_display_type || 'fixed'
+                }))
+            }];
         }
 
         const resolvedOutletId = String(result.outlet._id);

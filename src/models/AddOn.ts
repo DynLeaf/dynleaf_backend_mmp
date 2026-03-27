@@ -16,6 +16,10 @@ const addOnSchema = new Schema<IAddOn>({
     category: { type: String },
     display_order: { type: Number, default: 0 },
     is_active: { type: Boolean, default: true }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+}, { 
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
 export const AddOn = mongoose.model<IAddOn>('AddOn', addOnSchema);

@@ -31,29 +31,34 @@ export interface UpdateFoodItemRequestDto extends Partial<CreateFoodItemRequestD
 }
 
 export interface FoodItemResponseDto {
-  id: string;
-  categoryId: string | null;
-  item_number?: string;
-  addonIds: string[];
+  _id: string;
   name: string;
-  description?: string;
-  itemType: string;
-  isVeg: boolean;
-  basePrice: number;
-  taxPercentage: number;
-  imageUrl?: string;
-  isActive: boolean;
-  isAvailable: boolean;
+  images: string[];
+  item_type: string;
+  food_type: string;
+  is_veg: boolean;
+  price: number;
+  discount_percentage: number;
+  is_available: boolean;
+  stock_status: string;
+  allergens: string[];
+  ingredients: string[];
+  cuisines: string[];
   tags: string[];
-  variants: { size: string; price: number }[];
-  displayOrder: number;
-  preparationTime?: string;
-  calories?: string;
-  spiceLevel?: string;
-  allergens?: string[];
-  isFeatured: boolean;
-  isRecommended: boolean;
-  discountPercentage: number;
+  avg_rating: number;
+  total_votes: number;
+  upvote_count: number;
+  downvote_count: number;
+  post_count: number;
+  order_count: number;
+  is_featured: boolean;
+  is_recommended: boolean;
+  is_bestseller: boolean;
+  is_signature: boolean;
+  is_new: boolean;
+  addons: any[];
+  variants: any[];
+  user_vote_type: string | null;
   price_display_type: string;
 }
 

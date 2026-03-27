@@ -2,12 +2,10 @@ import { FoodItemResponseDto } from './food-item.dto.js';
 import { ComboResponseDto } from './combo.dto.js';
 
 export interface MenuCategoryResponseDto {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  imageUrl?: string;
-  sortOrder: number;
+  category_id: string;
+  category_name: string;
+  category_slug: string;
+  display_order: number;
   items: FoodItemResponseDto[];
 }
 

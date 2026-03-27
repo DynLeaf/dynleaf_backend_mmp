@@ -104,6 +104,7 @@ export const importMenu = async (outletId: string, items: any[], options: any = 
             if (operation === 'skip') { skipped++; results.push({ index, status: 'skipped', name }); continue; }
 
             const payload: any = {
+                outlet_id: new mongoose.Types.ObjectId(outletId),
                 name,
                 description: normalizeString(item.description) || undefined,
                 category_id: categoryId === 'dry-run-category' ? undefined : new mongoose.Types.ObjectId(categoryId),

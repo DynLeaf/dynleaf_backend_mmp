@@ -198,7 +198,11 @@ const foodItemSchema = new Schema<IFoodItem>({
     discount_percentage: { type: Number, default: 0, min: 0, max: 100 },
 
     created_by_user_id: { type: Schema.Types.ObjectId, ref: 'User' }
-}, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
+}, { 
+    timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
 // Indexes for performance
 foodItemSchema.index({ outlet_id: 1, is_available: 1 });
