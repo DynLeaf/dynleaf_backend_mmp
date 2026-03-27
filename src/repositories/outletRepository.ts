@@ -69,7 +69,7 @@ export const findUserRoles = (userId: string) =>
 export const findSubscriptionByOutletId = (outletId: mongoose.Types.ObjectId | string) => {
     // Guard: if the outletId is not a valid ObjectId (e.g. a slug), return null rather than throw a CastError
     if (!mongoose.Types.ObjectId.isValid(String(outletId))) return Promise.resolve(null);
-    return Subscription.findOne({ outlet_id: outletId as string }).select('plan status').lean();
+    return Subscription.findOne({ outlet_id: outletId as string }).select('plan status features').lean();
 };
 
 export const findAndUpdateOutlet = async (

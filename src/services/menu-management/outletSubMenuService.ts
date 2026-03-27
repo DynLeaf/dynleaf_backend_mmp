@@ -19,9 +19,9 @@ const hasMultiMenuSubscription = async (outletId: string): Promise<boolean> => {
     const sub = await outletRepo.findSubscriptionByOutletId(outletId) as { status: string; plan: string; features?: string[] };
     if (!sub) return false;
     if (!['active', 'trial'].includes(sub.status)) return false;
-    const tier = normalizePlanToTier(sub.plan);
-    if (tier !== 'premium') return false;
-    return (sub.features || []).includes('multi_menu');
+    
+    // Check both plan defaults and explicit overrides
+    return normalizePlanToTier(sub.plan) === 'premium' || (sub.features || []).includes('multi_menu');
 };
 
 export const listSubMenus = async (outletId: string, userId: string) => {
