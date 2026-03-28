@@ -1,4 +1,5 @@
 import { Story, IStory } from '../../models/Story.js';
+import { Outlet } from '../../models/Outlet.js';
 import mongoose from 'mongoose';
 
 export class StoryRepository {
@@ -144,7 +145,7 @@ export class StoryRepository {
             }
         );
 
-        return await Story.aggregate(pipeline);
+        return await Outlet.aggregate(pipeline);
     }
 
     async aggregate(pipeline: any[]): Promise<any[]> {
