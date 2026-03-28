@@ -33,6 +33,7 @@ export interface UpdateFoodItemRequestDto extends Partial<CreateFoodItemRequestD
 export interface FoodItemResponseDto {
   _id: string;
   name: string;
+  image_url?: string | null;
   images: string[];
   item_type: string;
   food_type: string;

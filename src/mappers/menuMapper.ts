@@ -4,10 +4,15 @@ import { BrandMapper } from './brandMapper.js';
 
 export class MenuMapper {
   static toFoodItemResponseDto(item: any, userVoteType: string | null = null): FoodItemResponseDto {
+    const images = Array.isArray(item.images)
+      ? item.images.filter(Boolean)
+      : (item.image_url ? [item.image_url] : []);
+
     return {
       _id: item._id.toString(),
       name: item.name,
-      images: item.images || (item.image_url ? [item.image_url] : []),
+      image_url: item.image_url || images[0] || null,
+      images,
       item_type: item.item_type || 'food',
       food_type: item.food_type || 'veg',
       is_veg: item.is_veg,
@@ -99,6 +104,8 @@ export class MenuMapper {
         category_id: cat._id?.toString() || cat.id?.toString(),
         category_name: cat.name,
         category_slug: cat.slug,
+        category_image_url: cat.category_image_url || cat.image_url || cat.imageUrl || null,
+        image_url: cat.image_url || cat.imageUrl || cat.category_image_url || null,
         display_order: cat.sortOrder || 0,
         items: cat.items || []
       })),

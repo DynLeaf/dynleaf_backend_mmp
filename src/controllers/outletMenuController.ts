@@ -3,6 +3,60 @@ import * as outletMenuService from '../services/menu-management/outletMenuServic
 import * as outletSubMenuService from '../services/menu-management/outletSubMenuService.js';
 import { sendSuccess, sendError } from '../utils/response.js';
 import { MenuMapper } from '../mappers/menuMapper.js';
+import S3UrlGenerator from '../utils/s3UrlGenerator.js';
+
+const resolveImageUrl = async (value: unknown) => {
+    if (!value) return null;
+    return await S3UrlGenerator.resolveUrl(String(value));
+};
+
+const enrichMenuResponseMedia = async (data: any) => {
+    if (!data || !Array.isArray(data.menu)) return data;
+
+    await Promise.all((data.menu || []).map(async (category: any) => {
+        const resolvedCategoryImage = await resolveImageUrl(
+            category?.category_image_url || category?.image_url || category?.imageUrl
+        );
+
+        if (resolvedCategoryImage) {
+            category.category_image_url = resolvedCategoryImage;
+            category.image_url = resolvedCategoryImage;
+            category.imageUrl = resolvedCategoryImage;
+        }
+
+        if (!Array.isArray(category?.items)) return;
+
+        await Promise.all(category.items.map(async (item: any) => {
+            const resolvedImages = await S3UrlGenerator.resolveUrls(Array.isArray(item?.images) ? item.images : []);
+            const normalizedImages = resolvedImages.filter((image): image is string => Boolean(image));
+            const resolvedPrimaryImage = await resolveImageUrl(item?.image_url || normalizedImages[0]);
+
+            if (resolvedPrimaryImage) {
+                item.image_url = resolvedPrimaryImage;
+            }
+
+            item.images = normalizedImages.length > 0
+                ? normalizedImages
+                : (resolvedPrimaryImage ? [resolvedPrimaryImage] : []);
+        }));
+    }));
+
+    if (Array.isArray(data.combos)) {
+        await Promise.all(data.combos.map(async (combo: any) => {
+            const resolvedComboImage = await resolveImageUrl(combo?.image_url);
+            if (resolvedComboImage) combo.image_url = resolvedComboImage;
+
+            if (Array.isArray(combo?.items)) {
+                await Promise.all(combo.items.map(async (item: any) => {
+                    const resolvedItemImage = await resolveImageUrl(item?.image_url);
+                    if (resolvedItemImage) item.image_url = resolvedItemImage;
+                }));
+            }
+        }));
+    }
+
+    return data;
+};
 
 export const getOutletMenu = async (req: Request, res: Response) => {
     try {
@@ -69,6 +123,8 @@ export const getOutletMenu = async (req: Request, res: Response) => {
             isFollowing: result.isFollowing,
             followersCount: result.followersCount
         });
+
+        await enrichMenuResponseMedia(responseData);
 
         return sendSuccess(res, responseData);
     } catch (error: unknown) {

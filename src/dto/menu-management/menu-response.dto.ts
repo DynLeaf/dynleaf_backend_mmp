@@ -7,6 +7,8 @@ export interface MenuCategoryResponseDto {
   category_id: string;
   category_name: string;
   category_slug: string;
+  category_image_url?: string | null;
+  image_url?: string | null;
   display_order: number;
   items: FoodItemResponseDto[];
 }
