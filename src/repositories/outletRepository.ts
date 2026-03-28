@@ -30,9 +30,9 @@ export const findApprovedOutletsWithBrands = async () => {
         approval_status: 'APPROVED',
         status: 'ACTIVE'
     })
-    .populate('brand_id', 'name verification_status is_active')
-    .select('name slug address brand_id')
-    .lean();
+        .populate('brand_id', 'name verification_status is_active')
+        .select('name slug address brand_id')
+        .lean();
 };
 
 

@@ -234,8 +234,6 @@ export const syncMenuToOutlets = async (outletId: string, targetOutletIds: strin
 
     const results = await Promise.all(
         targetOutletIds.map(async (targetId: string) => {
-            const session = await mongoose.startSession();
-            session.startTransaction();
             try {
                 const targetOutlet = await outletRepo.findById(targetId);
                 if (!targetOutlet) throw new Error('Outlet not found');
@@ -243,6 +241,8 @@ export const syncMenuToOutlets = async (outletId: string, targetOutletIds: strin
                 let itemsSynced = 0, categoriesSynced = 0, addonsSynced = 0, combosSynced = 0;
                 const errors: any[] = [];
                 const categoryIdMap = new Map<string, string>();
+                const addonIdMap = new Map<string, string>();
+                const itemIdMap = new Map<string, string>();
 
                 // Sync categories
                 if (options.syncCategories && sourceData.categories) {
@@ -252,11 +252,25 @@ export const syncMenuToOutlets = async (outletId: string, targetOutletIds: strin
                             if (existing && options.categoryHandling === 'map_by_name') {
                                 categoryIdMap.set(String(cat._id), String(existing._id));
                             } else {
-                                const newCat = await categoryService.createCategory(targetId, { ...cat, isActive: cat.is_active, sortOrder: cat.display_order }, session);
+                                const newCat = await categoryService.createCategory(targetId, { ...cat, isActive: cat.is_active, sortOrder: cat.display_order, _id: undefined });
                                 categoryIdMap.set(String(cat._id), String(newCat._id));
                             }
                             categoriesSynced++;
                         } catch (err: any) { errors.push({ type: 'category', message: err.message }); }
+                    }
+                }
+
+                // Sync addons
+                if (options.syncAddons && sourceData.addons) {
+                    for (const addon of sourceData.addons) {
+                        try {
+                            const payload = { ...addon, outlet_id: targetId, _id: undefined };
+                            delete payload.created_at;
+                            delete payload.updated_at;
+                            const newAddon = await addOnRepo.create(payload);
+                            addonIdMap.set(String(addon._id), String(newAddon._id));
+                            addonsSynced++;
+                        } catch (err: any) { errors.push({ type: 'addon', message: err.message }); }
                     }
                 }
 
@@ -265,23 +279,45 @@ export const syncMenuToOutlets = async (outletId: string, targetOutletIds: strin
                     for (const item of sourceData.items) {
                         try {
                             const targetCategoryId = item.category_id ? categoryIdMap.get(String(item.category_id)) : null;
-                            const payload = { ...item, outlet_id: targetId, category_id: targetCategoryId, _id: undefined };
-                            await foodItemRepo.create(payload, session);
+                            const targetAddonIds = Array.isArray(item.addon_ids) ? item.addon_ids.map((id: any) => addonIdMap.get(String(id))).filter(Boolean) : [];
+                            
+                            const payload = { ...item, outlet_id: targetId, category_id: targetCategoryId, addon_ids: targetAddonIds, _id: undefined };
+                            delete payload.created_at;
+                            delete payload.updated_at;
+                            
+                            const newItem = await foodItemRepo.create(payload);
+                            itemIdMap.set(String(item._id), String(newItem._id));
                             itemsSynced++;
                         } catch (err: any) { errors.push({ type: 'item', message: err.message }); }
                     }
                 }
 
-                await session.commitTransaction();
+                // Sync combos
+                if (options.syncCombos && sourceData.combos) {
+                    for (const combo of sourceData.combos) {
+                        try {
+                            const newComboItems = Array.isArray(combo.items) 
+                                ? combo.items.map((ci: any) => ({ ...ci, food_item_id: itemIdMap.get(String(ci.food_item_id)) })).filter((ci: any) => ci.food_item_id)
+                                : [];
+                            
+                            const targetCategoryId = combo.category_id ? categoryIdMap.get(String(combo.category_id)) : null;
+
+                            const payload = { ...combo, outlet_id: targetId, category_id: targetCategoryId, items: newComboItems, _id: undefined };
+                            delete payload.created_at;
+                            delete payload.updated_at;
+                            
+                            await comboRepo.create(payload);
+                            combosSynced++;
+                        } catch (err: any) { errors.push({ type: 'combo', message: err.message }); }
+                    }
+                }
+
                 return { outletId: targetId, outletName: targetOutlet.name, status: errors.length === 0 ? 'success' : 'partial', itemsSynced, categoriesSynced, addonsSynced, combosSynced, errors };
             } catch (err: any) {
-                await session.abortTransaction();
                 return { outletId: targetId, status: 'failed', errors: [{ type: 'general', message: err.message }] };
-            } finally {
-                session.endSession();
             }
         })
     );
 
-    return { success: results.every(r => r.status === 'success'), results };
+    return { success: results.every(r => r?.status === 'success'), results };
 };

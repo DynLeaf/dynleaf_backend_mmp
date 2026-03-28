@@ -1,11 +1,12 @@
 import { FoodItem } from '../models/FoodItem.js';
 import mongoose from 'mongoose';
 
-export const findByOutletId = async (outletId: string, query: any = {}, sortOptions: any = {}, skip: number = 0, limit: number = 50) => {
+export const findByOutletId = async (outletId: string, query: any = {}, sortOptions: any = {}, skip: number = 0, limit: number = 0) => {
   return await FoodItem.find({ ...query, outlet_id: outletId })
     .sort(sortOptions)
     .skip(skip)
-    .limit(limit);
+    .limit(limit)
+    .lean();
 };
 
 export const countDocuments = async (query: any) => {

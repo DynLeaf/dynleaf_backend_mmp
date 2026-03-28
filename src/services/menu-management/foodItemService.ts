@@ -112,13 +112,13 @@ export const updateFoodItem = async (outletId: string, foodItemId: string, updat
     if (!foodItem) throw new AppError('Food item not found', 404, ErrorCode.RESOURCE_NOT_FOUND);
 
     const updates: Record<string, unknown> = { ...updateData };
-    
+
     if (updateData.itemNumber !== undefined) updates.item_number = normalizeString(updateData.itemNumber) || undefined;
     if (updateData.isVeg !== undefined) {
         updates.is_veg = updateData.isVeg;
         updates.food_type = updateData.isVeg ? 'veg' : 'non-veg';
     }
-    
+
     if (updateData.isActive !== undefined) {
         updates.is_active = updateData.isActive;
         if (updateData.isAvailable === undefined) updates.is_available = updateData.isActive;
@@ -212,7 +212,7 @@ export const uploadFoodItemImage = async (outletId: string, foodItemId: string, 
         const s3Service = (await import('../s3Service.js')).getS3Service();
         const matches = imageData.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
         if (!matches || matches.length !== 3) throw new AppError('Invalid base64 string', 400, ErrorCode.VALIDATION_ERROR);
-        
+
         const buffer = Buffer.from(matches[2], 'base64');
         const uploadedFile = await s3Service.uploadBuffer(buffer, 'menu', foodItemId, `menu-${Date.now()}`, matches[1]);
         finalUrl = uploadedFile.key;
