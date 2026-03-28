@@ -5,6 +5,7 @@ import * as outletService from '../services/outletService.js';
 import { sendSuccess, sendError, ErrorCode } from '../utils/response.js';
 import { OutletMapper } from '../mappers/outletMapper.js';
 import { BrandMapper } from '../mappers/brandMapper.js';
+import S3UrlGenerator from '../utils/s3UrlGenerator.js';
 
 const DEFAULT_FEATURED_LIMIT = 10;
 const DEFAULT_FEATURED_RADIUS = 100000;
@@ -12,6 +13,62 @@ const DEFAULT_NEARBY_RADIUS = 50000;
 const DEFAULT_NEARBY_LIMIT = 20;
 const DEFAULT_MALL_NEARBY_RADIUS = 30000;
 const DEFAULT_MALL_NEARBY_LIMIT = 20;
+
+const resolveImageUrl = async (value: unknown) => {
+    if (!value) return null;
+    return await S3UrlGenerator.resolveUrl(String(value));
+};
+
+const normalizePhotoGallery = async (photoGallery: Record<string, unknown> | undefined) => {
+    if (!photoGallery || typeof photoGallery !== 'object') return photoGallery;
+
+    const normalizedEntries = await Promise.all(
+        Object.entries(photoGallery).map(async ([key, value]) => {
+            if (!Array.isArray(value)) return [key, value] as const;
+            const resolved = await S3UrlGenerator.resolveUrls(value);
+            return [key, resolved.filter((image): image is string => Boolean(image))] as const;
+        })
+    );
+
+    return Object.fromEntries(normalizedEntries);
+};
+
+const enrichOutletDetailMedia = async (outlet: any) => {
+    if (!outlet || typeof outlet !== 'object') return outlet;
+
+    const coverImage = await resolveImageUrl(outlet?.media?.cover_image_url);
+    if (coverImage) {
+        outlet.media = { ...(outlet.media || {}), cover_image_url: coverImage };
+    }
+
+    if (outlet?.brand_id && typeof outlet.brand_id === 'object') {
+        const brandLogo = await resolveImageUrl(outlet.brand_id.logo_url);
+        if (brandLogo) {
+            outlet.brand_id.logo_url = brandLogo;
+        }
+    }
+
+    if (outlet?.brand && typeof outlet.brand === 'object') {
+        const brandLogo = await resolveImageUrl(outlet.brand.logo_url);
+        if (brandLogo) {
+            outlet.brand.logo_url = brandLogo;
+        }
+    }
+
+    outlet.photo_gallery = await normalizePhotoGallery(outlet.photo_gallery);
+
+    if (Array.isArray(outlet?.instagram_reels)) {
+        await Promise.all(outlet.instagram_reels.map(async (reel: any) => {
+            const reelThumbnail = await resolveImageUrl(reel?.thumbnail || reel?.thumbnail_url);
+            if (reelThumbnail) {
+                reel.thumbnail = reelThumbnail;
+                reel.thumbnail_url = reelThumbnail;
+            }
+        }));
+    }
+
+    return outlet;
+};
 
 export const getFeaturedBrands = async (req: Request, res: Response) => {
     try {
@@ -79,6 +136,8 @@ export const getOutletDetail = async (req: AuthRequest, res: Response) => {
         if (outletDoc.brand_id) {
             responseData.brand = BrandMapper.toResponseDto(outletDoc.brand_id as any);
         }
+
+        await enrichOutletDetailMedia(responseData);
 
         return sendSuccess(res, { outlet: responseData, categories: details.categories });
     } catch (error: unknown) { return sendError(res, `Outlet detail error: ${(error as Error).message}`, 500); }

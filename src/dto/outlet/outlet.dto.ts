@@ -104,9 +104,15 @@ export interface OutletResponseDto {
   approval_status: string;
   address?: any;
   contact?: any;
+  location?: any;
   media?: {
     cover_image_url?: string;
   };
+  restaurant_type?: string;
+  vendor_types?: string[];
+  social_media?: any;
+  instagram_reels?: any[];
+  timezone?: string;
   price_range?: number;
   avg_rating?: number;
   total_reviews?: number;

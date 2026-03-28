@@ -5,24 +5,33 @@ import { BrandMapper } from './brandMapper.js';
 export class OutletMapper {
   static toResponseDto(outlet: IOutlet | any): OutletResponseDto {
     const outletObj = outlet.toObject ? outlet.toObject() : outlet;
+    const populatedBrand = outletObj.brand_id && typeof outletObj.brand_id === 'object' && outletObj.brand_id._id
+      ? outletObj.brand_id
+      : null;
     
     return {
       id: outletObj._id.toString(),
       _id: outletObj._id.toString(),
       name: outletObj.name,
       slug: outletObj.slug,
-      brand_id: outletObj.brand_id?._id?.toString() || outletObj.brand_id?.toString(),
+      brand_id: populatedBrand || outletObj.brand_id?._id?.toString() || outletObj.brand_id?.toString(),
       status: outletObj.status,
       approval_status: outletObj.approval_status,
       address: outletObj.address,
       contact: outletObj.contact,
+      location: outletObj.location,
       media: outletObj.media,
+      restaurant_type: outletObj.restaurant_type,
+      vendor_types: outletObj.vendor_types,
+      social_media: outletObj.social_media || {},
+      instagram_reels: outletObj.instagram_reels || [],
+      timezone: outletObj.timezone,
       price_range: outletObj.price_range,
       avg_rating: outletObj.avg_rating,
       total_reviews: outletObj.total_reviews,
       is_pure_veg: outletObj.is_pure_veg,
       delivery_time: outletObj.delivery_time,
-      brand: outletObj.brand_id && typeof outletObj.brand_id === 'object' ? BrandMapper.toResponseDto(outletObj.brand_id) : undefined
+      brand: populatedBrand ? BrandMapper.toResponseDto(populatedBrand) : undefined
     };
   }
 
